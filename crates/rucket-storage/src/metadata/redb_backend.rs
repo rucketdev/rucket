@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
-use redb::{Database, Durability, ReadableTable, TableDefinition};
+use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part};
 use rucket_core::{Result, SyncStrategy};
@@ -90,6 +90,11 @@ impl StoredObjectMetadata {
     }
 }
 
+/// Convert any error with Display to our Error type.
+fn db_err(e: impl std::fmt::Display) -> Error {
+    Error::Database(e.to_string())
+}
+
 /// redb-based metadata storage.
 pub struct RedbMetadataStore {
     db: Arc<Database>,
@@ -105,7 +110,7 @@ impl RedbMetadataStore {
     pub fn open(path: &Path, sync_strategy: SyncStrategy) -> Result<Self> {
         debug!(?path, ?sync_strategy, "Opening redb metadata store");
 
-        let db = Database::create(path).map_err(|e| Error::Database(e.to_string()))?;
+        let db = Database::create(path).map_err(db_err)?;
 
         let durability = Self::sync_to_durability(sync_strategy);
 
@@ -135,7 +140,7 @@ impl RedbMetadataStore {
     pub fn open_in_memory() -> Result<Self> {
         let db = Database::builder()
             .create_with_backend(redb::backends::InMemoryBackend::new())
-            .map_err(|e| Error::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         Ok(Self { db: Arc::new(db), durability: Durability::None })
     }
@@ -144,8 +149,11 @@ impl RedbMetadataStore {
     fn sync_to_durability(strategy: SyncStrategy) -> Durability {
         match strategy {
             SyncStrategy::Always => Durability::Immediate,
-            SyncStrategy::None => Durability::None,
-            SyncStrategy::Periodic | SyncStrategy::Threshold => Durability::Eventual,
+            // redb 3.x only has None and Immediate; None commits are batched
+            // until an Immediate commit flushes them to disk
+            SyncStrategy::None | SyncStrategy::Periodic | SyncStrategy::Threshold => {
+                Durability::None
+            }
         }
     }
 
@@ -169,14 +177,13 @@ impl MetadataBackend for RedbMetadataStore {
         let durability = self.durability;
 
         tokio::task::spawn_blocking(move || {
-            let mut txn = db.begin_write().map_err(|e| Error::Database(e.to_string()))?;
+            let mut txn = db.begin_write().map_err(db_err)?;
 
             {
-                let mut table =
-                    txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
+                let mut table = txn.open_table(BUCKETS).map_err(db_err)?;
 
                 // Check if bucket already exists
-                if table.get(name.as_str()).map_err(|e| Error::Database(e.to_string()))?.is_some() {
+                if table.get(name.as_str()).map_err(db_err)?.is_some() {
                     return Err(Error::s3_with_resource(
                         S3ErrorCode::BucketAlreadyExists,
                         "The bucket already exists",
@@ -186,21 +193,18 @@ impl MetadataBackend for RedbMetadataStore {
 
                 let info = BucketInfo { name: name.clone(), created_at: now };
                 let stored = StoredBucketInfo::from_bucket_info(&info);
-                let serialized =
-                    bincode::serialize(&stored).map_err(|e| Error::Database(e.to_string()))?;
+                let serialized = bincode::serialize(&stored).map_err(db_err)?;
 
-                table
-                    .insert(name.as_str(), serialized.as_slice())
-                    .map_err(|e| Error::Database(e.to_string()))?;
+                table.insert(name.as_str(), serialized.as_slice()).map_err(db_err)?;
             }
 
-            txn.set_durability(durability);
-            txn.commit().map_err(|e| Error::Database(e.to_string()))?;
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
 
             Ok(BucketInfo { name, created_at: now })
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     async fn delete_bucket(&self, name: &str) -> Result<()> {
@@ -209,18 +213,13 @@ impl MetadataBackend for RedbMetadataStore {
         let durability = self.durability;
 
         tokio::task::spawn_blocking(move || {
-            let mut txn = db.begin_write().map_err(|e| Error::Database(e.to_string()))?;
+            let mut txn = db.begin_write().map_err(db_err)?;
 
             {
-                let mut buckets_table =
-                    txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
+                let mut buckets_table = txn.open_table(BUCKETS).map_err(db_err)?;
 
                 // Check if bucket exists
-                if buckets_table
-                    .get(name.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?
-                    .is_none()
-                {
+                if buckets_table.get(name.as_str()).map_err(db_err)?.is_none() {
                     return Err(Error::s3_with_resource(
                         S3ErrorCode::NoSuchBucket,
                         "The specified bucket does not exist",
@@ -229,15 +228,12 @@ impl MetadataBackend for RedbMetadataStore {
                 }
 
                 // Check if bucket is empty
-                let objects_table =
-                    txn.open_table(OBJECTS).map_err(|e| Error::Database(e.to_string()))?;
+                let objects_table = txn.open_table(OBJECTS).map_err(db_err)?;
 
                 let prefix = format!("{}\0", name);
                 let end = format!("{}\x01", name);
 
-                let range = objects_table
-                    .range(prefix.as_str()..end.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?;
+                let range = objects_table.range(prefix.as_str()..end.as_str()).map_err(db_err)?;
 
                 if range.count() > 0 {
                     return Err(Error::s3_with_resource(
@@ -247,16 +243,16 @@ impl MetadataBackend for RedbMetadataStore {
                     ));
                 }
 
-                buckets_table.remove(name.as_str()).map_err(|e| Error::Database(e.to_string()))?;
+                buckets_table.remove(name.as_str()).map_err(db_err)?;
             }
 
-            txn.set_durability(durability);
-            txn.commit().map_err(|e| Error::Database(e.to_string()))?;
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
 
             Ok(())
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     async fn bucket_exists(&self, name: &str) -> Result<bool> {
@@ -264,30 +260,29 @@ impl MetadataBackend for RedbMetadataStore {
         let db = Arc::clone(&self.db);
 
         tokio::task::spawn_blocking(move || {
-            let txn = db.begin_read().map_err(|e| Error::Database(e.to_string()))?;
-            let table = txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
+            let txn = db.begin_read().map_err(db_err)?;
+            let table = txn.open_table(BUCKETS).map_err(db_err)?;
 
-            let exists =
-                table.get(name.as_str()).map_err(|e| Error::Database(e.to_string()))?.is_some();
+            let exists = table.get(name.as_str()).map_err(db_err)?.is_some();
 
             Ok(exists)
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     async fn list_buckets(&self) -> Result<Vec<BucketInfo>> {
         let db = Arc::clone(&self.db);
 
         tokio::task::spawn_blocking(move || {
-            let txn = db.begin_read().map_err(|e| Error::Database(e.to_string()))?;
-            let table = txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
+            let txn = db.begin_read().map_err(db_err)?;
+            let table = txn.open_table(BUCKETS).map_err(db_err)?;
 
             let mut buckets = Vec::new();
-            for entry in table.iter().map_err(|e| Error::Database(e.to_string()))? {
-                let (_, value) = entry.map_err(|e| Error::Database(e.to_string()))?;
-                let stored: StoredBucketInfo = bincode::deserialize(value.value())
-                    .map_err(|e| Error::Database(e.to_string()))?;
+            for entry in table.iter().map_err(db_err)? {
+                let (_, value) = entry.map_err(db_err)?;
+                let stored: StoredBucketInfo =
+                    bincode::deserialize(value.value()).map_err(db_err)?;
                 buckets.push(stored.to_bucket_info());
             }
 
@@ -297,7 +292,7 @@ impl MetadataBackend for RedbMetadataStore {
             Ok(buckets)
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     async fn put_object(&self, bucket: &str, meta: ObjectMetadata) -> Result<()> {
@@ -306,18 +301,13 @@ impl MetadataBackend for RedbMetadataStore {
         let durability = self.durability;
 
         tokio::task::spawn_blocking(move || {
-            let mut txn = db.begin_write().map_err(|e| Error::Database(e.to_string()))?;
+            let mut txn = db.begin_write().map_err(db_err)?;
 
             {
                 // Check bucket exists
-                let buckets_table =
-                    txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
+                let buckets_table = txn.open_table(BUCKETS).map_err(db_err)?;
 
-                if buckets_table
-                    .get(bucket.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?
-                    .is_none()
-                {
+                if buckets_table.get(bucket.as_str()).map_err(db_err)?.is_none() {
                     return Err(Error::s3_with_resource(
                         S3ErrorCode::NoSuchBucket,
                         "The specified bucket does not exist",
@@ -326,26 +316,22 @@ impl MetadataBackend for RedbMetadataStore {
                 }
 
                 // Insert/update object
-                let mut objects_table =
-                    txn.open_table(OBJECTS).map_err(|e| Error::Database(e.to_string()))?;
+                let mut objects_table = txn.open_table(OBJECTS).map_err(db_err)?;
 
                 let key = Self::object_key(&bucket, &meta.key);
                 let stored = StoredObjectMetadata::from_object_metadata(&meta);
-                let serialized =
-                    bincode::serialize(&stored).map_err(|e| Error::Database(e.to_string()))?;
+                let serialized = bincode::serialize(&stored).map_err(db_err)?;
 
-                objects_table
-                    .insert(key.as_str(), serialized.as_slice())
-                    .map_err(|e| Error::Database(e.to_string()))?;
+                objects_table.insert(key.as_str(), serialized.as_slice()).map_err(db_err)?;
             }
 
-            txn.set_durability(durability);
-            txn.commit().map_err(|e| Error::Database(e.to_string()))?;
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
 
             Ok(())
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     async fn get_object(&self, bucket: &str, key: &str) -> Result<ObjectMetadata> {
@@ -354,13 +340,13 @@ impl MetadataBackend for RedbMetadataStore {
         let db = Arc::clone(&self.db);
 
         tokio::task::spawn_blocking(move || {
-            let txn = db.begin_read().map_err(|e| Error::Database(e.to_string()))?;
-            let table = txn.open_table(OBJECTS).map_err(|e| Error::Database(e.to_string()))?;
+            let txn = db.begin_read().map_err(db_err)?;
+            let table = txn.open_table(OBJECTS).map_err(db_err)?;
 
-            match table.get(composite_key.as_str()).map_err(|e| Error::Database(e.to_string()))? {
+            match table.get(composite_key.as_str()).map_err(db_err)? {
                 Some(value) => {
-                    let stored: StoredObjectMetadata = bincode::deserialize(value.value())
-                        .map_err(|e| Error::Database(e.to_string()))?;
+                    let stored: StoredObjectMetadata =
+                        bincode::deserialize(value.value()).map_err(db_err)?;
                     Ok(stored.to_object_metadata())
                 }
                 None => Err(Error::s3_with_resource(
@@ -371,7 +357,7 @@ impl MetadataBackend for RedbMetadataStore {
             }
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     async fn delete_object(&self, bucket: &str, key: &str) -> Result<Option<Uuid>> {
@@ -380,37 +366,33 @@ impl MetadataBackend for RedbMetadataStore {
         let durability = self.durability;
 
         tokio::task::spawn_blocking(move || {
-            let mut txn = db.begin_write().map_err(|e| Error::Database(e.to_string()))?;
+            let mut txn = db.begin_write().map_err(db_err)?;
 
             let uuid = {
-                let mut table =
-                    txn.open_table(OBJECTS).map_err(|e| Error::Database(e.to_string()))?;
+                let mut table = txn.open_table(OBJECTS).map_err(db_err)?;
 
                 // Get the UUID before deleting
-                let uuid = match table
-                    .get(composite_key.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?
-                {
+                let uuid = match table.get(composite_key.as_str()).map_err(db_err)? {
                     Some(value) => {
-                        let stored: StoredObjectMetadata = bincode::deserialize(value.value())
-                            .map_err(|e| Error::Database(e.to_string()))?;
+                        let stored: StoredObjectMetadata =
+                            bincode::deserialize(value.value()).map_err(db_err)?;
                         Some(Uuid::from_bytes(stored.uuid))
                     }
                     None => None,
                 };
 
-                table.remove(composite_key.as_str()).map_err(|e| Error::Database(e.to_string()))?;
+                table.remove(composite_key.as_str()).map_err(db_err)?;
 
                 uuid
             };
 
-            txn.set_durability(durability);
-            txn.commit().map_err(|e| Error::Database(e.to_string()))?;
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
 
             Ok(uuid)
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     async fn list_objects(
@@ -426,17 +408,12 @@ impl MetadataBackend for RedbMetadataStore {
         let db = Arc::clone(&self.db);
 
         tokio::task::spawn_blocking(move || {
-            let txn = db.begin_read().map_err(|e| Error::Database(e.to_string()))?;
+            let txn = db.begin_read().map_err(db_err)?;
 
             // Check bucket exists
             {
-                let buckets_table =
-                    txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
-                if buckets_table
-                    .get(bucket.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?
-                    .is_none()
-                {
+                let buckets_table = txn.open_table(BUCKETS).map_err(db_err)?;
+                if buckets_table.get(bucket.as_str()).map_err(db_err)?.is_none() {
                     return Err(Error::s3_with_resource(
                         S3ErrorCode::NoSuchBucket,
                         "The specified bucket does not exist",
@@ -445,7 +422,7 @@ impl MetadataBackend for RedbMetadataStore {
                 }
             }
 
-            let table = txn.open_table(OBJECTS).map_err(|e| Error::Database(e.to_string()))?;
+            let table = txn.open_table(OBJECTS).map_err(db_err)?;
 
             // Build range bounds
             let start_key = match (&prefix, &continuation_token) {
@@ -462,12 +439,10 @@ impl MetadataBackend for RedbMetadataStore {
             let mut objects = Vec::new();
             let limit = max_keys as usize + 1; // +1 to detect truncation
 
-            let range = table
-                .range(start_key.as_str()..end_key.as_str())
-                .map_err(|e| Error::Database(e.to_string()))?;
+            let range = table.range(start_key.as_str()..end_key.as_str()).map_err(db_err)?;
 
             for entry in range {
-                let (key, value) = entry.map_err(|e| Error::Database(e.to_string()))?;
+                let (key, value) = entry.map_err(db_err)?;
                 let (_, obj_key) = Self::parse_object_key(key.value())
                     .ok_or_else(|| Error::Database("Invalid object key format".to_string()))?;
 
@@ -487,8 +462,8 @@ impl MetadataBackend for RedbMetadataStore {
                     break;
                 }
 
-                let stored: StoredObjectMetadata = bincode::deserialize(value.value())
-                    .map_err(|e| Error::Database(e.to_string()))?;
+                let stored: StoredObjectMetadata =
+                    bincode::deserialize(value.value()).map_err(db_err)?;
                 objects.push(stored.to_object_metadata());
             }
 
@@ -505,7 +480,7 @@ impl MetadataBackend for RedbMetadataStore {
             Ok((objects, next_token))
         })
         .await
-        .map_err(|e| Error::Database(e.to_string()))?
+        .map_err(db_err)?
     }
 
     // === Multipart Upload Stubs ===
