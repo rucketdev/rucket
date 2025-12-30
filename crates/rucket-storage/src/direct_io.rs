@@ -16,6 +16,7 @@ use std::path::Path;
 ///
 /// - On Linux: Uses `O_DIRECT` flag
 /// - On macOS: Uses `F_NOCACHE` via fcntl
+#[allow(clippy::needless_return)]
 pub fn open_direct(path: &Path) -> std::io::Result<File> {
     #[cfg(target_os = "linux")]
     {
@@ -44,6 +45,7 @@ pub fn open_direct(path: &Path) -> std::io::Result<File> {
 /// Read entire file with direct I/O.
 ///
 /// Note: On Linux with O_DIRECT, buffer must be aligned to 512/4096 bytes.
+#[allow(clippy::needless_return)]
 pub fn read_direct(path: &Path) -> std::io::Result<Vec<u8>> {
     let size = std::fs::metadata(path)?.len() as usize;
 
