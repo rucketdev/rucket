@@ -196,17 +196,19 @@ impl LocalStorage {
     ///
     /// Used for benchmarking to get accurate disk I/O measurements.
     #[cfg(feature = "bench")]
-    pub async fn get_object_direct(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
+    pub async fn get_object_direct(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<(ObjectMetadata, Bytes)> {
         let meta = self.metadata.get_object(bucket, key).await?;
         let path = self.object_path(bucket, &meta.uuid);
 
         // Use blocking task for sync direct I/O
-        let data = tokio::task::spawn_blocking(move || {
-            crate::direct_io::read_direct(&path)
-        })
-        .await
-        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?
-        .map_err(Error::Io)?;
+        let data = tokio::task::spawn_blocking(move || crate::direct_io::read_direct(&path))
+            .await
+            .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?
+            .map_err(Error::Io)?;
 
         Ok((meta, Bytes::from(data)))
     }
@@ -400,8 +402,7 @@ impl StorageBackend for LocalStorage {
         let (src_meta, data) = self.get_object(src_bucket, src_key).await?;
 
         // Put to destination
-        self.put_object(dst_bucket, dst_key, data, src_meta.content_type.as_deref())
-            .await
+        self.put_object(dst_bucket, dst_key, data, src_meta.content_type.as_deref()).await
     }
 
     async fn list_objects(
@@ -421,10 +422,8 @@ impl StorageBackend for LocalStorage {
             ));
         }
 
-        let (objects, next_token): (Vec<ObjectMetadata>, Option<String>) = self
-            .metadata
-            .list_objects(bucket, prefix, continuation_token, max_keys)
-            .await?;
+        let (objects, next_token): (Vec<ObjectMetadata>, Option<String>) =
+            self.metadata.list_objects(bucket, prefix, continuation_token, max_keys).await?;
 
         // Handle delimiter (compute common prefixes)
         let mut common_prefixes = Vec::new();
@@ -519,10 +518,7 @@ mod tests {
         assert_eq!(meta.size, 13);
 
         // Delete object
-        storage
-            .delete_object("test-bucket", "hello.txt")
-            .await
-            .unwrap();
+        storage.delete_object("test-bucket", "hello.txt").await.unwrap();
         assert!(storage.head_object("test-bucket", "hello.txt").await.is_err());
     }
 
@@ -533,22 +529,15 @@ mod tests {
         storage.create_bucket("test-bucket").await.unwrap();
 
         let data = Bytes::from("Hello, World!");
-        storage
-            .put_object("test-bucket", "hello.txt", data, None)
-            .await
-            .unwrap();
+        storage.put_object("test-bucket", "hello.txt", data, None).await.unwrap();
 
         // Get range
-        let (_, range_data) = storage
-            .get_object_range("test-bucket", "hello.txt", 0, 4)
-            .await
-            .unwrap();
+        let (_, range_data) =
+            storage.get_object_range("test-bucket", "hello.txt", 0, 4).await.unwrap();
         assert_eq!(range_data, Bytes::from("Hello"));
 
-        let (_, range_data) = storage
-            .get_object_range("test-bucket", "hello.txt", 7, 11)
-            .await
-            .unwrap();
+        let (_, range_data) =
+            storage.get_object_range("test-bucket", "hello.txt", 7, 11).await.unwrap();
         assert_eq!(range_data, Bytes::from("World"));
     }
 
@@ -566,19 +555,13 @@ mod tests {
             .unwrap();
 
         // Copy to same bucket
-        storage
-            .copy_object("bucket1", "source.txt", "bucket1", "copy.txt")
-            .await
-            .unwrap();
+        storage.copy_object("bucket1", "source.txt", "bucket1", "copy.txt").await.unwrap();
 
         let (_, copied) = storage.get_object("bucket1", "copy.txt").await.unwrap();
         assert_eq!(copied, data);
 
         // Copy to different bucket
-        storage
-            .copy_object("bucket1", "source.txt", "bucket2", "dest.txt")
-            .await
-            .unwrap();
+        storage.copy_object("bucket1", "source.txt", "bucket2", "dest.txt").await.unwrap();
 
         let (meta, copied) = storage.get_object("bucket2", "dest.txt").await.unwrap();
         assert_eq!(copied, data);
@@ -683,18 +666,12 @@ mod tests {
 
         // Write initial object
         let data1 = Bytes::from("initial data");
-        storage
-            .put_object("test-bucket", "test-key", data1, None)
-            .await
-            .unwrap();
+        storage.put_object("test-bucket", "test-key", data1, None).await.unwrap();
 
         // Overwrite multiple times
         for i in 0..5 {
             let data = Bytes::from(format!("overwrite-{i}"));
-            storage
-                .put_object("test-bucket", "test-key", data, None)
-                .await
-                .unwrap();
+            storage.put_object("test-bucket", "test-key", data, None).await.unwrap();
         }
 
         // Count data files - should be exactly 1
@@ -726,9 +703,7 @@ mod tests {
         tokio::fs::write(tmp_dir.join("not-a-temp.txt"), b"keep").await.unwrap();
 
         // Create storage (should clean up .tmp files)
-        let _storage = LocalStorage::new_in_memory(data_dir, tmp_dir.clone())
-            .await
-            .unwrap();
+        let _storage = LocalStorage::new_in_memory(data_dir, tmp_dir.clone()).await.unwrap();
 
         // Orphaned .tmp files should be removed
         assert!(!tmp_dir.join("orphan1.tmp").exists());

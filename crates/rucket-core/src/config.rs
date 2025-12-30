@@ -130,9 +130,7 @@ impl StorageConfig {
     /// Returns the temporary directory path.
     #[must_use]
     pub fn temp_dir(&self) -> PathBuf {
-        self.temp_dir
-            .clone()
-            .unwrap_or_else(|| self.data_dir.join(".tmp"))
+        self.temp_dir.clone().unwrap_or_else(|| self.data_dir.join(".tmp"))
     }
 }
 
@@ -185,10 +183,10 @@ impl Default for SyncConfig {
             // Default: periodic sync for data, always sync metadata
             data: SyncStrategy::Periodic,
             metadata: SyncStrategy::Always,
-            interval_ms: 1000,              // 1 second
+            interval_ms: 1000,                 // 1 second
             bytes_threshold: 10 * 1024 * 1024, // 10 MB
             ops_threshold: 100,
-            direct_io_min_size: 0,          // Disabled by default
+            direct_io_min_size: 0, // Disabled by default
         }
     }
 }
@@ -218,11 +216,7 @@ impl SyncConfig {
     /// Slowest but maximum durability.
     #[must_use]
     pub fn always() -> Self {
-        Self {
-            data: SyncStrategy::Always,
-            metadata: SyncStrategy::Always,
-            ..Default::default()
-        }
+        Self { data: SyncStrategy::Always, metadata: SyncStrategy::Always, ..Default::default() }
     }
 }
 
@@ -238,10 +232,7 @@ pub struct AuthConfig {
 
 impl Default for AuthConfig {
     fn default() -> Self {
-        Self {
-            access_key: "rucket".to_string(),
-            secret_key: "rucket123".to_string(),
-        }
+        Self { access_key: "rucket".to_string(), secret_key: "rucket123".to_string() }
     }
 }
 
@@ -266,9 +257,7 @@ pub struct BucketConfig {
 
 impl Default for BucketConfig {
     fn default() -> Self {
-        Self {
-            naming_rules: BucketNamingRules::Relaxed,
-        }
+        Self { naming_rules: BucketNamingRules::Relaxed }
     }
 }
 
@@ -295,10 +284,7 @@ pub struct LoggingConfig {
 
 impl Default for LoggingConfig {
     fn default() -> Self {
-        Self {
-            level: "info".to_string(),
-            format: LogFormat::Pretty,
-        }
+        Self { level: "info".to_string(), format: LogFormat::Pretty }
     }
 }
 

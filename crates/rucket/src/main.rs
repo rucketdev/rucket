@@ -61,9 +61,7 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
     // Bind to address
     let addr = config.server.bind;
 
-    let listener = TcpListener::bind(addr)
-        .await
-        .context("Failed to bind to address")?;
+    let listener = TcpListener::bind(addr).await.context("Failed to bind to address")?;
 
     info!("Server listening on {}", addr);
     println!("\n  Ready to accept connections.\n");
@@ -87,10 +85,8 @@ fn load_config(path: &Option<PathBuf>) -> Result<Config> {
         }
         None => {
             // Try default locations
-            let default_paths = [
-                PathBuf::from("rucket.toml"),
-                PathBuf::from("/etc/rucket/rucket.toml"),
-            ];
+            let default_paths =
+                [PathBuf::from("rucket.toml"), PathBuf::from("/etc/rucket/rucket.toml")];
 
             for p in &default_paths {
                 if p.exists() {
@@ -113,16 +109,10 @@ fn init_logging(config: &Config) -> Result<()> {
 
     match config.logging.format {
         LogFormat::Json => {
-            tracing_subscriber::registry()
-                .with(filter)
-                .with(fmt_layer.json())
-                .init();
+            tracing_subscriber::registry().with(filter).with(fmt_layer.json()).init();
         }
         LogFormat::Pretty => {
-            tracing_subscriber::registry()
-                .with(filter)
-                .with(fmt_layer)
-                .init();
+            tracing_subscriber::registry().with(filter).with(fmt_layer).init();
         }
     }
 
@@ -165,9 +155,7 @@ fn mask_secret(secret: &str) -> String {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]

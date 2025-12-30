@@ -54,17 +54,11 @@ pub fn create_router(storage: Arc<LocalStorage>) -> Router {
         // Bucket operations with complex routing (with and without trailing slash)
         .route(
             "/{bucket}",
-            get(handle_bucket_get)
-                .put(create_bucket)
-                .delete(delete_bucket)
-                .head(head_bucket),
+            get(handle_bucket_get).put(create_bucket).delete(delete_bucket).head(head_bucket),
         )
         .route(
             "/{bucket}/",
-            get(handle_bucket_get)
-                .put(create_bucket)
-                .delete(delete_bucket)
-                .head(head_bucket),
+            get(handle_bucket_get).put(create_bucket).delete(delete_bucket).head(head_bucket),
         )
         // Object operations with complex routing
         .route(
@@ -84,31 +78,19 @@ async fn list_buckets(state: State<AppState>) -> Response {
     bucket::list_buckets(state).await.into_response()
 }
 
-async fn create_bucket(
-    state: State<AppState>,
-    path: Path<String>,
-) -> Response {
+async fn create_bucket(state: State<AppState>, path: Path<String>) -> Response {
     bucket::create_bucket(state, path).await.into_response()
 }
 
-async fn delete_bucket(
-    state: State<AppState>,
-    path: Path<String>,
-) -> Response {
+async fn delete_bucket(state: State<AppState>, path: Path<String>) -> Response {
     bucket::delete_bucket(state, path).await.into_response()
 }
 
-async fn head_bucket(
-    state: State<AppState>,
-    path: Path<String>,
-) -> Response {
+async fn head_bucket(state: State<AppState>, path: Path<String>) -> Response {
     bucket::head_bucket(state, path).await.into_response()
 }
 
-async fn head_object(
-    state: State<AppState>,
-    path: Path<(String, String)>,
-) -> Response {
+async fn head_object(state: State<AppState>, path: Path<(String, String)>) -> Response {
     object::head_object(state, path).await.into_response()
 }
 
@@ -120,9 +102,7 @@ async fn handle_bucket_get(
 ) -> Response {
     // Check for ?uploads (list multipart uploads)
     if query.uploads.is_some() {
-        return multipart::list_multipart_uploads(state, path)
-            .await
-            .into_response();
+        return multipart::list_multipart_uploads(state, path).await.into_response();
     }
 
     // Default: ListObjectsV2
@@ -133,9 +113,7 @@ async fn handle_bucket_get(
         max_keys: query.max_keys.unwrap_or(1000),
     };
 
-    object::list_objects_v2(state, path, Query(list_query))
-        .await
-        .into_response()
+    object::list_objects_v2(state, path, Query(list_query)).await.into_response()
 }
 
 /// Handle GET requests to object (get object or list parts).
@@ -151,9 +129,7 @@ async fn handle_object_get(
             upload_id: query.upload_id,
             part_number: query.part_number,
         };
-        return multipart::list_parts(state, path, Query(mp_query))
-            .await
-            .into_response();
+        return multipart::list_parts(state, path, Query(mp_query)).await.into_response();
     }
 
     // Default: GetObject
@@ -170,9 +146,7 @@ async fn handle_object_put(
 ) -> Response {
     // Check for x-amz-copy-source (copy object)
     if headers.contains_key("x-amz-copy-source") {
-        return object::copy_object(state, path, headers)
-            .await
-            .into_response();
+        return object::copy_object(state, path, headers).await.into_response();
     }
 
     // Check for ?partNumber&uploadId (upload part)
@@ -181,15 +155,11 @@ async fn handle_object_put(
             upload_id: query.upload_id,
             part_number: query.part_number,
         };
-        return multipart::upload_part(state, path, Query(mp_query), body)
-            .await
-            .into_response();
+        return multipart::upload_part(state, path, Query(mp_query), body).await.into_response();
     }
 
     // Default: PutObject
-    object::put_object(state, path, headers, body)
-        .await
-        .into_response()
+    object::put_object(state, path, headers, body).await.into_response()
 }
 
 /// Handle DELETE requests to object (delete object or abort upload).
@@ -222,9 +192,7 @@ async fn handle_object_post(
 ) -> Response {
     // Check for ?uploads (initiate multipart upload)
     if query.uploads.is_some() {
-        return multipart::create_multipart_upload(state, path)
-            .await
-            .into_response();
+        return multipart::create_multipart_upload(state, path).await.into_response();
     }
 
     // Check for ?uploadId (complete multipart upload)

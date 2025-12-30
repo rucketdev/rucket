@@ -63,9 +63,7 @@ pub async fn list_buckets(State(state): State<AppState>) -> Result<Response, Api
 
     let response = ListBucketsResponse {
         owner: Owner::default(),
-        buckets: Buckets {
-            bucket: buckets.iter().map(BucketEntry::from).collect(),
-        },
+        buckets: Buckets { bucket: buckets.iter().map(BucketEntry::from).collect() },
     };
 
     let xml = to_xml(&response).map_err(|e| {

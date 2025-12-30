@@ -59,10 +59,7 @@ mod tests {
         // Test serve command with config
         let cli = Cli::parse_from(["rucket", "serve", "--config", "/path/to/config.toml"]);
         if let Commands::Serve(args) = cli.command {
-            assert_eq!(
-                args.config,
-                Some(PathBuf::from("/path/to/config.toml"))
-            );
+            assert_eq!(args.config, Some(PathBuf::from("/path/to/config.toml")));
         } else {
             panic!("Expected Serve command");
         }

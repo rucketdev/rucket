@@ -102,9 +102,7 @@ impl SyncManager {
             SyncStrategy::None => false,
             SyncStrategy::Periodic => {
                 // Check threshold
-                if total_bytes >= self.config.bytes_threshold
-                    || ops >= self.config.ops_threshold
-                {
+                if total_bytes >= self.config.bytes_threshold || ops >= self.config.ops_threshold {
                     true
                 } else {
                     // Notify the background task for time-based sync
@@ -113,8 +111,7 @@ impl SyncManager {
                 }
             }
             SyncStrategy::Threshold => {
-                total_bytes >= self.config.bytes_threshold
-                    || ops >= self.config.ops_threshold
+                total_bytes >= self.config.bytes_threshold || ops >= self.config.ops_threshold
             }
         }
     }
@@ -127,8 +124,7 @@ impl SyncManager {
 
     /// Add a file path to the list of files pending sync.
     pub async fn add_pending_file(&self, path: std::path::PathBuf) {
-        if self.config.data == SyncStrategy::Periodic
-            || self.config.data == SyncStrategy::Threshold
+        if self.config.data == SyncStrategy::Periodic || self.config.data == SyncStrategy::Threshold
         {
             let mut pending = self.pending_files.lock().await;
             pending.push(path);
@@ -188,10 +184,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_manager_always() {
-        let config = SyncConfig {
-            data: SyncStrategy::Always,
-            ..Default::default()
-        };
+        let config = SyncConfig { data: SyncStrategy::Always, ..Default::default() };
         let manager = SyncManager::new(config);
 
         assert!(manager.record_write(1024));
@@ -200,10 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_manager_none() {
-        let config = SyncConfig {
-            data: SyncStrategy::None,
-            ..Default::default()
-        };
+        let config = SyncConfig { data: SyncStrategy::None, ..Default::default() };
         let manager = SyncManager::new(config);
 
         assert!(!manager.record_write(1024));
@@ -240,9 +230,7 @@ mod tests {
         let path = temp_dir.path().join("test.dat");
 
         let data = b"Hello, World!";
-        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::None)
-            .await
-            .unwrap();
+        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::None).await.unwrap();
 
         // Verify file was written
         let content = tokio::fs::read(&path).await.unwrap();
@@ -256,9 +244,7 @@ mod tests {
         let path = temp_dir.path().join("test.dat");
 
         let data = b"Hello, World!";
-        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::Always)
-            .await
-            .unwrap();
+        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::Always).await.unwrap();
 
         // Verify file was written
         let content = tokio::fs::read(&path).await.unwrap();

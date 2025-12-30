@@ -20,10 +20,7 @@ pub fn open_direct(path: &Path) -> std::io::Result<File> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        return std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECT)
-            .open(path);
+        return std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECT).open(path);
     }
 
     #[cfg(target_os = "macos")]

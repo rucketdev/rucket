@@ -124,9 +124,8 @@ impl SigV4Validator {
 
     fn parse_auth_header(&self, header: &str) -> Result<ParsedAuthHeader, ValidationError> {
         // Format: AWS4-HMAC-SHA256 Credential=.../..., SignedHeaders=..., Signature=...
-        let header = header
-            .strip_prefix("AWS4-HMAC-SHA256 ")
-            .ok_or(ValidationError::InvalidAuthHeader)?;
+        let header =
+            header.strip_prefix("AWS4-HMAC-SHA256 ").ok_or(ValidationError::InvalidAuthHeader)?;
 
         let mut credential = None;
         let mut signed_headers = None;
@@ -227,7 +226,10 @@ impl SigV4Validator {
         let segments: Vec<&str> = path.split('/').collect();
         let encoded: Vec<String> = segments
             .iter()
-            .map(|s| percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string())
+            .map(|s| {
+                percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC)
+                    .to_string()
+            })
             .collect();
 
         encoded.join("/")
@@ -248,11 +250,7 @@ impl SigV4Validator {
             }
         }
 
-        params
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<_>>()
-            .join("&")
+        params.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&")
     }
 
     fn create_string_to_sign(
@@ -265,17 +263,15 @@ impl SigV4Validator {
 
         let hash = hex::encode(sha2::Sha256::digest(canonical_request.as_bytes()));
 
-        format!(
-            "AWS4-HMAC-SHA256\n{}\n{}\n{}",
-            amz_date, credential_scope, hash
-        )
+        format!("AWS4-HMAC-SHA256\n{}\n{}\n{}", amz_date, credential_scope, hash)
     }
 
     fn calculate_signature(&self, string_to_sign: &str, amz_date: &str) -> String {
         let date = &amz_date[..8]; // YYYYMMDD
 
         // Derive signing key
-        let k_date = self.hmac_sha256(format!("AWS4{}", self.secret_key).as_bytes(), date.as_bytes());
+        let k_date =
+            self.hmac_sha256(format!("AWS4{}", self.secret_key).as_bytes(), date.as_bytes());
         let k_region = self.hmac_sha256(&k_date, self.region.as_bytes());
         let k_service = self.hmac_sha256(&k_region, self.service.as_bytes());
         let k_signing = self.hmac_sha256(&k_service, b"aws4_request");
