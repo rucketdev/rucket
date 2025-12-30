@@ -100,7 +100,7 @@ assert_cmd = "2.0"
 predicates = "3.1"
 
 # Benchmarking
-criterion = { version = "0.5", features = ["async_tokio"] }
+criterion = { version = "0.8", features = ["async_tokio"] }
 
 # Graphing and utilities
 plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
