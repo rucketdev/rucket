@@ -7,6 +7,14 @@ use chrono::{DateTime, Utc};
 use rucket_core::types::{BucketInfo, ObjectMetadata};
 use serde::Serialize;
 
+/// Format a DateTime<Utc> in S3-compatible ISO 8601 format with 'Z' suffix.
+///
+/// AWS S3 SDKs expect timestamps in the format `2024-01-01T00:00:00.000Z`,
+/// not `2024-01-01T00:00:00.000+00:00` which `to_rfc3339()` produces.
+fn format_s3_timestamp(dt: &DateTime<Utc>) -> String {
+    dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+}
+
 /// `ListAllMyBucketsResult` response.
 #[derive(Debug, Serialize)]
 #[serde(rename = "ListAllMyBucketsResult")]
@@ -57,7 +65,7 @@ pub struct BucketEntry {
 
 impl From<&BucketInfo> for BucketEntry {
     fn from(info: &BucketInfo) -> Self {
-        Self { name: info.name.clone(), creation_date: info.created_at.to_rfc3339() }
+        Self { name: info.name.clone(), creation_date: format_s3_timestamp(&info.created_at) }
     }
 }
 
@@ -115,7 +123,7 @@ impl From<&ObjectMetadata> for ObjectEntry {
     fn from(meta: &ObjectMetadata) -> Self {
         Self {
             key: meta.key.clone(),
-            last_modified: meta.last_modified.to_rfc3339(),
+            last_modified: format_s3_timestamp(&meta.last_modified),
             etag: meta.etag.as_str().to_string(),
             size: meta.size,
             storage_class: "STANDARD".to_string(),
@@ -241,7 +249,7 @@ impl CopyObjectResponse {
     /// Create a new copy response.
     #[must_use]
     pub fn new(etag: String, last_modified: DateTime<Utc>) -> Self {
-        Self { etag, last_modified: last_modified.to_rfc3339() }
+        Self { etag, last_modified: format_s3_timestamp(&last_modified) }
     }
 }
 
