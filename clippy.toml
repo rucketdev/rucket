@@ -1,0 +1,4 @@
+# Copyright 2024 The Rucket Authors
+# SPDX-License-Identifier: Apache-2.0
+
+cognitive-complexity-threshold = 25

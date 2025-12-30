@@ -1,0 +1,9 @@
+# Copyright 2024 The Rucket Authors
+# SPDX-License-Identifier: Apache-2.0
+
+edition = "2021"
+max_width = 100
+use_small_heuristics = "Max"
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true

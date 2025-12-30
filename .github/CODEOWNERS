@@ -1,0 +1,5 @@
+# Copyright 2024 The Rucket Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Default owners for everything in the repo
+*       @rucket/maintainers

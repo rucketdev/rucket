@@ -1,0 +1,64 @@
+# Copyright 2024 The Rucket Authors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rucket"
+description = "A high-performance, S3-compatible object storage server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "rucket"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+rucket-core.workspace = true
+rucket-api.workspace = true
+rucket-storage.workspace = true
+
+tokio.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+directories.workspace = true
+axum.workspace = true
+toml.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+# Optional dependencies for bench-graph binary
+plotters = { workspace = true, optional = true }
+walkdir = { workspace = true, optional = true }
+
+[features]
+default = []
+bench-graph = ["plotters", "walkdir"]
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
+aws-sdk-s3.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
+tokio-test.workspace = true
+criterion.workspace = true
+bytes.workspace = true
+
+[[bin]]
+name = "bench-graph"
+path = "src/bin/bench_graph.rs"
+required-features = ["bench-graph"]
+
+[[bench]]
+name = "throughput"
+harness = false
