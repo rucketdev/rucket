@@ -79,6 +79,8 @@ pub struct StorageConfig {
     pub sync: SyncConfig,
     /// redb database configuration.
     pub redb: RedbConfig,
+    /// Write-ahead log configuration.
+    pub wal: WalConfig,
 }
 
 /// redb database configuration.
@@ -115,6 +117,81 @@ impl RedbConfig {
     }
 }
 
+/// Write-Ahead Log (WAL) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WalConfig {
+    /// Enable WAL for crash recovery.
+    pub enabled: bool,
+    /// Sync mode for WAL writes.
+    pub sync_mode: WalSyncMode,
+    /// Checkpoint configuration.
+    pub checkpoint: CheckpointConfig,
+    /// Scan for orphaned files on startup.
+    /// This is slower but more thorough.
+    pub scan_orphans_on_startup: bool,
+}
+
+impl Default for WalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sync_mode: WalSyncMode::Fdatasync,
+            checkpoint: CheckpointConfig::default(),
+            scan_orphans_on_startup: false,
+        }
+    }
+}
+
+impl WalConfig {
+    /// Configuration with WAL disabled.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self { enabled: false, ..Default::default() }
+    }
+
+    /// Configuration for maximum durability.
+    #[must_use]
+    pub fn durable() -> Self {
+        Self { enabled: true, sync_mode: WalSyncMode::Fsync, ..Default::default() }
+    }
+}
+
+/// WAL sync mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WalSyncMode {
+    /// No explicit sync - rely on OS flush.
+    None,
+    /// Use fdatasync (faster, doesn't sync file metadata).
+    #[default]
+    Fdatasync,
+    /// Use full fsync (slower, syncs all metadata).
+    Fsync,
+}
+
+/// Checkpoint configuration for WAL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CheckpointConfig {
+    /// Checkpoint after this many WAL entries.
+    pub entries_threshold: u64,
+    /// Checkpoint after this many bytes written to WAL.
+    pub bytes_threshold: u64,
+    /// Checkpoint after this duration (milliseconds).
+    pub interval_ms: u64,
+}
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        Self {
+            entries_threshold: 10_000,
+            bytes_threshold: 64 * 1024 * 1024, // 64 MB
+            interval_ms: 60_000,               // 1 minute
+        }
+    }
+}
+
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
@@ -122,6 +199,7 @@ impl Default for StorageConfig {
             temp_dir: None,
             sync: SyncConfig::default(),
             redb: RedbConfig::default(),
+            wal: WalConfig::default(),
         }
     }
 }

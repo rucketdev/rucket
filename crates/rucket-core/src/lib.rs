@@ -15,5 +15,8 @@ pub mod config;
 pub mod error;
 pub mod types;
 
-pub use config::{BatchConfig, Config, DurabilityPreset, RedbConfig, SyncConfig, SyncStrategy};
+pub use config::{
+    BatchConfig, CheckpointConfig, Config, DurabilityPreset, RedbConfig, SyncConfig, SyncStrategy,
+    WalConfig, WalSyncMode,
+};
 pub use error::{Error, Result};

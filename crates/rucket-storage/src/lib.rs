@@ -20,9 +20,11 @@ pub mod local;
 pub mod metadata;
 pub mod streaming;
 pub mod sync;
+pub mod wal;
 
 pub use backend::StorageBackend;
 pub use batch::{BatchConfig, BatchWriter};
 pub use local::LocalStorage;
 pub use metadata::{MetadataBackend, RedbMetadataStore};
 pub use sync::SyncManager;
+pub use wal::{RecoveryManager, RecoveryStats, WalEntry, WalReader, WalWriter, WalWriterConfig};
