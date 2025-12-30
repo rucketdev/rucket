@@ -1,149 +1,149 @@
 {
-  "timestamp": "2025-12-30T12:47:22.997430+00:00",
+  "timestamp": "2025-12-30T12:59:56.833534708+00:00",
   "results": [
     {
       "group": "profile_get",
-      "name": "never/1MB",
-      "profile": "never",
-      "size": "1MB",
-      "mean_ns": 66464.83602059235,
-      "throughput_mbs": 15045.549795536646
-    },
-    {
-      "group": "profile_get",
       "name": "periodic/1KB",
       "profile": "periodic",
       "size": "1KB",
-      "mean_ns": 27653.20567720579,
-      "throughput_mbs": 35.31462179825932
-    },
-    {
-      "group": "profile_get",
-      "name": "periodic/64KB",
-      "profile": "periodic",
-      "size": "64KB",
-      "mean_ns": 32192.122775115527,
-      "throughput_mbs": 1941.4687386913308
-    },
-    {
-      "group": "profile_get",
-      "name": "always/1KB",
-      "profile": "always",
-      "size": "1KB",
-      "mean_ns": 27227.678412642847,
-      "throughput_mbs": 35.86653570678817
-    },
-    {
-      "group": "profile_get",
-      "name": "never/1KB",
-      "profile": "never",
-      "size": "1KB",
-      "mean_ns": 28024.113505252124,
-      "throughput_mbs": 34.84722183333214
-    },
-    {
-      "group": "profile_get",
-      "name": "always/64KB",
-      "profile": "always",
-      "size": "64KB",
-      "mean_ns": 31819.543275719956,
-      "throughput_mbs": 1964.2016687175676
-    },
-    {
-      "group": "profile_get",
-      "name": "periodic/1MB",
-      "profile": "periodic",
-      "size": "1MB",
-      "mean_ns": 66507.14234622083,
-      "throughput_mbs": 15035.979065139061
-    },
-    {
-      "group": "profile_get",
-      "name": "always/1MB",
-      "profile": "always",
-      "size": "1MB",
-      "mean_ns": 65952.55448766687,
-      "throughput_mbs": 15162.414977982391
+      "mean_ns": 43215.82489350762,
+      "throughput_mbs": 22.597335638193744
     },
     {
       "group": "profile_get",
       "name": "never/64KB",
       "profile": "never",
       "size": "64KB",
-      "mean_ns": 32609.401010560443,
-      "throughput_mbs": 1916.625208164958
+      "mean_ns": 124058.76112998115,
+      "throughput_mbs": 503.7935203505405
     },
     {
-      "group": "profile_put",
+      "group": "profile_get",
       "name": "never/1MB",
       "profile": "never",
       "size": "1MB",
-      "mean_ns": 2305401.517058824,
-      "throughput_mbs": 433.76392034120636
+      "mean_ns": 433744.07179496216,
+      "throughput_mbs": 2305.507014451407
+    },
+    {
+      "group": "profile_get",
+      "name": "always/64KB",
+      "profile": "always",
+      "size": "64KB",
+      "mean_ns": 127512.04725741564,
+      "throughput_mbs": 490.1497650165383
+    },
+    {
+      "group": "profile_get",
+      "name": "always/1KB",
+      "profile": "always",
+      "size": "1KB",
+      "mean_ns": 44506.31933494734,
+      "throughput_mbs": 21.942108774498944
+    },
+    {
+      "group": "profile_get",
+      "name": "periodic/64KB",
+      "profile": "periodic",
+      "size": "64KB",
+      "mean_ns": 125136.9540268582,
+      "throughput_mbs": 499.45278344065804
+    },
+    {
+      "group": "profile_get",
+      "name": "always/1MB",
+      "profile": "always",
+      "size": "1MB",
+      "mean_ns": 457820.9305099203,
+      "throughput_mbs": 2184.2601186586235
+    },
+    {
+      "group": "profile_get",
+      "name": "never/1KB",
+      "profile": "never",
+      "size": "1KB",
+      "mean_ns": 40864.42178143092,
+      "throughput_mbs": 23.897621878104164
+    },
+    {
+      "group": "profile_get",
+      "name": "periodic/1MB",
+      "profile": "periodic",
+      "size": "1MB",
+      "mean_ns": 433048.920049687,
+      "throughput_mbs": 2309.2079294072882
     },
     {
       "group": "profile_put",
       "name": "periodic/1KB",
       "profile": "periodic",
       "size": "1KB",
-      "mean_ns": 443623.27841401624,
-      "throughput_mbs": 2.2013328594731956
-    },
-    {
-      "group": "profile_put",
-      "name": "periodic/64KB",
-      "profile": "periodic",
-      "size": "64KB",
-      "mean_ns": 460663.6344941618,
-      "throughput_mbs": 135.6738307954979
-    },
-    {
-      "group": "profile_put",
-      "name": "always/1KB",
-      "profile": "always",
-      "size": "1KB",
-      "mean_ns": 5829435.235555555,
-      "throughput_mbs": 0.16752266052183562
-    },
-    {
-      "group": "profile_put",
-      "name": "never/1KB",
-      "profile": "never",
-      "size": "1KB",
-      "mean_ns": 453333.5611225435,
-      "throughput_mbs": 2.1541809028694856
-    },
-    {
-      "group": "profile_put",
-      "name": "always/64KB",
-      "profile": "always",
-      "size": "64KB",
-      "mean_ns": 6205742.176666668,
-      "throughput_mbs": 10.071317534749896
-    },
-    {
-      "group": "profile_put",
-      "name": "periodic/1MB",
-      "profile": "periodic",
-      "size": "1MB",
-      "mean_ns": 2241095.327,
-      "throughput_mbs": 446.21038112583597
-    },
-    {
-      "group": "profile_put",
-      "name": "always/1MB",
-      "profile": "always",
-      "size": "1MB",
-      "mean_ns": 9762268.82333333,
-      "throughput_mbs": 102.43520416174626
+      "mean_ns": 163215.17355721185,
+      "throughput_mbs": 5.983282550979768
     },
     {
       "group": "profile_put",
       "name": "never/64KB",
       "profile": "never",
       "size": "64KB",
-      "mean_ns": 481737.37743718753,
-      "throughput_mbs": 129.73873925352453
+      "mean_ns": 276521.78397758515,
+      "throughput_mbs": 226.0219759216737
+    },
+    {
+      "group": "profile_put",
+      "name": "never/1MB",
+      "profile": "never",
+      "size": "1MB",
+      "mean_ns": 2262626.042608696,
+      "throughput_mbs": 441.9643286908558
+    },
+    {
+      "group": "profile_put",
+      "name": "always/64KB",
+      "profile": "always",
+      "size": "64KB",
+      "mean_ns": 9343599.563333333,
+      "throughput_mbs": 6.689070906384509
+    },
+    {
+      "group": "profile_put",
+      "name": "always/1KB",
+      "profile": "always",
+      "size": "1KB",
+      "mean_ns": 8288791.564285717,
+      "throughput_mbs": 0.11781723456622532
+    },
+    {
+      "group": "profile_put",
+      "name": "periodic/64KB",
+      "profile": "periodic",
+      "size": "64KB",
+      "mean_ns": 325770.14,
+      "throughput_mbs": 191.85306547739458
+    },
+    {
+      "group": "profile_put",
+      "name": "always/1MB",
+      "profile": "always",
+      "size": "1MB",
+      "mean_ns": 19306499.433333345,
+      "throughput_mbs": 51.796028764979795
+    },
+    {
+      "group": "profile_put",
+      "name": "never/1KB",
+      "profile": "never",
+      "size": "1KB",
+      "mean_ns": 156180.96801952636,
+      "throughput_mbs": 6.25276249970423
+    },
+    {
+      "group": "profile_put",
+      "name": "periodic/1MB",
+      "profile": "periodic",
+      "size": "1MB",
+      "mean_ns": 6280070.797916664,
+      "throughput_mbs": 159.2338736581979
     }
   ]
 }
