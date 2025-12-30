@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -45,10 +45,14 @@ struct RequestQuery {
 }
 
 /// Create the S3 API router.
-pub fn create_router(storage: Arc<LocalStorage>) -> Router {
+///
+/// # Arguments
+/// * `storage` - The storage backend
+/// * `max_body_size` - Maximum request body size in bytes (0 for unlimited)
+pub fn create_router(storage: Arc<LocalStorage>, max_body_size: u64) -> Router {
     let state = AppState { storage };
 
-    Router::new()
+    let router = Router::new()
         // Service-level operations
         .route("/", get(list_buckets))
         // Bucket operations with complex routing (with and without trailing slash)
@@ -69,7 +73,14 @@ pub fn create_router(storage: Arc<LocalStorage>) -> Router {
                 .head(head_object)
                 .post(handle_object_post),
         )
-        .with_state(state)
+        .with_state(state);
+
+    // Apply body limit (0 means unlimited)
+    if max_body_size > 0 {
+        router.layer(DefaultBodyLimit::max(max_body_size as usize))
+    } else {
+        router.layer(DefaultBodyLimit::disable())
+    }
 }
 
 // Re-export handlers with concrete types

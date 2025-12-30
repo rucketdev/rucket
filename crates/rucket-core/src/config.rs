@@ -55,6 +55,11 @@ pub struct ServerConfig {
     pub tls_cert: Option<PathBuf>,
     /// Path to TLS private key file (optional).
     pub tls_key: Option<PathBuf>,
+    /// Maximum request body size in bytes.
+    /// S3 supports up to 5GB for single PUT, but this can be tuned.
+    /// Default: 5 GiB (5368709120 bytes).
+    /// Set to 0 for unlimited.
+    pub max_body_size: u64,
 }
 
 impl Default for ServerConfig {
@@ -63,6 +68,7 @@ impl Default for ServerConfig {
             bind: "127.0.0.1:9000".parse().expect("valid default address"),
             tls_cert: None,
             tls_key: None,
+            max_body_size: 5 * 1024 * 1024 * 1024, // 5 GiB (S3 max single PUT)
         }
     }
 }
