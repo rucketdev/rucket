@@ -1,7 +1,7 @@
 # Copyright 2026 Rucket Dev
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: setup fmt fmt-check check clippy test test-integration license-headers lint doc deny all
+.PHONY: setup fmt fmt-check check clippy test test-integration license-headers lint doc deny bench all
 
 # Install lefthook git hooks
 setup:
@@ -45,6 +45,10 @@ doc:
 # Run cargo-deny checks
 deny:
 	cargo deny check
+
+# Run benchmarks and generate graphs
+bench:
+	./scripts/run-benchmarks.sh
 
 # Run all CI checks locally
 all: lint test doc deny
