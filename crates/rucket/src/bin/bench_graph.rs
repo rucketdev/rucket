@@ -122,9 +122,14 @@ fn parse_benchmark_result(path: &Path) -> anyhow::Result<Option<BenchResult>> {
         return Ok(None);
     }
 
-    // Parse variant: could be "fast/1KB" URL-encoded or similar
+    // Parse variant: could be "fast_1KB" or "fast/1KB" URL-encoded
     let variant_decoded = urlencoding_decode(variant);
-    let parts: Vec<&str> = variant_decoded.split('/').collect();
+    // Try splitting on underscore first (criterion default), then slash
+    let parts: Vec<&str> = if variant_decoded.contains('_') {
+        variant_decoded.splitn(2, '_').collect()
+    } else {
+        variant_decoded.split('/').collect()
+    };
 
     if parts.len() != 2 {
         return Ok(None);

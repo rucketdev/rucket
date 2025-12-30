@@ -51,12 +51,25 @@ cargo run --features bench-graph --bin bench-graph --release
 
 ## Benchmark Environment
 
-Benchmarks are run using [Criterion.rs](https://github.com/bheisler/criterion.rs) with the following methodology:
+### Hardware
+
+| Component | Specification |
+|-----------|---------------|
+| **CPU** | Intel Core i7-10510U @ 1.80GHz (4 cores) |
+| **Memory** | 32 GB DDR4 |
+| **Storage** | 98 GB LVM volume |
+| **OS** | Ubuntu 24.04.3 LTS |
+| **Kernel** | 6.8.0-90-generic |
+
+### Methodology
+
+Benchmarks are run using [Criterion.rs](https://github.com/bheisler/criterion.rs):
 
 - **Warm-up**: 3 seconds per benchmark
 - **Measurement**: 5 seconds per benchmark
 - **Iterations**: Automatically determined by Criterion
 - **Storage**: In-memory metadata store with filesystem data
+- **Isolation**: All background services stopped during benchmarks
 
 ## Results Data
 
