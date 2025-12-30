@@ -62,8 +62,9 @@ pub struct ObjectIdentifier {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use quick_xml::de::from_str;
+
+    use super::*;
 
     #[test]
     fn test_parse_complete_multipart() {

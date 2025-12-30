@@ -3,16 +3,16 @@
 
 //! S3 API router configuration.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use bytes::Bytes;
-use serde::Deserialize;
-use std::sync::Arc;
-
 use rucket_storage::LocalStorage;
+use serde::Deserialize;
 
 use crate::handlers::bucket::{self, AppState};
 use crate::handlers::{multipart, object};

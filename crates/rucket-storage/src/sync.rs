@@ -179,8 +179,9 @@ pub use crate::streaming::write_and_hash_with_sync as write_and_hash_with_strate
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_sync_manager_always() {

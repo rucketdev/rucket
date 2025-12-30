@@ -5,14 +5,14 @@
 
 #![allow(missing_docs)]
 
+use std::sync::Arc;
+
 use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use std::sync::Arc;
-use tempfile::TempDir;
-use tokio::runtime::Runtime;
-
 use rucket_core::{SyncConfig, SyncStrategy};
 use rucket_storage::{LocalStorage, StorageBackend};
+use tempfile::TempDir;
+use tokio::runtime::Runtime;
 
 /// Benchmark fixture holding storage instance and temp directory.
 struct BenchFixture {

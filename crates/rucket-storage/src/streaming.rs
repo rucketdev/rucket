@@ -85,8 +85,9 @@ pub fn compute_multipart_etag(part_etags: &[ETag]) -> ETag {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_write_and_hash() {

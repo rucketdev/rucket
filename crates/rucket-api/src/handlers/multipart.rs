@@ -10,9 +10,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
-use serde::Deserialize;
-
 use rucket_core::error::S3ErrorCode;
+use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;

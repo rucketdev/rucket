@@ -459,8 +459,9 @@ impl StorageBackend for LocalStorage {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     async fn create_test_storage() -> (LocalStorage, TempDir) {
         let temp_dir = TempDir::new().unwrap();
