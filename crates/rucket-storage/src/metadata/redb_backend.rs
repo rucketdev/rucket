@@ -192,6 +192,17 @@ impl RedbMetadataStore {
 
         let db = Database::create(path).map_err(db_err)?;
 
+        // Initialize tables by opening them in a write transaction
+        // This ensures tables exist before any read operations
+        {
+            let txn = db.begin_write().map_err(db_err)?;
+            let _ = txn.open_table(BUCKETS).map_err(db_err)?;
+            let _ = txn.open_table(OBJECTS).map_err(db_err)?;
+            let _ = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+            let _ = txn.open_table(PARTS).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
+        }
+
         let durability = Self::sync_to_durability(sync_strategy);
 
         Ok(Self { db: Arc::new(db), durability })
@@ -221,6 +232,16 @@ impl RedbMetadataStore {
         let db = Database::builder()
             .create_with_backend(redb::backends::InMemoryBackend::new())
             .map_err(db_err)?;
+
+        // Initialize tables
+        {
+            let txn = db.begin_write().map_err(db_err)?;
+            let _ = txn.open_table(BUCKETS).map_err(db_err)?;
+            let _ = txn.open_table(OBJECTS).map_err(db_err)?;
+            let _ = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+            let _ = txn.open_table(PARTS).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
+        }
 
         Ok(Self { db: Arc::new(db), durability: Durability::None })
     }
