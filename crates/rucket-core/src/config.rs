@@ -143,12 +143,13 @@ pub enum SyncStrategy {
     /// Never explicitly sync - rely on OS to flush.
     /// Fastest, but data may be lost on crash.
     None,
-    /// Sync periodically based on time interval.
-    /// Good balance of performance and durability.
+    /// Sync periodically based on time interval OR when thresholds are reached.
+    /// Syncs when: time interval elapses, OR bytes threshold reached, OR ops threshold reached.
+    /// Good balance of performance and durability with bounded data loss window.
     #[default]
     Periodic,
     /// Sync after a threshold of bytes written or operations completed.
-    /// Useful for high-throughput scenarios.
+    /// Similar to Periodic but without time-based background sync.
     Threshold,
     /// Sync after every write operation.
     /// Slowest, but guarantees durability.
@@ -206,7 +207,8 @@ impl SyncConfig {
     }
 
     /// Configuration with periodic sync.
-    /// Good balance for typical workloads.
+    /// Syncs when: time interval elapses (1s), bytes threshold reached (10MB), or ops threshold reached (100).
+    /// Good balance for typical workloads with bounded data loss window.
     #[must_use]
     pub fn periodic() -> Self {
         Self::default()

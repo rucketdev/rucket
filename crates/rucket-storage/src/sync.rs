@@ -73,7 +73,26 @@ impl SyncManager {
         &self.config
     }
 
-    /// Record that bytes were written. Returns true if sync should happen now.
+    /// Check if we should sync immediately based on thresholds.
+    /// Returns true if sync should happen now (Always mode, or threshold reached for Periodic/Threshold).
+    /// Does NOT update counters - call `record_write()` after the sync decision.
+    pub fn should_sync_now(&self, bytes: u64) -> bool {
+        let current_bytes = self.bytes_written.load(Ordering::SeqCst);
+        let current_ops = self.ops_count.load(Ordering::SeqCst);
+
+        match self.config.data {
+            SyncStrategy::Always => true,
+            SyncStrategy::None => false,
+            SyncStrategy::Periodic | SyncStrategy::Threshold => {
+                (current_bytes + bytes) >= self.config.bytes_threshold
+                    || (current_ops + 1) >= self.config.ops_threshold
+            }
+        }
+    }
+
+    /// Record that bytes were written and update counters.
+    /// For Periodic mode, also notifies the background task.
+    /// Returns true if sync should happen now (for backwards compatibility).
     pub fn record_write(&self, bytes: u64) -> bool {
         let total_bytes = self.bytes_written.fetch_add(bytes, Ordering::SeqCst) + bytes;
         let ops = self.ops_count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -82,9 +101,16 @@ impl SyncManager {
             SyncStrategy::Always => true,
             SyncStrategy::None => false,
             SyncStrategy::Periodic => {
-                // Notify the background task
-                self.notify.notify_one();
-                false
+                // Check threshold
+                if total_bytes >= self.config.bytes_threshold
+                    || ops >= self.config.ops_threshold
+                {
+                    true
+                } else {
+                    // Notify the background task for time-based sync
+                    self.notify.notify_one();
+                    false
+                }
             }
             SyncStrategy::Threshold => {
                 total_bytes >= self.config.bytes_threshold

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{BucketInfo, ETag, ObjectMetadata};
-use rucket_core::{RedbConfig, Result, SyncConfig};
+use rucket_core::{RedbConfig, Result, SyncConfig, SyncStrategy};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
@@ -205,26 +205,33 @@ impl StorageBackend for LocalStorage {
         let uuid = Uuid::new_v4();
         let temp_path = self.temp_path(&uuid);
         let data_len = data.len() as u64;
+        let sync_strategy = self.sync_manager.config().data;
 
-        // Write to temp file and compute ETag (using sync strategy)
-        let etag = write_and_hash_with_strategy(
-            &temp_path,
-            &data,
-            self.sync_manager.config().data,
-        )
-        .await?;
+        // Write to temp file and compute ETag (no sync yet - we handle it below)
+        let etag = write_and_hash_with_strategy(&temp_path, &data, SyncStrategy::None).await?;
 
-        // Move to final location
+        // Check if we should sync NOW (Always mode, or threshold reached for Periodic/Threshold)
+        let should_sync = self.sync_manager.should_sync_now(data_len);
+
+        if should_sync {
+            // Sync the temp file BEFORE rename for durability
+            let file = fs::File::open(&temp_path).await?;
+            file.sync_all().await?;
+            // Reset counters since we just synced
+            self.sync_manager.reset_counters();
+        }
+
+        // Move to final location (atomic on same filesystem)
         let final_path = self.object_path(bucket, &uuid);
         fs::rename(&temp_path, &final_path).await?;
 
-        // Track this file for deferred sync if needed
-        self.sync_manager.add_pending_file(final_path).await;
+        // Record the write (updates counters)
+        self.sync_manager.record_write(data_len);
 
-        // Record the write for sync threshold tracking
-        if self.sync_manager.record_write(data_len) {
-            // Threshold reached, sync now
-            self.sync_manager.sync_pending().await?;
+        // For periodic/threshold without immediate sync, track for background sync
+        if !should_sync && matches!(sync_strategy, SyncStrategy::Periodic | SyncStrategy::Threshold)
+        {
+            self.sync_manager.add_pending_file(final_path).await;
         }
 
         // Delete old object if it exists

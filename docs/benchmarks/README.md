@@ -21,8 +21,9 @@ Performance benchmarks comparing different sync profiles across object sizes.
 ![PUT Throughput](./graphs/put_throughput.svg)
 
 PUT operations write new objects to storage. Performance varies significantly by sync profile:
-- `never` profile shows maximum write throughput
-- `always` profile shows the cost of full durability (~40x slower for small objects)
+- `never` profile shows maximum write throughput (~444 MB/s for 1MB)
+- `periodic` profile shows ~30% overhead due to threshold-triggered syncs (~317 MB/s for 1MB)
+- `always` profile shows the cost of full durability (~49 MB/s for 1MB, ~9x slower)
 
 ## GET Throughput
 
