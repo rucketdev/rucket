@@ -47,6 +47,9 @@ tarpaulin-report.html
 # Benchmarks
 /criterion/
 
+# S3 Compatibility Tests (vendored test suites)
+/.s3-compat-tests/
+
 # Local config overrides
 rucket.local.toml
 

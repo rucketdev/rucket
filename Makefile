@@ -1,7 +1,8 @@
 # Copyright 2026 Rucket Dev
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: setup fmt fmt-check check clippy test test-integration license-headers lint doc deny bench all
+.PHONY: setup fmt fmt-check check clippy test test-integration license-headers lint doc deny bench all \
+       s3-compat s3-compat-clean
 
 # Install lefthook git hooks
 setup:
@@ -52,3 +53,30 @@ bench:
 
 # Run all CI checks locally
 all: lint test doc deny
+
+# ============================================================================
+# S3 Compatibility Tests (MinIO Mint)
+# ============================================================================
+# Runs MinIO Mint S3 compatibility tests against Rucket.
+# Rucket must be running before executing these tests.
+#
+# Usage:
+#   make s3-compat              # Run S3 compatibility tests
+#   make s3-compat-clean        # Clean test artifacts
+#
+# Environment variables:
+#   RUCKET_ENDPOINT    - Rucket S3 endpoint (default: http://127.0.0.1:9000)
+#   RUCKET_ACCESS_KEY  - S3 access key (default: rucket)
+#   RUCKET_SECRET_KEY  - S3 secret key (default: rucket123)
+#
+# Requirements:
+#   - Docker or Podman
+# ============================================================================
+
+# Run S3 compatibility tests (MinIO Mint)
+s3-compat:
+	./scripts/s3-compat-tests.sh
+
+# Clean S3 compatibility test artifacts
+s3-compat-clean:
+	rm -rf target/s3-compat-reports
