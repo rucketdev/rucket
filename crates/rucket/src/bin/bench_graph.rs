@@ -282,14 +282,36 @@ fn generate_bar_chart(
         });
     }
 
-    chart
-        .configure_series_labels()
-        .position(SeriesLabelPosition::UpperRight)
-        .margin(10)
-        .border_style(BLACK.stroke_width(1))
-        .background_style(WHITE.mix(0.9))
-        .label_font(("sans-serif", 14))
-        .draw()?;
+    // Draw legend manually in the right margin (outside chart area)
+    let legend_x = 690;
+    let legend_y = 80;
+    let box_size = 14;
+    let line_height = 22;
+
+    // Legend background
+    root.draw(&Rectangle::new(
+        [(legend_x - 10, legend_y - 15), (legend_x + 90, legend_y + 3 * line_height)],
+        ShapeStyle::from(&WHITE).filled(),
+    ))?;
+    root.draw(&Rectangle::new(
+        [(legend_x - 10, legend_y - 15), (legend_x + 90, legend_y + 3 * line_height)],
+        BLACK.stroke_width(1),
+    ))?;
+
+    for (i, profile) in profiles.iter().enumerate() {
+        let y = legend_y + i as i32 * line_height;
+        let color = profile_color(profile);
+
+        root.draw(&Rectangle::new(
+            [(legend_x, y), (legend_x + box_size, y + box_size)],
+            color.filled(),
+        ))?;
+        root.draw(&Text::new(
+            *profile,
+            (legend_x + box_size + 6, y + 2),
+            ("sans-serif", 13).into_font(),
+        ))?;
+    }
 
     root.present()?;
     Ok(())
