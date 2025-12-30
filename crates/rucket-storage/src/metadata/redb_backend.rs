@@ -56,6 +56,10 @@ struct StoredObjectMetadata {
     uuid: [u8; 16],
     size: u64,
     etag: String,
+    /// CRC32C checksum for data integrity verification.
+    /// Added in v0.2.0 - defaults to None for backward compatibility with older data.
+    #[serde(default)]
+    crc32c: Option<u32>,
     content_type: Option<String>,
     last_modified_millis: i64,
     user_metadata: Vec<(String, String)>,
@@ -68,6 +72,7 @@ impl StoredObjectMetadata {
             uuid: *meta.uuid.as_bytes(),
             size: meta.size,
             etag: meta.etag.as_str().to_string(),
+            crc32c: meta.crc32c,
             content_type: meta.content_type.clone(),
             last_modified_millis: meta.last_modified.timestamp_millis(),
             user_metadata: meta.user_metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
@@ -80,6 +85,7 @@ impl StoredObjectMetadata {
             uuid: Uuid::from_bytes(self.uuid),
             size: self.size,
             etag: ETag::new(&self.etag),
+            crc32c: self.crc32c,
             content_type: self.content_type.clone(),
             last_modified: Utc
                 .timestamp_millis_opt(self.last_modified_millis)

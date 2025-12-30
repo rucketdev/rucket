@@ -10,14 +10,23 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{BucketInfo, ETag, ObjectMetadata};
-use rucket_core::{RedbConfig, Result, SyncConfig, SyncStrategy};
+use rucket_core::{RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 use crate::backend::{ListObjectsResult, StorageBackend};
 use crate::metadata::{MetadataBackend, RedbMetadataStore};
+use crate::streaming::compute_crc32c;
 use crate::sync::{write_and_hash_with_strategy, SyncManager};
+use crate::wal::{RecoveryManager, WalEntry, WalSyncMode, WalWriter, WalWriterConfig};
+
+/// Sync a directory to ensure its entries (file names) are persisted.
+/// This is critical for durability after rename operations.
+async fn sync_directory(path: &std::path::Path) -> std::io::Result<()> {
+    let dir = fs::File::open(path).await?;
+    dir.sync_all().await
+}
 
 /// Per-key lock type for serializing concurrent writes.
 type KeyLock = Arc<tokio::sync::Mutex<()>>;
@@ -31,6 +40,8 @@ pub struct LocalStorage {
     /// Per-key write locks to serialize concurrent writes to the same object.
     /// This prevents race conditions during overwrites.
     key_locks: Arc<DashMap<(String, String), KeyLock>>,
+    /// Write-ahead log for crash recovery.
+    wal: Option<Arc<WalWriter>>,
 }
 
 impl LocalStorage {
@@ -40,7 +51,14 @@ impl LocalStorage {
     ///
     /// Returns an error if the directories cannot be created or the metadata store cannot be opened.
     pub async fn new(data_dir: PathBuf, temp_dir: PathBuf) -> Result<Self> {
-        Self::with_config(data_dir, temp_dir, SyncConfig::default(), RedbConfig::default()).await
+        Self::with_full_config(
+            data_dir,
+            temp_dir,
+            SyncConfig::default(),
+            RedbConfig::default(),
+            WalConfig::default(),
+        )
+        .await
     }
 
     /// Create a new local storage backend with custom sync configuration.
@@ -53,7 +71,14 @@ impl LocalStorage {
         temp_dir: PathBuf,
         sync_config: SyncConfig,
     ) -> Result<Self> {
-        Self::with_config(data_dir, temp_dir, sync_config, RedbConfig::default()).await
+        Self::with_full_config(
+            data_dir,
+            temp_dir,
+            sync_config,
+            RedbConfig::default(),
+            WalConfig::default(),
+        )
+        .await
     }
 
     /// Create a new local storage backend with custom sync and redb configuration.
@@ -67,6 +92,22 @@ impl LocalStorage {
         sync_config: SyncConfig,
         redb_config: RedbConfig,
     ) -> Result<Self> {
+        Self::with_full_config(data_dir, temp_dir, sync_config, redb_config, WalConfig::default())
+            .await
+    }
+
+    /// Create a new local storage backend with full configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directories cannot be created or the metadata store cannot be opened.
+    pub async fn with_full_config(
+        data_dir: PathBuf,
+        temp_dir: PathBuf,
+        sync_config: SyncConfig,
+        redb_config: RedbConfig,
+        wal_config: WalConfig,
+    ) -> Result<Self> {
         // Create directories if they don't exist
         fs::create_dir_all(&data_dir).await?;
         fs::create_dir_all(&temp_dir).await?;
@@ -78,12 +119,60 @@ impl LocalStorage {
             redb_config.cache_size_bytes,
         )?;
 
+        // Open WAL and run recovery if enabled
+        let wal = if wal_config.enabled {
+            let wal_dir = data_dir.join("wal");
+
+            // Run recovery before opening WAL for writes
+            let recovery = RecoveryManager::new(wal_dir.clone(), data_dir.clone());
+            match recovery.recover().await {
+                Ok(stats) => {
+                    if stats.puts_rolled_back > 0 || stats.deletes_rolled_back > 0 {
+                        tracing::info!(
+                            puts_rolled_back = stats.puts_rolled_back,
+                            deletes_rolled_back = stats.deletes_rolled_back,
+                            "WAL recovery complete"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "WAL recovery failed, continuing anyway");
+                }
+            }
+
+            // Clean up old WAL files
+            if let Err(e) = recovery.cleanup_old_wals().await {
+                tracing::warn!(error = %e, "Failed to cleanup old WAL files");
+            }
+
+            // Open WAL for writes
+            let wal_sync_mode = match wal_config.sync_mode {
+                rucket_core::WalSyncMode::None => WalSyncMode::None,
+                rucket_core::WalSyncMode::Fdatasync => WalSyncMode::Fdatasync,
+                rucket_core::WalSyncMode::Fsync => WalSyncMode::Fsync,
+            };
+
+            let writer_config =
+                WalWriterConfig { wal_dir, sync_mode: wal_sync_mode, ..Default::default() };
+
+            match WalWriter::open(&writer_config) {
+                Ok(writer) => Some(Arc::new(writer)),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to open WAL, continuing without");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let storage = Self {
             data_dir,
             temp_dir,
             metadata: Arc::new(metadata),
             sync_manager: SyncManager::new(sync_config),
             key_locks: Arc::new(DashMap::new()),
+            wal,
         };
 
         // Clean up any orphaned temp files from previous runs
@@ -122,6 +211,7 @@ impl LocalStorage {
             metadata: Arc::new(metadata),
             sync_manager: SyncManager::new(sync_config),
             key_locks: Arc::new(DashMap::new()),
+            wal: None, // No WAL for in-memory tests
         };
 
         // Clean up any orphaned temp files from previous runs
@@ -269,8 +359,29 @@ impl StorageBackend for LocalStorage {
         let data_len = data.len() as u64;
         let sync_strategy = self.sync_manager.config().data;
 
-        // Write to temp file and compute ETag (no sync yet - we handle it below)
-        let etag = write_and_hash_with_strategy(&temp_path, &data, SyncStrategy::None).await?;
+        // Compute CRC32C early for WAL intent
+        let crc32c = compute_crc32c(&data);
+        let timestamp = chrono::Utc::now().timestamp_millis();
+
+        // Step 1: Write intent to WAL (if enabled)
+        // This is the durability point - if we crash after this, recovery will clean up
+        if let Some(wal) = &self.wal {
+            let intent = WalEntry::PutIntent {
+                bucket: bucket.to_string(),
+                key: key.to_string(),
+                uuid,
+                size: data_len,
+                crc32c,
+                timestamp,
+            };
+            if let Err(e) = wal.append_sync(intent).await {
+                tracing::warn!(error = %e, "Failed to write WAL intent, continuing without");
+            }
+        }
+
+        // Step 2: Write to temp file and compute ETag (no sync yet - WAL protects us)
+        let write_result =
+            write_and_hash_with_strategy(&temp_path, &data, SyncStrategy::None).await?;
 
         // Check if we should sync NOW (Always mode, or threshold reached for Periodic/Threshold)
         let should_sync = self.sync_manager.should_sync_now(data_len);
@@ -283,9 +394,18 @@ impl StorageBackend for LocalStorage {
             self.sync_manager.reset_counters();
         }
 
-        // Move to final location (atomic on same filesystem)
+        // Step 3: Move to final location (atomic on same filesystem)
         let final_path = self.object_path(bucket, &uuid);
         fs::rename(&temp_path, &final_path).await?;
+
+        // For maximum durability (Always mode), also sync the parent directory
+        // to ensure the directory entry (file name) is persisted to disk.
+        if sync_strategy == SyncStrategy::Always {
+            let bucket_dir = self.bucket_path(bucket);
+            if let Err(e) = sync_directory(&bucket_dir).await {
+                tracing::warn!(?bucket_dir, error = %e, "Failed to sync directory");
+            }
+        }
 
         // Record the write (updates counters)
         self.sync_manager.record_write(data_len);
@@ -302,14 +422,25 @@ impl StorageBackend for LocalStorage {
             let _ = fs::remove_file(&old_path).await;
         }
 
-        // Update metadata
-        let mut meta = ObjectMetadata::new(key, uuid, data_len, etag.clone());
+        // Step 4: Update metadata with checksum
+        let mut meta = ObjectMetadata::new(key, uuid, data_len, write_result.etag.clone())
+            .with_checksum(write_result.crc32c);
         if let Some(ct) = content_type {
             meta = meta.with_content_type(ct);
         }
         self.metadata.put_object(bucket, meta).await?;
 
-        Ok(etag)
+        // Step 5: Write commit to WAL (if enabled)
+        // After this point, the operation is complete and won't be rolled back
+        if let Some(wal) = &self.wal {
+            let commit =
+                WalEntry::PutCommit { bucket: bucket.to_string(), key: key.to_string(), uuid };
+            if let Err(e) = wal.append(commit).await {
+                tracing::warn!(error = %e, "Failed to write WAL commit");
+            }
+        }
+
+        Ok(write_result.etag)
     }
 
     async fn get_object(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
@@ -380,9 +511,36 @@ impl StorageBackend for LocalStorage {
         let lock = self.get_key_lock(bucket, key);
         let _guard = lock.lock().await;
 
+        // Get the old UUID before deletion for WAL
+        let old_uuid = self.metadata.get_object(bucket, key).await.ok().map(|m| m.uuid);
+
+        // Step 1: Write delete intent to WAL (if enabled and object exists)
+        if let (Some(wal), Some(uuid)) = (&self.wal, old_uuid) {
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            let intent = WalEntry::DeleteIntent {
+                bucket: bucket.to_string(),
+                key: key.to_string(),
+                old_uuid: uuid,
+                timestamp,
+            };
+            if let Err(e) = wal.append_sync(intent).await {
+                tracing::warn!(error = %e, "Failed to write WAL delete intent");
+            }
+        }
+
+        // Step 2: Delete metadata and file
         if let Some(uuid) = self.metadata.delete_object(bucket, key).await? {
             let path = self.object_path(bucket, &uuid);
             let _ = fs::remove_file(&path).await;
+
+            // Step 3: Write delete commit to WAL
+            if let Some(wal) = &self.wal {
+                let commit =
+                    WalEntry::DeleteCommit { bucket: bucket.to_string(), key: key.to_string() };
+                if let Err(e) = wal.append(commit).await {
+                    tracing::warn!(error = %e, "Failed to write WAL delete commit");
+                }
+            }
         }
         Ok(())
     }

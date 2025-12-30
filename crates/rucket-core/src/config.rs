@@ -79,6 +79,8 @@ pub struct StorageConfig {
     pub sync: SyncConfig,
     /// redb database configuration.
     pub redb: RedbConfig,
+    /// Write-ahead log configuration.
+    pub wal: WalConfig,
 }
 
 /// redb database configuration.
@@ -115,6 +117,81 @@ impl RedbConfig {
     }
 }
 
+/// Write-Ahead Log (WAL) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WalConfig {
+    /// Enable WAL for crash recovery.
+    pub enabled: bool,
+    /// Sync mode for WAL writes.
+    pub sync_mode: WalSyncMode,
+    /// Checkpoint configuration.
+    pub checkpoint: CheckpointConfig,
+    /// Scan for orphaned files on startup.
+    /// This is slower but more thorough.
+    pub scan_orphans_on_startup: bool,
+}
+
+impl Default for WalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sync_mode: WalSyncMode::Fdatasync,
+            checkpoint: CheckpointConfig::default(),
+            scan_orphans_on_startup: false,
+        }
+    }
+}
+
+impl WalConfig {
+    /// Configuration with WAL disabled.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self { enabled: false, ..Default::default() }
+    }
+
+    /// Configuration for maximum durability.
+    #[must_use]
+    pub fn durable() -> Self {
+        Self { enabled: true, sync_mode: WalSyncMode::Fsync, ..Default::default() }
+    }
+}
+
+/// WAL sync mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WalSyncMode {
+    /// No explicit sync - rely on OS flush.
+    None,
+    /// Use fdatasync (faster, doesn't sync file metadata).
+    #[default]
+    Fdatasync,
+    /// Use full fsync (slower, syncs all metadata).
+    Fsync,
+}
+
+/// Checkpoint configuration for WAL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CheckpointConfig {
+    /// Checkpoint after this many WAL entries.
+    pub entries_threshold: u64,
+    /// Checkpoint after this many bytes written to WAL.
+    pub bytes_threshold: u64,
+    /// Checkpoint after this duration (milliseconds).
+    pub interval_ms: u64,
+}
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        Self {
+            entries_threshold: 10_000,
+            bytes_threshold: 64 * 1024 * 1024, // 64 MB
+            interval_ms: 60_000,               // 1 minute
+        }
+    }
+}
+
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
@@ -122,6 +199,7 @@ impl Default for StorageConfig {
             temp_dir: None,
             sync: SyncConfig::default(),
             redb: RedbConfig::default(),
+            wal: WalConfig::default(),
         }
     }
 }
@@ -131,6 +209,75 @@ impl StorageConfig {
     #[must_use]
     pub fn temp_dir(&self) -> PathBuf {
         self.temp_dir.clone().unwrap_or_else(|| self.data_dir.join(".tmp"))
+    }
+}
+
+/// Named durability presets for simple configuration.
+///
+/// These presets provide a simple way to configure durability vs performance trade-offs.
+/// Use these instead of fine-grained `SyncConfig` settings for most use cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DurabilityPreset {
+    /// Maximum performance, may lose recent writes on crash.
+    ///
+    /// - No fsync (relies on OS ~30s flush)
+    /// - No checksums verified on read
+    /// - Aggressive write batching
+    /// - Best for: Caching, temporary data, development
+    Performance,
+
+    /// Balanced mode (default) - bounded data loss window.
+    ///
+    /// - fdatasync every 1s or 10MB or 100 ops
+    /// - Checksums computed on write (not verified on read)
+    /// - Moderate write batching
+    /// - Best for: General purpose, most production workloads
+    #[default]
+    Balanced,
+
+    /// Maximum durability, slower writes.
+    ///
+    /// - fdatasync every write
+    /// - Checksums verified on every read
+    /// - Directory fsync after rename
+    /// - No write batching
+    /// - Best for: Critical data, financial records, compliance
+    Durable,
+}
+
+impl DurabilityPreset {
+    /// Convert this preset to a `SyncConfig`.
+    #[must_use]
+    pub fn to_sync_config(self) -> SyncConfig {
+        match self {
+            Self::Performance => SyncConfig {
+                data: SyncStrategy::None,
+                metadata: SyncStrategy::Periodic,
+                interval_ms: 5000,
+                batch: BatchConfig::aggressive(),
+                ..Default::default()
+            },
+            Self::Balanced => SyncConfig::default(),
+            Self::Durable => SyncConfig {
+                data: SyncStrategy::Always,
+                metadata: SyncStrategy::Always,
+                batch: BatchConfig::disabled(),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Whether checksums should be verified on read.
+    #[must_use]
+    pub fn verify_checksums_on_read(self) -> bool {
+        matches!(self, Self::Durable)
+    }
+
+    /// Whether directory fsync should be performed after rename.
+    #[must_use]
+    pub fn sync_directory_after_rename(self) -> bool {
+        matches!(self, Self::Durable)
     }
 }
 
@@ -175,6 +322,53 @@ pub struct SyncConfig {
     /// Set to 0 to disable. Only effective on Linux.
     /// Direct I/O bypasses the page cache for large sequential writes.
     pub direct_io_min_size: u64,
+    /// Batch configuration for group commit.
+    /// Batching multiple writes with a single fsync improves throughput.
+    pub batch: BatchConfig,
+}
+
+/// Configuration for batched write operations (group commit).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BatchConfig {
+    /// Enable batched writes (group commit).
+    pub enabled: bool,
+    /// Maximum number of writes to batch before flushing.
+    pub max_batch_size: usize,
+    /// Maximum bytes to accumulate before flushing.
+    pub max_batch_bytes: u64,
+    /// Maximum delay in milliseconds before flushing.
+    pub max_batch_delay_ms: u64,
+}
+
+impl Default for BatchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_batch_size: 64,
+            max_batch_bytes: 16 * 1024 * 1024, // 16 MB
+            max_batch_delay_ms: 10,
+        }
+    }
+}
+
+impl BatchConfig {
+    /// Configuration for aggressive batching (maximum performance).
+    #[must_use]
+    pub fn aggressive() -> Self {
+        Self {
+            enabled: true,
+            max_batch_size: 256,
+            max_batch_bytes: 64 * 1024 * 1024, // 64 MB
+            max_batch_delay_ms: 50,
+        }
+    }
+
+    /// Disable batching (sync each write individually).
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self { enabled: false, max_batch_size: 1, max_batch_bytes: 0, max_batch_delay_ms: 0 }
+    }
 }
 
 impl Default for SyncConfig {
@@ -187,6 +381,7 @@ impl Default for SyncConfig {
             bytes_threshold: 10 * 1024 * 1024, // 10 MB
             ops_threshold: 100,
             direct_io_min_size: 0, // Disabled by default
+            batch: BatchConfig::default(),
         }
     }
 }
@@ -216,7 +411,12 @@ impl SyncConfig {
     /// Slowest but maximum durability.
     #[must_use]
     pub fn always() -> Self {
-        Self { data: SyncStrategy::Always, metadata: SyncStrategy::Always, ..Default::default() }
+        Self {
+            data: SyncStrategy::Always,
+            metadata: SyncStrategy::Always,
+            batch: BatchConfig::disabled(), // No batching for maximum durability
+            ..Default::default()
+        }
     }
 }
 
@@ -325,5 +525,45 @@ format = "json"
         assert_eq!(config.auth.access_key, "mykey");
         assert_eq!(config.bucket.naming_rules, BucketNamingRules::Strict);
         assert_eq!(config.logging.format, LogFormat::Json);
+    }
+
+    #[test]
+    fn test_durability_preset_performance() {
+        let preset = DurabilityPreset::Performance;
+        let config = preset.to_sync_config();
+
+        assert_eq!(config.data, SyncStrategy::None);
+        assert!(config.batch.enabled);
+        assert_eq!(config.batch.max_batch_size, 256); // Aggressive batching
+        assert!(!preset.verify_checksums_on_read());
+        assert!(!preset.sync_directory_after_rename());
+    }
+
+    #[test]
+    fn test_durability_preset_balanced() {
+        let preset = DurabilityPreset::Balanced;
+        let config = preset.to_sync_config();
+
+        assert_eq!(config.data, SyncStrategy::Periodic);
+        assert!(config.batch.enabled);
+        assert!(!preset.verify_checksums_on_read());
+        assert!(!preset.sync_directory_after_rename());
+    }
+
+    #[test]
+    fn test_durability_preset_durable() {
+        let preset = DurabilityPreset::Durable;
+        let config = preset.to_sync_config();
+
+        assert_eq!(config.data, SyncStrategy::Always);
+        assert!(!config.batch.enabled); // No batching for durability
+        assert!(preset.verify_checksums_on_read());
+        assert!(preset.sync_directory_after_rename());
+    }
+
+    #[test]
+    fn test_default_durability_preset() {
+        let preset = DurabilityPreset::default();
+        assert_eq!(preset, DurabilityPreset::Balanced);
     }
 }

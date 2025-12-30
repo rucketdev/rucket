@@ -174,8 +174,8 @@ impl SyncManager {
     }
 }
 
-// Re-export write function from streaming module
-pub use crate::streaming::write_and_hash_with_sync as write_and_hash_with_strategy;
+// Re-export write function and result type from streaming module
+pub use crate::streaming::{write_and_hash_with_sync as write_and_hash_with_strategy, WriteResult};
 
 #[cfg(test)]
 mod tests {
@@ -231,12 +231,14 @@ mod tests {
         let path = temp_dir.path().join("test.dat");
 
         let data = b"Hello, World!";
-        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::None).await.unwrap();
+        let result = write_and_hash_with_strategy(&path, data, SyncStrategy::None).await.unwrap();
 
         // Verify file was written
         let content = tokio::fs::read(&path).await.unwrap();
         assert_eq!(content, data);
-        assert!(!etag.is_multipart());
+        assert!(!result.etag.is_multipart());
+        // Verify CRC32C was computed
+        assert_ne!(result.crc32c, 0);
     }
 
     #[tokio::test]
@@ -245,11 +247,13 @@ mod tests {
         let path = temp_dir.path().join("test.dat");
 
         let data = b"Hello, World!";
-        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::Always).await.unwrap();
+        let result = write_and_hash_with_strategy(&path, data, SyncStrategy::Always).await.unwrap();
 
         // Verify file was written
         let content = tokio::fs::read(&path).await.unwrap();
         assert_eq!(content, data);
-        assert!(!etag.is_multipart());
+        assert!(!result.etag.is_multipart());
+        // Verify CRC32C was computed
+        assert_ne!(result.crc32c, 0);
     }
 }

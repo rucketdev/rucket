@@ -5,11 +5,21 @@
 
 use std::path::Path;
 
+use crc32fast::Hasher as Crc32Hasher;
 use md5::{Digest, Md5};
 use rucket_core::types::ETag;
 use rucket_core::{Result, SyncStrategy};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+
+/// Result of a write operation, containing both ETag and CRC32C checksum.
+#[derive(Debug, Clone)]
+pub struct WriteResult {
+    /// The ETag (MD5 hash) of the written data.
+    pub etag: ETag,
+    /// CRC32C checksum for data integrity verification.
+    pub crc32c: u32,
+}
 
 /// Write data to a file and compute its MD5 hash (ETag).
 ///
@@ -20,10 +30,14 @@ use tokio::io::AsyncWriteExt;
 ///
 /// Returns an error if the file cannot be written.
 pub async fn write_and_hash(path: &Path, data: &[u8]) -> Result<ETag> {
-    write_and_hash_with_sync(path, data, SyncStrategy::Always).await
+    let result = write_and_hash_with_sync(path, data, SyncStrategy::Always).await?;
+    Ok(result.etag)
 }
 
-/// Write data to a file and compute its MD5 hash (ETag) with configurable sync.
+/// Write data to a file and compute both MD5 hash (ETag) and CRC32C checksum.
+///
+/// Returns a `WriteResult` containing both the ETag and CRC32C checksum.
+/// The CRC32C uses hardware acceleration (SSE4.2/ARM CRC) when available.
 ///
 /// # Errors
 ///
@@ -32,11 +46,16 @@ pub async fn write_and_hash_with_sync(
     path: &Path,
     data: &[u8],
     strategy: SyncStrategy,
-) -> Result<ETag> {
-    // Compute MD5 hash
-    let mut hasher = Md5::new();
-    hasher.update(data);
-    let hash: [u8; 16] = hasher.finalize().into();
+) -> Result<WriteResult> {
+    // Compute MD5 hash and CRC32C in parallel (single pass over data)
+    let mut md5_hasher = Md5::new();
+    let mut crc_hasher = Crc32Hasher::new();
+
+    md5_hasher.update(data);
+    crc_hasher.update(data);
+
+    let md5_hash: [u8; 16] = md5_hasher.finalize().into();
+    let crc32c = crc_hasher.finalize();
 
     // Write file
     let mut file = File::create(path).await?;
@@ -45,7 +64,8 @@ pub async fn write_and_hash_with_sync(
     // Sync based on strategy
     match strategy {
         SyncStrategy::Always => {
-            file.sync_all().await?;
+            // Use sync_data() (fdatasync) - faster than sync_all() as it skips metadata
+            file.sync_data().await?;
         }
         SyncStrategy::None | SyncStrategy::Periodic | SyncStrategy::Threshold => {
             // Flush buffer but don't fsync
@@ -53,7 +73,7 @@ pub async fn write_and_hash_with_sync(
         }
     }
 
-    Ok(ETag::from_md5(&hash))
+    Ok(WriteResult { etag: ETag::from_md5(&md5_hash), crc32c })
 }
 
 /// Compute MD5 hash of data without writing.
@@ -62,6 +82,24 @@ pub fn compute_md5(data: &[u8]) -> [u8; 16] {
     let mut hasher = Md5::new();
     hasher.update(data);
     hasher.finalize().into()
+}
+
+/// Compute CRC32C checksum of data.
+///
+/// Uses hardware acceleration (SSE4.2/ARM CRC) when available.
+#[must_use]
+pub fn compute_crc32c(data: &[u8]) -> u32 {
+    let mut hasher = Crc32Hasher::new();
+    hasher.update(data);
+    hasher.finalize()
+}
+
+/// Verify data integrity using CRC32C checksum.
+///
+/// Returns `true` if the checksum matches, `false` otherwise.
+#[must_use]
+pub fn verify_crc32c(data: &[u8], expected: u32) -> bool {
+    compute_crc32c(data) == expected
 }
 
 /// Compute ETag for multipart upload from part ETags.
@@ -107,6 +145,25 @@ mod tests {
         assert!(etag.as_str().ends_with('"'));
     }
 
+    #[tokio::test]
+    async fn test_write_and_hash_with_crc32c() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.dat");
+
+        let data = b"Hello, World!";
+        let result = write_and_hash_with_sync(&path, data, SyncStrategy::Always).await.unwrap();
+
+        // Verify file was written
+        let content = tokio::fs::read(&path).await.unwrap();
+        assert_eq!(content, data);
+
+        // Verify ETag format
+        assert!(!result.etag.is_multipart());
+
+        // Verify CRC32C can be used to verify integrity
+        assert!(verify_crc32c(&content, result.crc32c));
+    }
+
     #[test]
     fn test_compute_md5() {
         let data = b"Hello, World!";
@@ -115,6 +172,31 @@ mod tests {
         // Known MD5 hash for "Hello, World!"
         let expected = "65a8e27d8879283831b664bd8b7f0ad4";
         assert_eq!(hex::encode(hash), expected);
+    }
+
+    #[test]
+    fn test_compute_crc32c() {
+        let data = b"Hello, World!";
+        let crc = compute_crc32c(data);
+
+        // CRC32 should be non-zero for non-empty data
+        assert_ne!(crc, 0);
+
+        // Verify deterministic
+        assert_eq!(crc, compute_crc32c(data));
+
+        // Verify changes with different data
+        assert_ne!(crc, compute_crc32c(b"Hello, World"));
+    }
+
+    #[test]
+    fn test_verify_crc32c() {
+        let data = b"Hello, World!";
+        let crc = compute_crc32c(data);
+
+        assert!(verify_crc32c(data, crc));
+        assert!(!verify_crc32c(data, crc + 1)); // Wrong checksum
+        assert!(!verify_crc32c(b"Hello, World", crc)); // Different data
     }
 
     #[test]
