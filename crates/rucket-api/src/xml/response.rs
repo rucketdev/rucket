@@ -253,6 +253,43 @@ impl CopyObjectResponse {
     }
 }
 
+/// `DeleteResult` response for multi-object delete.
+#[derive(Debug, Serialize)]
+#[serde(rename = "DeleteResult")]
+pub struct DeleteObjectsResponse {
+    /// Successfully deleted objects.
+    #[serde(rename = "Deleted", default, skip_serializing_if = "Vec::is_empty")]
+    pub deleted: Vec<DeletedObject>,
+    /// Objects that failed to delete.
+    #[serde(rename = "Error", default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<DeleteError>,
+}
+
+/// A successfully deleted object.
+#[derive(Debug, Serialize)]
+pub struct DeletedObject {
+    /// Object key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Version ID (if versioning enabled).
+    #[serde(rename = "VersionId", skip_serializing_if = "Option::is_none")]
+    pub version_id: Option<String>,
+}
+
+/// Error deleting an object.
+#[derive(Debug, Serialize)]
+pub struct DeleteError {
+    /// Object key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Error code.
+    #[serde(rename = "Code")]
+    pub code: String,
+    /// Error message.
+    #[serde(rename = "Message")]
+    pub message: String,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors
