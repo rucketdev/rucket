@@ -45,14 +45,23 @@ pub fn open_direct(path: &Path) -> std::io::Result<File> {
 ///
 /// Note: On Linux with O_DIRECT, buffer must be aligned to 512/4096 bytes.
 pub fn read_direct(path: &Path) -> std::io::Result<Vec<u8>> {
-    let mut file = open_direct(path)?;
-    let size = file.metadata()?.len() as usize;
+    let size = std::fs::metadata(path)?.len() as usize;
 
     #[cfg(target_os = "linux")]
     {
+        // O_DIRECT requires aligned reads. For small files (< 4096 bytes),
+        // fall back to regular I/O to avoid EINVAL errors.
+        if size < 4096 {
+            let mut file = File::open(path)?;
+            let mut buffer = vec![0u8; size];
+            file.read_exact(&mut buffer)?;
+            return Ok(buffer);
+        }
+
         // O_DIRECT requires aligned buffer and aligned read size
         let aligned_size = (size + 4095) & !4095;
         let mut buffer = aligned_buffer(aligned_size);
+        let mut file = open_direct(path)?;
         file.read_exact(&mut buffer[..size])?;
         buffer.truncate(size);
         return Ok(buffer);
@@ -60,6 +69,7 @@ pub fn read_direct(path: &Path) -> std::io::Result<Vec<u8>> {
 
     #[cfg(not(target_os = "linux"))]
     {
+        let mut file = open_direct(path)?;
         let mut buffer = vec![0u8; size];
         file.read_exact(&mut buffer)?;
         Ok(buffer)
