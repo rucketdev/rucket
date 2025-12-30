@@ -198,6 +198,16 @@ pub struct MultipartUploadEntry {
     pub initiated: String,
 }
 
+impl From<&rucket_core::types::MultipartUpload> for MultipartUploadEntry {
+    fn from(upload: &rucket_core::types::MultipartUpload) -> Self {
+        Self {
+            key: upload.key.clone(),
+            upload_id: upload.upload_id.clone(),
+            initiated: format_s3_timestamp(&upload.initiated),
+        }
+    }
+}
+
 /// `ListPartsResult` response.
 #[derive(Debug, Serialize)]
 #[serde(rename = "ListPartsResult")]
@@ -231,6 +241,17 @@ pub struct PartEntry {
     /// Last modified.
     #[serde(rename = "LastModified")]
     pub last_modified: String,
+}
+
+impl From<&rucket_core::types::Part> for PartEntry {
+    fn from(part: &rucket_core::types::Part) -> Self {
+        Self {
+            part_number: part.part_number,
+            etag: part.etag.to_string(),
+            size: part.size,
+            last_modified: format_s3_timestamp(&part.last_modified),
+        }
+    }
 }
 
 /// `CopyObjectResult` response.

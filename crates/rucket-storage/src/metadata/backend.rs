@@ -155,6 +155,13 @@ pub trait MetadataBackend: Send + Sync + 'static {
     /// Returns `NotImplemented` error (stub).
     async fn list_parts(&self, upload_id: &str) -> Result<Vec<Part>>;
 
+    /// List all parts for a multipart upload with their UUIDs for file operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the upload does not exist.
+    async fn list_parts_with_uuids(&self, upload_id: &str) -> Result<Vec<(Part, Uuid)>>;
+
     /// Delete parts for an upload, returning their UUIDs for file cleanup.
     ///
     /// # Errors
