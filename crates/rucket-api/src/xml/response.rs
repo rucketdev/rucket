@@ -193,6 +193,15 @@ pub struct MultipartUploadEntry {
     /// Upload ID.
     #[serde(rename = "UploadId")]
     pub upload_id: String,
+    /// Initiator information.
+    #[serde(rename = "Initiator")]
+    pub initiator: Owner,
+    /// Owner information.
+    #[serde(rename = "Owner")]
+    pub owner: Owner,
+    /// Storage class.
+    #[serde(rename = "StorageClass")]
+    pub storage_class: String,
     /// Initiation timestamp.
     #[serde(rename = "Initiated")]
     pub initiated: String,
@@ -203,6 +212,9 @@ impl From<&rucket_core::types::MultipartUpload> for MultipartUploadEntry {
         Self {
             key: upload.key.clone(),
             upload_id: upload.upload_id.clone(),
+            initiator: Owner::default(),
+            owner: Owner::default(),
+            storage_class: "STANDARD".to_string(),
             initiated: format_s3_timestamp(&upload.initiated),
         }
     }
