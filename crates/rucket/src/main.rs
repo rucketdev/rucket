@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Rucket: A high-performance, S3-compatible object storage server.
