@@ -35,7 +35,8 @@ impl TestServer {
         let storage =
             LocalStorage::new_in_memory(data_dir, tmp_dir).await.expect("Failed to create storage");
 
-        let app = create_router(Arc::new(storage));
+        // 5 GiB max body size (S3 max single PUT)
+        let app = create_router(Arc::new(storage), 5 * 1024 * 1024 * 1024);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
         let addr = listener.local_addr().expect("Failed to get local addr");
