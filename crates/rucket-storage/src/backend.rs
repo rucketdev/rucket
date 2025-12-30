@@ -4,7 +4,7 @@
 //! Storage backend trait definition.
 
 use bytes::Bytes;
-use rucket_core::types::{BucketInfo, ETag, ObjectMetadata};
+use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part};
 use rucket_core::Result;
 
 /// Trait for object storage backends.
@@ -71,6 +71,44 @@ pub trait StorageBackend: Send + Sync {
         continuation_token: Option<&str>,
         max_keys: u32,
     ) -> Result<ListObjectsResult>;
+
+    // Multipart upload operations
+
+    /// Initiate a multipart upload.
+    async fn create_multipart_upload(&self, bucket: &str, key: &str) -> Result<MultipartUpload>;
+
+    /// Upload a part for a multipart upload.
+    async fn upload_part(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+        part_number: u32,
+        data: Bytes,
+    ) -> Result<ETag>;
+
+    /// Complete a multipart upload by combining all parts.
+    async fn complete_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+        parts: &[(u32, String)],
+    ) -> Result<ETag>;
+
+    /// Abort a multipart upload, cleaning up all parts.
+    async fn abort_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<()>;
+
+    /// List parts for a multipart upload.
+    async fn list_parts(&self, bucket: &str, key: &str, upload_id: &str) -> Result<Vec<Part>>;
+
+    /// List all in-progress multipart uploads for a bucket.
+    async fn list_multipart_uploads(&self, bucket: &str) -> Result<Vec<MultipartUpload>>;
 }
 
 /// Result of listing objects.

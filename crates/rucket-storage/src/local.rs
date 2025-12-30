@@ -9,7 +9,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use dashmap::DashMap;
 use rucket_core::error::{Error, S3ErrorCode};
-use rucket_core::types::{BucketInfo, ETag, ObjectMetadata};
+use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part};
 use rucket_core::{RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
@@ -272,6 +272,10 @@ impl LocalStorage {
 
     fn temp_path(&self, uuid: &Uuid) -> PathBuf {
         self.temp_dir.join(format!("{uuid}.tmp"))
+    }
+
+    fn part_path(&self, uuid: &Uuid) -> PathBuf {
+        self.temp_dir.join(format!("{uuid}.part"))
     }
 
     async fn ensure_bucket_dir(&self, bucket: &str) -> Result<()> {
@@ -612,6 +616,230 @@ impl StorageBackend for LocalStorage {
             is_truncated: next_token.is_some(),
             next_continuation_token: next_token,
         })
+    }
+
+    // Multipart upload operations
+
+    async fn create_multipart_upload(&self, bucket: &str, key: &str) -> Result<MultipartUpload> {
+        // Check bucket exists
+        if !self.metadata.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        let upload_id = Uuid::new_v4().to_string();
+        self.metadata.create_multipart_upload(bucket, key, &upload_id).await
+    }
+
+    async fn upload_part(
+        &self,
+        bucket: &str,
+        _key: &str,
+        upload_id: &str,
+        part_number: u32,
+        data: Bytes,
+    ) -> Result<ETag> {
+        // Check bucket exists
+        if !self.metadata.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        // Check upload exists
+        let _upload = self.metadata.get_multipart_upload(upload_id).await?;
+
+        // Validate part number (1-10000)
+        if part_number == 0 || part_number > 10000 {
+            return Err(Error::s3(
+                S3ErrorCode::InvalidPart,
+                "Part number must be between 1 and 10000",
+            ));
+        }
+
+        let uuid = Uuid::new_v4();
+        let part_path = self.part_path(&uuid);
+        let data_len = data.len() as u64;
+
+        // Write part to file and compute hash
+        let write_result =
+            write_and_hash_with_strategy(&part_path, &data, SyncStrategy::None).await?;
+
+        // Store part metadata
+        self.metadata
+            .put_part(upload_id, part_number, uuid, data_len, write_result.etag.as_str())
+            .await?;
+
+        Ok(write_result.etag)
+    }
+
+    async fn complete_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+        parts: &[(u32, String)],
+    ) -> Result<ETag> {
+        use tokio::io::AsyncWriteExt;
+
+        // Check bucket exists
+        if !self.metadata.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        // Get upload info
+        let upload = self.metadata.get_multipart_upload(upload_id).await?;
+        if upload.bucket != bucket || upload.key != key {
+            return Err(Error::s3(S3ErrorCode::InvalidRequest, "Upload does not match bucket/key"));
+        }
+
+        // Get all parts with their UUIDs
+        let stored_parts = self.metadata.list_parts_with_uuids(upload_id).await?;
+
+        // Build map of part_number -> (Part, UUID)
+        let part_map: std::collections::HashMap<u32, (Part, Uuid)> =
+            stored_parts.into_iter().map(|(p, u)| (p.part_number, (p, u))).collect();
+
+        // Validate all requested parts exist and ETags match
+        let mut ordered_parts = Vec::with_capacity(parts.len());
+        for (part_num, expected_etag) in parts {
+            let (part, uuid) = part_map.get(part_num).ok_or_else(|| {
+                Error::s3(S3ErrorCode::InvalidPart, format!("Part {part_num} not found"))
+            })?;
+
+            // Normalize ETags for comparison (remove quotes if present)
+            let stored_etag = part.etag.as_str().trim_matches('"');
+            let expected = expected_etag.trim_matches('"');
+            if stored_etag != expected {
+                return Err(Error::s3(
+                    S3ErrorCode::InvalidPart,
+                    format!("Part {part_num} ETag mismatch"),
+                ));
+            }
+
+            ordered_parts.push((*part_num, part.clone(), *uuid));
+        }
+
+        // Ensure parts are in order
+        ordered_parts.sort_by_key(|(n, _, _)| *n);
+
+        // Create final object by concatenating parts
+        self.ensure_bucket_dir(bucket).await?;
+        let final_uuid = Uuid::new_v4();
+        let temp_path = self.temp_path(&final_uuid);
+
+        let mut final_file = fs::File::create(&temp_path).await?;
+        let mut total_size = 0u64;
+        let mut md5_concat = Vec::new();
+        let mut part_count = 0u32;
+
+        for (_part_num, part, uuid) in &ordered_parts {
+            let part_path = self.part_path(uuid);
+            let part_data = fs::read(&part_path).await?;
+
+            // Accumulate part MD5 hashes for multipart ETag computation
+            // The part ETag is the hex-encoded MD5, so we decode it back to bytes
+            if let Ok(part_md5) = hex::decode(part.etag.as_str().trim_matches('"')) {
+                md5_concat.extend_from_slice(&part_md5);
+            }
+
+            final_file.write_all(&part_data).await?;
+            total_size += part.size;
+            part_count += 1;
+        }
+
+        final_file.flush().await?;
+        drop(final_file);
+
+        // Move to final location
+        let final_path = self.object_path(bucket, &final_uuid);
+        fs::rename(&temp_path, &final_path).await?;
+
+        // Compute multipart ETag: MD5 of concatenated part MD5s + "-" + part count
+        use md5::{Digest, Md5};
+        let mut hasher = Md5::new();
+        hasher.update(&md5_concat);
+        let hash: [u8; 16] = hasher.finalize().into();
+        let etag = ETag::from_multipart(&hash, part_count as usize);
+
+        // Delete old object if overwriting
+        if let Ok(old_meta) = self.metadata.get_object(bucket, key).await {
+            let old_path = self.object_path(bucket, &old_meta.uuid);
+            let _ = fs::remove_file(&old_path).await;
+        }
+
+        // Store final object metadata
+        let meta = ObjectMetadata::new(key, final_uuid, total_size, etag.clone());
+        self.metadata.put_object(bucket, meta).await?;
+
+        // Clean up parts
+        let part_uuids = self.metadata.delete_parts(upload_id).await?;
+        for uuid in part_uuids {
+            let part_path = self.part_path(&uuid);
+            let _ = fs::remove_file(&part_path).await;
+        }
+
+        // Delete upload record
+        self.metadata.delete_multipart_upload(upload_id).await?;
+
+        Ok(etag)
+    }
+
+    async fn abort_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<()> {
+        // Get upload info to validate
+        let upload = self.metadata.get_multipart_upload(upload_id).await?;
+        if upload.bucket != bucket || upload.key != key {
+            return Err(Error::s3(S3ErrorCode::InvalidRequest, "Upload does not match bucket/key"));
+        }
+
+        // Delete parts and their files
+        let part_uuids = self.metadata.delete_parts(upload_id).await?;
+        for uuid in part_uuids {
+            let part_path = self.part_path(&uuid);
+            let _ = fs::remove_file(&part_path).await;
+        }
+
+        // Delete upload record
+        self.metadata.delete_multipart_upload(upload_id).await?;
+
+        Ok(())
+    }
+
+    async fn list_parts(&self, bucket: &str, key: &str, upload_id: &str) -> Result<Vec<Part>> {
+        // Validate upload matches bucket/key
+        let upload = self.metadata.get_multipart_upload(upload_id).await?;
+        if upload.bucket != bucket || upload.key != key {
+            return Err(Error::s3(S3ErrorCode::InvalidRequest, "Upload does not match bucket/key"));
+        }
+
+        self.metadata.list_parts(upload_id).await
+    }
+
+    async fn list_multipart_uploads(&self, bucket: &str) -> Result<Vec<MultipartUpload>> {
+        // Check bucket exists
+        if !self.metadata.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        self.metadata.list_multipart_uploads(bucket).await
     }
 }
 

@@ -26,6 +26,12 @@ const BUCKETS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("buckets"
 /// Objects table: composite key "bucket\0key" -> StoredObjectMetadata (bincode)
 const OBJECTS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("objects");
 
+/// Multipart uploads table: upload_id -> StoredMultipartUpload (bincode)
+const MULTIPART_UPLOADS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("multipart_uploads");
+
+/// Parts table: composite key "upload_id\0part_number" -> StoredPart (bincode)
+const PARTS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("parts");
+
 // === Stored Types (for bincode serialization) ===
 
 #[derive(Serialize, Deserialize)]
@@ -93,6 +99,74 @@ impl StoredObjectMetadata {
                 .unwrap_or_else(Utc::now),
             user_metadata: self.user_metadata.iter().cloned().collect(),
         }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredMultipartUpload {
+    upload_id: String,
+    bucket: String,
+    key: String,
+    initiated_millis: i64,
+}
+
+impl StoredMultipartUpload {
+    fn from_multipart_upload(upload: &MultipartUpload) -> Self {
+        Self {
+            upload_id: upload.upload_id.clone(),
+            bucket: upload.bucket.clone(),
+            key: upload.key.clone(),
+            initiated_millis: upload.initiated.timestamp_millis(),
+        }
+    }
+
+    fn to_multipart_upload(&self) -> MultipartUpload {
+        MultipartUpload {
+            upload_id: self.upload_id.clone(),
+            bucket: self.bucket.clone(),
+            key: self.key.clone(),
+            initiated: Utc
+                .timestamp_millis_opt(self.initiated_millis)
+                .single()
+                .unwrap_or_else(Utc::now),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredPart {
+    part_number: u32,
+    uuid: [u8; 16],
+    etag: String,
+    size: u64,
+    last_modified_millis: i64,
+}
+
+impl StoredPart {
+    fn from_part(part: &Part, uuid: Uuid) -> Self {
+        Self {
+            part_number: part.part_number,
+            uuid: *uuid.as_bytes(),
+            etag: part.etag.as_str().to_string(),
+            size: part.size,
+            last_modified_millis: part.last_modified.timestamp_millis(),
+        }
+    }
+
+    fn to_part(&self) -> Part {
+        Part {
+            part_number: self.part_number,
+            etag: ETag::new(&self.etag),
+            size: self.size,
+            last_modified: Utc
+                .timestamp_millis_opt(self.last_modified_millis)
+                .single()
+                .unwrap_or_else(Utc::now),
+        }
+    }
+
+    fn uuid(&self) -> Uuid {
+        Uuid::from_bytes(self.uuid)
     }
 }
 
@@ -171,6 +245,11 @@ impl RedbMetadataStore {
     /// Parse a composite object key back to (bucket, key)
     fn parse_object_key(composite: &str) -> Option<(&str, &str)> {
         composite.split_once('\0')
+    }
+
+    /// Create a composite key for parts: "upload_id\0part_number"
+    fn part_key(upload_id: &str, part_number: u32) -> String {
+        format!("{}\0{:010}", upload_id, part_number)
     }
 }
 
@@ -489,46 +568,281 @@ impl MetadataBackend for RedbMetadataStore {
         .map_err(db_err)?
     }
 
-    // === Multipart Upload Stubs ===
+    // === Multipart Upload Operations ===
 
     async fn create_multipart_upload(
         &self,
-        _bucket: &str,
-        _key: &str,
-        _upload_id: &str,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
     ) -> Result<MultipartUpload> {
-        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
+        let bucket = bucket.to_string();
+        let key = key.to_string();
+        let upload_id = upload_id.to_string();
+        let now = Utc::now();
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+
+            {
+                // Check bucket exists
+                let buckets_table = txn.open_table(BUCKETS).map_err(db_err)?;
+                if buckets_table.get(bucket.as_str()).map_err(db_err)?.is_none() {
+                    return Err(Error::s3_with_resource(
+                        S3ErrorCode::NoSuchBucket,
+                        "The specified bucket does not exist",
+                        bucket,
+                    ));
+                }
+
+                // Create multipart upload record
+                let mut uploads_table = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+
+                let upload = MultipartUpload {
+                    upload_id: upload_id.clone(),
+                    bucket: bucket.clone(),
+                    key: key.clone(),
+                    initiated: now,
+                };
+                let stored = StoredMultipartUpload::from_multipart_upload(&upload);
+                let serialized = bincode::serialize(&stored).map_err(db_err)?;
+
+                uploads_table
+                    .insert(upload_id.as_str(), serialized.as_slice())
+                    .map_err(db_err)?;
+            }
+
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
+
+            Ok(MultipartUpload { upload_id, bucket, key, initiated: now })
+        })
+        .await
+        .map_err(db_err)?
     }
 
-    async fn get_multipart_upload(&self, _upload_id: &str) -> Result<MultipartUpload> {
-        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
+    async fn get_multipart_upload(&self, upload_id: &str) -> Result<MultipartUpload> {
+        let upload_id = upload_id.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let txn = db.begin_read().map_err(db_err)?;
+            let table = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+
+            match table.get(upload_id.as_str()).map_err(db_err)? {
+                Some(value) => {
+                    let stored: StoredMultipartUpload =
+                        bincode::deserialize(value.value()).map_err(db_err)?;
+                    Ok(stored.to_multipart_upload())
+                }
+                None => Err(Error::s3_with_resource(
+                    S3ErrorCode::NoSuchUpload,
+                    "The specified upload does not exist",
+                    upload_id,
+                )),
+            }
+        })
+        .await
+        .map_err(db_err)?
     }
 
-    async fn delete_multipart_upload(&self, _upload_id: &str) -> Result<()> {
-        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
+    async fn delete_multipart_upload(&self, upload_id: &str) -> Result<()> {
+        let upload_id = upload_id.to_string();
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+
+            {
+                let mut uploads_table = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+                uploads_table.remove(upload_id.as_str()).map_err(db_err)?;
+            }
+
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
+
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
     }
 
-    async fn list_multipart_uploads(&self, _bucket: &str) -> Result<Vec<MultipartUpload>> {
-        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
+    async fn list_multipart_uploads(&self, bucket: &str) -> Result<Vec<MultipartUpload>> {
+        let bucket = bucket.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let txn = db.begin_read().map_err(db_err)?;
+            let table = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+
+            let mut uploads = Vec::new();
+            for entry in table.iter().map_err(db_err)? {
+                let (_, value) = entry.map_err(db_err)?;
+                let stored: StoredMultipartUpload =
+                    bincode::deserialize(value.value()).map_err(db_err)?;
+                let upload = stored.to_multipart_upload();
+                if upload.bucket == bucket {
+                    uploads.push(upload);
+                }
+            }
+
+            // Sort by initiated time
+            uploads.sort_by(|a, b| a.initiated.cmp(&b.initiated));
+
+            Ok(uploads)
+        })
+        .await
+        .map_err(db_err)?
     }
 
     async fn put_part(
         &self,
-        _upload_id: &str,
-        _part_number: u32,
-        _uuid: Uuid,
-        _size: u64,
-        _etag: &str,
+        upload_id: &str,
+        part_number: u32,
+        uuid: Uuid,
+        size: u64,
+        etag: &str,
     ) -> Result<Part> {
-        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
+        let upload_id = upload_id.to_string();
+        let etag = etag.to_string();
+        let now = Utc::now();
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+
+            {
+                // Check upload exists
+                let uploads_table = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+                if uploads_table.get(upload_id.as_str()).map_err(db_err)?.is_none() {
+                    return Err(Error::s3_with_resource(
+                        S3ErrorCode::NoSuchUpload,
+                        "The specified upload does not exist",
+                        upload_id,
+                    ));
+                }
+
+                // Store part
+                let mut parts_table = txn.open_table(PARTS).map_err(db_err)?;
+                let part_key = Self::part_key(&upload_id, part_number);
+
+                let part = Part {
+                    part_number,
+                    etag: ETag::new(&etag),
+                    size,
+                    last_modified: now,
+                };
+                let stored = StoredPart::from_part(&part, uuid);
+                let serialized = bincode::serialize(&stored).map_err(db_err)?;
+
+                parts_table.insert(part_key.as_str(), serialized.as_slice()).map_err(db_err)?;
+            }
+
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
+
+            Ok(Part { part_number, etag: ETag::new(&etag), size, last_modified: now })
+        })
+        .await
+        .map_err(db_err)?
     }
 
-    async fn list_parts(&self, _upload_id: &str) -> Result<Vec<Part>> {
-        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
+    async fn list_parts(&self, upload_id: &str) -> Result<Vec<Part>> {
+        let parts_with_uuids = self.list_parts_with_uuids(upload_id).await?;
+        Ok(parts_with_uuids.into_iter().map(|(p, _)| p).collect())
     }
 
-    async fn delete_parts(&self, _upload_id: &str) -> Result<Vec<Uuid>> {
-        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
+    async fn list_parts_with_uuids(&self, upload_id: &str) -> Result<Vec<(Part, Uuid)>> {
+        let upload_id = upload_id.to_string();
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let txn = db.begin_read().map_err(db_err)?;
+
+            // Check upload exists
+            {
+                let uploads_table = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
+                if uploads_table.get(upload_id.as_str()).map_err(db_err)?.is_none() {
+                    return Err(Error::s3_with_resource(
+                        S3ErrorCode::NoSuchUpload,
+                        "The specified upload does not exist",
+                        upload_id.clone(),
+                    ));
+                }
+            }
+
+            let table = txn.open_table(PARTS).map_err(db_err)?;
+
+            // Parts are keyed as "upload_id\0part_number"
+            let start_key = format!("{}\0", upload_id);
+            let end_key = format!("{}\x01", upload_id);
+
+            let mut parts = Vec::new();
+            let range = table.range(start_key.as_str()..end_key.as_str()).map_err(db_err)?;
+
+            for entry in range {
+                let (_, value) = entry.map_err(db_err)?;
+                let stored: StoredPart = bincode::deserialize(value.value()).map_err(db_err)?;
+                parts.push((stored.to_part(), stored.uuid()));
+            }
+
+            // Sort by part number
+            parts.sort_by_key(|(p, _)| p.part_number);
+
+            Ok(parts)
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_parts(&self, upload_id: &str) -> Result<Vec<Uuid>> {
+        let upload_id = upload_id.to_string();
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+
+            let uuids = {
+                let mut table = txn.open_table(PARTS).map_err(db_err)?;
+
+                // Find all parts for this upload
+                let start_key = format!("{}\0", upload_id);
+                let end_key = format!("{}\x01", upload_id);
+
+                let mut uuids = Vec::new();
+                let mut keys_to_delete = Vec::new();
+
+                {
+                    let range = table.range(start_key.as_str()..end_key.as_str()).map_err(db_err)?;
+                    for entry in range {
+                        let (key, value) = entry.map_err(db_err)?;
+                        let stored: StoredPart =
+                            bincode::deserialize(value.value()).map_err(db_err)?;
+                        uuids.push(stored.uuid());
+                        keys_to_delete.push(key.value().to_string());
+                    }
+                }
+
+                // Delete parts
+                for key in keys_to_delete {
+                    table.remove(key.as_str()).map_err(db_err)?;
+                }
+
+                uuids
+            };
+
+            txn.set_durability(durability).map_err(db_err)?;
+            txn.commit().map_err(db_err)?;
+
+            Ok(uuids)
+        })
+        .await
+        .map_err(db_err)?
     }
 }
 
