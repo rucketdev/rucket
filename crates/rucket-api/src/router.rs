@@ -40,8 +40,9 @@ struct RequestQuery {
     #[serde(rename = "continuation-token")]
     continuation_token: Option<String>,
     /// Maximum keys to return (for ListObjectsV2).
+    /// Parsed as i32 to handle invalid negative values from some SDKs.
     #[serde(rename = "max-keys")]
-    max_keys: Option<u32>,
+    max_keys: Option<i32>,
     /// Delete marker (for DeleteObjects).
     delete: Option<String>,
 }
@@ -147,11 +148,17 @@ async fn handle_bucket_get(
     }
 
     // Default: ListObjectsV2
+    // Clamp max_keys to valid range [0, 1000], treating negative values as default
+    let max_keys = query
+        .max_keys
+        .map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 })
+        .unwrap_or(1000);
+
     let list_query = object::ListObjectsQuery {
         prefix: query.prefix,
         delimiter: query.delimiter,
         continuation_token: query.continuation_token,
-        max_keys: query.max_keys.unwrap_or(1000),
+        max_keys,
     };
 
     object::list_objects_v2(state, path, Query(list_query)).await.into_response()
