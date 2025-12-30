@@ -30,7 +30,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: rucket-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/rucket
