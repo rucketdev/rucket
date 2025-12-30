@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 .PHONY: setup fmt fmt-check check clippy test test-integration license-headers lint doc deny bench all \
-       s3-compat s3-compat-clean
+       s3-compat s3-compat-minio s3-compat-build s3-compat-clean
 
 # Install lefthook git hooks
 setup:
@@ -55,13 +55,15 @@ bench:
 all: lint test doc deny
 
 # ============================================================================
-# S3 Compatibility Tests (MinIO Mint)
+# S3 Compatibility Tests
 # ============================================================================
-# Runs MinIO Mint S3 compatibility tests against Rucket.
+# Runs S3 compatibility tests against Rucket using various test suites.
 # Rucket must be running before executing these tests.
 #
 # Usage:
-#   make s3-compat              # Run S3 compatibility tests
+#   make s3-compat              # Run tests with default suite (minio)
+#   make s3-compat-minio        # Run MinIO Mint tests
+#   make s3-compat-build        # Build mint from source and run
 #   make s3-compat-clean        # Clean test artifacts
 #
 # Environment variables:
@@ -73,9 +75,17 @@ all: lint test doc deny
 #   - Docker or Podman
 # ============================================================================
 
-# Run S3 compatibility tests (MinIO Mint)
+# Run S3 compatibility tests (default: minio)
 s3-compat:
-	./scripts/s3-compat-tests.sh
+	./scripts/s3-compat-tests.sh minio
+
+# Run MinIO Mint tests
+s3-compat-minio:
+	./scripts/s3-compat-tests.sh minio
+
+# Build mint image from source and run tests (gets latest fixes)
+s3-compat-build:
+	./scripts/s3-compat-tests.sh minio --build-image
 
 # Clean S3 compatibility test artifacts
 s3-compat-clean:

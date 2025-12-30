@@ -1,0 +1,43 @@
+# Copyright 2026 Rucket Dev
+# SPDX-License-Identifier: Apache-2.0
+
+# Build MinIO Mint from latest source for S3 compatibility tests
+#
+# The official minio/mint:latest image is often outdated (last built May 2024).
+# This Dockerfile builds from the latest mint source to get recent fixes.
+#
+# Build:
+#   docker build -f scripts/s3-compat/Dockerfile.minio -t rucket/mint:latest .
+#
+# Run:
+#   docker run --rm --network=host \
+#     -e SERVER_ENDPOINT=127.0.0.1:9000 \
+#     -e ACCESS_KEY=rucket \
+#     -e SECRET_KEY=rucket123 \
+#     rucket/mint:latest
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV GOROOT=/usr/local/go
+ENV GOPATH=/usr/local/gopath
+ENV PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+ENV MINT_ROOT_DIR=/mint
+
+# Install system dependencies
+RUN apt-get --yes update && apt-get --yes upgrade && \
+    apt-get --yes --quiet install wget jq curl git dnsmasq && \
+    rm -rf /var/lib/apt/lists/*
+
+# Clone mint from source (latest)
+RUN git clone --depth 1 https://github.com/minio/mint.git /mint
+
+WORKDIR /mint
+
+# Build mint (creates test data, installs SDKs)
+RUN /mint/create-data-files.sh && \
+    /mint/preinstall.sh && \
+    /mint/release.sh
+
+ENTRYPOINT ["/mint/entrypoint.sh"]
