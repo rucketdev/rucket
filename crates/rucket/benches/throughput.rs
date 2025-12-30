@@ -544,17 +544,19 @@ fn bench_profile_matrix_get(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_put_object,
+    // Run GET benchmarks first (clean system state, no prior fsync activity)
+    bench_profile_matrix_get,
     bench_get_object,
     bench_get_object_range,
     bench_head_object,
+    // Then PUT benchmarks (fsync activity won't affect prior GET results)
+    bench_profile_matrix_put,
+    bench_put_object,
     bench_delete_object,
     bench_copy_object,
     bench_list_objects,
     bench_list_objects_with_prefix,
     bench_sync_strategies,
-    bench_profile_matrix_put,
-    bench_profile_matrix_get,
 );
 
 criterion_main!(benches);
