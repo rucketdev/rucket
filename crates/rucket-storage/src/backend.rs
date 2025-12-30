@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Storage backend trait definition.
