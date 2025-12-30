@@ -94,6 +94,10 @@ pub struct ObjectMetadata {
     pub size: u64,
     /// Object ETag.
     pub etag: ETag,
+    /// CRC32C checksum for data integrity verification.
+    /// Uses IEEE polynomial with hardware acceleration when available.
+    #[serde(default)]
+    pub crc32c: Option<u32>,
     /// Content type (MIME type).
     pub content_type: Option<String>,
     /// When the object was last modified.
@@ -112,6 +116,7 @@ impl ObjectMetadata {
             uuid,
             size,
             etag,
+            crc32c: None,
             content_type: None,
             last_modified: Utc::now(),
             user_metadata: std::collections::HashMap::new(),
@@ -122,6 +127,13 @@ impl ObjectMetadata {
     #[must_use]
     pub fn with_content_type(mut self, content_type: impl Into<String>) -> Self {
         self.content_type = Some(content_type.into());
+        self
+    }
+
+    /// Sets the CRC32C checksum.
+    #[must_use]
+    pub fn with_checksum(mut self, crc32c: u32) -> Self {
+        self.crc32c = Some(crc32c);
         self
     }
 }

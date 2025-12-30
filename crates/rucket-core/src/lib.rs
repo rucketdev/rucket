@@ -15,5 +15,5 @@ pub mod config;
 pub mod error;
 pub mod types;
 
-pub use config::{Config, RedbConfig, SyncConfig, SyncStrategy};
+pub use config::{BatchConfig, Config, DurabilityPreset, RedbConfig, SyncConfig, SyncStrategy};
 pub use error::{Error, Result};

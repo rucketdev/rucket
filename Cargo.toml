@@ -71,6 +71,7 @@ hmac = "0.12"
 sha2 = "0.10"
 md-5 = "0.10"
 hex = "0.4"
+crc32fast = "1.5"
 
 # System
 libc = "0.2"

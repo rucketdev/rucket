@@ -19,6 +19,13 @@ use crate::backend::{ListObjectsResult, StorageBackend};
 use crate::metadata::{MetadataBackend, RedbMetadataStore};
 use crate::sync::{write_and_hash_with_strategy, SyncManager};
 
+/// Sync a directory to ensure its entries (file names) are persisted.
+/// This is critical for durability after rename operations.
+async fn sync_directory(path: &std::path::Path) -> std::io::Result<()> {
+    let dir = fs::File::open(path).await?;
+    dir.sync_all().await
+}
+
 /// Per-key lock type for serializing concurrent writes.
 type KeyLock = Arc<tokio::sync::Mutex<()>>;
 
@@ -269,8 +276,9 @@ impl StorageBackend for LocalStorage {
         let data_len = data.len() as u64;
         let sync_strategy = self.sync_manager.config().data;
 
-        // Write to temp file and compute ETag (no sync yet - we handle it below)
-        let etag = write_and_hash_with_strategy(&temp_path, &data, SyncStrategy::None).await?;
+        // Write to temp file and compute ETag + CRC32C (no sync yet - we handle it below)
+        let write_result =
+            write_and_hash_with_strategy(&temp_path, &data, SyncStrategy::None).await?;
 
         // Check if we should sync NOW (Always mode, or threshold reached for Periodic/Threshold)
         let should_sync = self.sync_manager.should_sync_now(data_len);
@@ -287,6 +295,17 @@ impl StorageBackend for LocalStorage {
         let final_path = self.object_path(bucket, &uuid);
         fs::rename(&temp_path, &final_path).await?;
 
+        // For maximum durability (Always mode), also sync the parent directory
+        // to ensure the directory entry (file name) is persisted to disk.
+        // This is critical: without directory fsync, the file might exist
+        // on disk but not be discoverable after a crash.
+        if sync_strategy == SyncStrategy::Always {
+            let bucket_dir = self.bucket_path(bucket);
+            if let Err(e) = sync_directory(&bucket_dir).await {
+                tracing::warn!(?bucket_dir, error = %e, "Failed to sync directory");
+            }
+        }
+
         // Record the write (updates counters)
         self.sync_manager.record_write(data_len);
 
@@ -302,14 +321,15 @@ impl StorageBackend for LocalStorage {
             let _ = fs::remove_file(&old_path).await;
         }
 
-        // Update metadata
-        let mut meta = ObjectMetadata::new(key, uuid, data_len, etag.clone());
+        // Update metadata with checksum
+        let mut meta = ObjectMetadata::new(key, uuid, data_len, write_result.etag.clone())
+            .with_checksum(write_result.crc32c);
         if let Some(ct) = content_type {
             meta = meta.with_content_type(ct);
         }
         self.metadata.put_object(bucket, meta).await?;
 
-        Ok(etag)
+        Ok(write_result.etag)
     }
 
     async fn get_object(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
