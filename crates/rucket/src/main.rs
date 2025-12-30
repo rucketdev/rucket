@@ -8,15 +8,14 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use rucket_api::create_router;
+use rucket_core::config::{Config, LogFormat};
+use rucket_storage::LocalStorage;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-
-use rucket_api::create_router;
-use rucket_core::config::{Config, LogFormat};
-use rucket_storage::LocalStorage;
 
 mod cli;
 

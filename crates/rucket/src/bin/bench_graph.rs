@@ -8,11 +8,12 @@
 
 #![allow(missing_docs)]
 
-use plotters::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+
+use plotters::prelude::*;
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 /// Criterion estimates structure (partial).

@@ -30,7 +30,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all -- --check
+      # Pass unstable options via --config to avoid warnings on stable
+      - run: cargo fmt --all -- --check --config imports_granularity=Module --config group_imports=StdExternalCrate
 
   clippy:
     name: Clippy

@@ -3,13 +3,13 @@
 
 //! AWS Signature Version 4 validation.
 
+use std::collections::BTreeMap;
+
 use axum::http::{HeaderMap, Method};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use std::collections::BTreeMap;
-
 use rucket_core::config::AuthConfig;
+use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 

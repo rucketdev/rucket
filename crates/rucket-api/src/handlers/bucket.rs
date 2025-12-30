@@ -3,11 +3,11 @@
 
 //! Bucket operation handlers.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use std::sync::Arc;
-
 use rucket_storage::{LocalStorage, StorageBackend};
 
 use crate::error::ApiError;

@@ -99,9 +99,11 @@ fn aligned_buffer(size: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_read_direct() {

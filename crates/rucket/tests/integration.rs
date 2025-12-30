@@ -11,13 +11,12 @@ use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client;
+use rucket_api::create_router;
+use rucket_storage::LocalStorage;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-
-use rucket_api::create_router;
-use rucket_storage::LocalStorage;
 
 /// A test server instance.
 struct TestServer {
