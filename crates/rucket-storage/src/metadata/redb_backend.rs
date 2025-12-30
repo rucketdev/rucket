@@ -700,7 +700,7 @@ mod tests {
         // Create 5 objects
         for i in 0..5 {
             let meta = ObjectMetadata::new(
-                &format!("key{:02}", i),
+                format!("key{i:02}"),
                 Uuid::new_v4(),
                 100,
                 ETag::new("\"test\""),

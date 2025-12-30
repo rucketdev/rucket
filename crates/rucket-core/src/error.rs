@@ -51,6 +51,8 @@ pub enum S3ErrorCode {
     InvalidRequest,
     /// The functionality is not implemented.
     NotImplemented,
+    /// At least one of the preconditions you specified did not hold.
+    PreconditionFailed,
 }
 
 impl S3ErrorCode {
@@ -73,6 +75,7 @@ impl S3ErrorCode {
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
+            Self::PreconditionFailed => 412,
         }
     }
 
@@ -106,6 +109,7 @@ impl S3ErrorCode {
             Self::InvalidRange => "InvalidRange",
             Self::InvalidRequest => "InvalidRequest",
             Self::NotImplemented => "NotImplemented",
+            Self::PreconditionFailed => "PreconditionFailed",
         }
     }
 }

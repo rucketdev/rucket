@@ -44,6 +44,97 @@ fn default_max_keys() -> u32 {
     1000
 }
 
+/// Check If-Match and If-None-Match precondition headers.
+///
+/// Returns an error if preconditions are not met:
+/// - `If-Match`: The request succeeds only if the object's ETag matches one of the specified ETags.
+/// - `If-None-Match`: The request succeeds only if the object's ETag does NOT match any of the specified ETags.
+///   The special value `*` matches any existing object.
+async fn check_preconditions(
+    state: &AppState,
+    bucket: &str,
+    key: &str,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
+    let if_match = headers.get("if-match").and_then(|v| v.to_str().ok());
+    let if_none_match = headers.get("if-none-match").and_then(|v| v.to_str().ok());
+
+    // If no conditional headers, nothing to check
+    if if_match.is_none() && if_none_match.is_none() {
+        return Ok(());
+    }
+
+    // Get current object ETag (if it exists)
+    let current_etag = state
+        .storage
+        .head_object(bucket, key)
+        .await
+        .ok()
+        .map(|m| m.etag.as_str().to_string());
+
+    // Check If-Match: request succeeds only if ETag matches
+    if let Some(if_match_value) = if_match {
+        match &current_etag {
+            Some(etag) => {
+                // Parse comma-separated ETags and check if any match
+                let matches = if_match_value
+                    .split(',')
+                    .map(|s| s.trim().trim_matches('"'))
+                    .any(|expected| {
+                        let actual = etag.trim_matches('"');
+                        expected == actual || expected == "*"
+                    });
+
+                if !matches {
+                    return Err(ApiError::new(
+                        S3ErrorCode::PreconditionFailed,
+                        "At least one of the pre-conditions you specified did not hold",
+                    ));
+                }
+            }
+            None => {
+                // Object doesn't exist but If-Match was specified
+                return Err(ApiError::new(
+                    S3ErrorCode::PreconditionFailed,
+                    "At least one of the pre-conditions you specified did not hold",
+                ));
+            }
+        }
+    }
+
+    // Check If-None-Match: request succeeds only if ETag does NOT match
+    if let Some(if_none_match_value) = if_none_match {
+        if let Some(etag) = &current_etag {
+            // Special case: "*" matches any existing object
+            if if_none_match_value.trim() == "*" {
+                return Err(ApiError::new(
+                    S3ErrorCode::PreconditionFailed,
+                    "At least one of the pre-conditions you specified did not hold",
+                ));
+            }
+
+            // Parse comma-separated ETags and check if any match
+            let matches = if_none_match_value
+                .split(',')
+                .map(|s| s.trim().trim_matches('"'))
+                .any(|expected| {
+                    let actual = etag.trim_matches('"');
+                    expected == actual
+                });
+
+            if matches {
+                return Err(ApiError::new(
+                    S3ErrorCode::PreconditionFailed,
+                    "At least one of the pre-conditions you specified did not hold",
+                ));
+            }
+        }
+        // If object doesn't exist and If-None-Match is specified, that's fine
+    }
+
+    Ok(())
+}
+
 /// `PUT /{bucket}/{key}` - Upload object.
 pub async fn put_object(
     State(state): State<AppState>,
@@ -51,6 +142,9 @@ pub async fn put_object(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Check conditional headers for optimistic locking
+    check_preconditions(&state, &bucket, &key, &headers).await?;
+
     let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
 
     let etag = state
@@ -183,6 +277,9 @@ pub async fn copy_object(
     Path((dst_bucket, dst_key)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    // Check conditional headers for destination object
+    check_preconditions(&state, &dst_bucket, &dst_key, &headers).await?;
+
     let copy_source = headers
         .get("x-amz-copy-source")
         .and_then(|v| v.to_str().ok())

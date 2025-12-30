@@ -34,7 +34,7 @@ pub fn open_direct(path: &Path) -> std::io::Result<File> {
         unsafe {
             libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
         }
-        return Ok(file);
+        Ok(file)
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
