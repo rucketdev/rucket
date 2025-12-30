@@ -91,16 +91,13 @@ fn collect_results(criterion_dir: &Path) -> anyhow::Result<BenchResults> {
 
 /// Parse a single benchmark result from estimates.json.
 fn parse_benchmark_result(path: &Path) -> anyhow::Result<Option<BenchResult>> {
-    // Path structure: target/criterion/{group}/{function}/{variant}/new/estimates.json
-    // Example: target/criterion/profile_put/throughput/fast_1KB/new/estimates.json
-
     let content = fs::read_to_string(path)?;
     let estimates: CriterionEstimates = serde_json::from_str(&content)?;
 
     // Extract group, function, variant from path
     let components: Vec<_> = path
         .ancestors()
-        .skip(2) // Skip new/ and estimates.json
+        .skip(2)
         .take(3)
         .filter_map(|p| p.file_name())
         .map(|s| s.to_string_lossy().to_string())
@@ -110,21 +107,15 @@ fn parse_benchmark_result(path: &Path) -> anyhow::Result<Option<BenchResult>> {
         return Ok(None);
     }
 
-    // components[0] = variant (e.g., "fast_1KB" or "fast/1KB")
-    // components[1] = function (e.g., "throughput")
-    // components[2] = group (e.g., "profile_put")
-
     let variant = &components[0];
     let group = &components[2];
 
-    // Only process profile_put and profile_get groups
     if !group.starts_with("profile_") {
         return Ok(None);
     }
 
-    // Parse variant: could be "fast_1KB" or "fast/1KB" URL-encoded
-    let variant_decoded = urlencoding_decode(variant);
-    // Try splitting on underscore first (criterion default), then slash
+    // Parse variant: "fast_1KB" or "fast/1KB"
+    let variant_decoded = variant.replace("%2F", "/").replace("%20", " ");
     let parts: Vec<&str> = if variant_decoded.contains('_') {
         variant_decoded.splitn(2, '_').collect()
     } else {
@@ -143,7 +134,6 @@ fn parse_benchmark_result(path: &Path) -> anyhow::Result<Option<BenchResult>> {
         return Ok(None);
     }
 
-    // Calculate throughput: bytes / ns * 1e9 / 1048576 = MB/s
     let throughput_mbs = (bytes as f64) / estimates.mean.point_estimate * 1e9 / 1_048_576.0;
 
     Ok(Some(BenchResult {
@@ -156,16 +146,23 @@ fn parse_benchmark_result(path: &Path) -> anyhow::Result<Option<BenchResult>> {
     }))
 }
 
-/// Simple URL decoding for common cases.
-fn urlencoding_decode(s: &str) -> String {
-    s.replace("%2F", "/").replace("%20", " ")
+// Profile colors
+const COLOR_FAST: RGBColor = RGBColor(59, 130, 246);     // Blue
+const COLOR_BALANCED: RGBColor = RGBColor(34, 197, 94); // Green
+const COLOR_DURABLE: RGBColor = RGBColor(239, 68, 68);  // Red
+
+fn profile_color(profile: &str) -> RGBColor {
+    match profile {
+        "fast" => COLOR_FAST,
+        "balanced" => COLOR_BALANCED,
+        "durable" => COLOR_DURABLE,
+        _ => RGBColor(128, 128, 128),
+    }
 }
 
 /// Generate PUT throughput chart.
 fn generate_put_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Result<()> {
     let output_path = output_dir.join("put_throughput.svg");
-
-    // Filter to profile_put results
     let put_results: Vec<_> = results
         .results
         .iter()
@@ -177,7 +174,7 @@ fn generate_put_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Resu
         return Ok(());
     }
 
-    generate_throughput_chart(&put_results, &output_path, "PUT Throughput by Sync Profile")?;
+    generate_bar_chart(&put_results, &output_path, "PUT Throughput by Sync Profile")?;
     println!("Generated: {}", output_path.display());
     Ok(())
 }
@@ -185,8 +182,6 @@ fn generate_put_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Resu
 /// Generate GET throughput chart.
 fn generate_get_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Result<()> {
     let output_path = output_dir.join("get_throughput.svg");
-
-    // Filter to profile_get results
     let get_results: Vec<_> = results
         .results
         .iter()
@@ -198,54 +193,49 @@ fn generate_get_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Resu
         return Ok(());
     }
 
-    generate_throughput_chart(&get_results, &output_path, "GET Throughput by Sync Profile")?;
+    generate_bar_chart(&get_results, &output_path, "GET Throughput by Sync Profile")?;
     println!("Generated: {}", output_path.display());
     Ok(())
 }
 
 /// Generate a grouped bar chart for throughput results.
-fn generate_throughput_chart(
+fn generate_bar_chart(
     results: &[&BenchResult],
     output_path: &Path,
     title: &str,
 ) -> anyhow::Result<()> {
-    // Group by profile, then by size
-    let mut data: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
-    for r in results {
-        data.entry(r.profile.clone())
-            .or_default()
-            .insert(r.size.clone(), r.throughput_mbs);
-    }
-
-    let profiles: Vec<_> = data.keys().cloned().collect();
+    let profiles = ["fast", "balanced", "durable"];
     let sizes = ["1KB", "64KB", "1MB"];
 
-    // Colors optimized for GitHub dark/light mode
-    let colors = [
-        RGBColor(59, 130, 246),  // Blue - fast
-        RGBColor(34, 197, 94),   // Green - balanced
-        RGBColor(239, 68, 68),   // Red - durable
-    ];
+    // Build lookup table
+    let mut lookup: BTreeMap<(&str, &str), f64> = BTreeMap::new();
+    for r in results {
+        lookup.insert((r.profile.as_str(), r.size.as_str()), r.throughput_mbs);
+    }
 
-    let root = SVGBackend::new(output_path, (800, 500)).into_drawing_area();
-    root.fill(&WHITE)?;
-
-    // Find max throughput for Y axis
     let max_throughput = results
         .iter()
         .map(|r| r.throughput_mbs)
         .fold(0.0_f64, f64::max)
-        * 1.15; // Add 15% headroom
+        * 1.2;
+
+    let root = SVGBackend::new(output_path, (800, 500)).into_drawing_area();
+    root.fill(&WHITE)?;
+
+    // Calculate bar positions
+    // Each size group has 3 bars (one per profile)
+    // Total bars = 9, with gaps between size groups
+    let bar_width = 0.8;
+    let group_gap = 1.0;
+    let total_width = sizes.len() as f64 * (profiles.len() as f64 * bar_width + group_gap);
 
     let mut chart = ChartBuilder::on(&root)
         .caption(title, ("sans-serif", 24).into_font())
         .margin(20)
-        .x_label_area_size(50)
+        .margin_right(120) // Extra space for legend
+        .x_label_area_size(60)
         .y_label_area_size(80)
-        .build_cartesian_2d(
-            (0..sizes.len()).into_segmented(),
-            0.0..max_throughput,
-        )?;
+        .build_cartesian_2d(0.0..total_width, 0.0..max_throughput)?;
 
     chart
         .configure_mesh()
@@ -254,74 +244,61 @@ fn generate_throughput_chart(
         .x_desc("Object Size")
         .x_labels(sizes.len())
         .x_label_formatter(&|x| {
-            if let SegmentValue::CenterOf(idx) = x {
-                sizes.get(*idx).map(|s| s.to_string()).unwrap_or_default()
+            let group_width = profiles.len() as f64 * bar_width + group_gap;
+            let group_idx = (*x / group_width) as usize;
+            let within_group = *x - group_idx as f64 * group_width;
+            // Only show label at center of group
+            if within_group > 0.5 && within_group < group_width - 0.5 {
+                sizes.get(group_idx).map(|s| s.to_string()).unwrap_or_default()
             } else {
                 String::new()
             }
         })
         .draw()?;
 
-    // Draw bars for each profile
-    let bar_width = 0.25;
+    // Draw bars and collect legend entries
     for (profile_idx, profile) in profiles.iter().enumerate() {
-        let color = colors.get(profile_idx).copied().unwrap_or(BLACK);
+        let color = profile_color(profile);
+        let mut bar_data = Vec::new();
 
-        if let Some(profile_data) = data.get(profile) {
-            let bars: Vec<_> = sizes
-                .iter()
-                .enumerate()
-                .filter_map(|(size_idx, size)| {
-                    profile_data.get(*size).map(|&throughput| {
-                        let x_offset = (profile_idx as f64 - 1.0) * bar_width;
-                        (size_idx, x_offset, throughput)
-                    })
-                })
-                .collect();
-
-            chart.draw_series(bars.iter().map(|&(size_idx, _x_offset, throughput)| {
-                Rectangle::new(
-                    [
-                        (SegmentValue::Exact(size_idx), 0.0),
-                        (SegmentValue::Exact(size_idx), throughput),
-                    ],
-                    color.mix(0.8).filled(),
-                )
-                .into_dyn()
-            }))?;
+        for (size_idx, size) in sizes.iter().enumerate() {
+            if let Some(&throughput) = lookup.get(&(*profile, *size)) {
+                let group_width = profiles.len() as f64 * bar_width + group_gap;
+                let x = size_idx as f64 * group_width + profile_idx as f64 * bar_width;
+                bar_data.push((x, throughput));
+            }
         }
-    }
 
-    // Draw legend
-    for (idx, profile) in profiles.iter().enumerate() {
-        let color = colors.get(idx).copied().unwrap_or(BLACK);
-        chart
-            .draw_series(std::iter::once(Rectangle::new(
-                [(SegmentValue::Exact(0), 0.0), (SegmentValue::Exact(0), 0.0)],
-                color.filled(),
-            )))?
-            .label(profile.as_str())
-            .legend(move |(x, y)| {
-                Rectangle::new([(x, y - 5), (x + 15, y + 5)], color.filled())
-            });
+        // Draw bars for this profile
+        chart.draw_series(bar_data.iter().map(|&(x, throughput)| {
+            Rectangle::new(
+                [(x, 0.0), (x + bar_width * 0.9, throughput)],
+                color.mix(0.85).filled(),
+            )
+        }))?
+        .label(*profile)
+        .legend(move |(x, y)| {
+            Rectangle::new([(x, y - 6), (x + 18, y + 6)], color.filled())
+        });
     }
 
     chart
         .configure_series_labels()
         .position(SeriesLabelPosition::UpperRight)
-        .border_style(BLACK)
-        .background_style(WHITE.mix(0.8))
+        .margin(10)
+        .border_style(BLACK.stroke_width(1))
+        .background_style(WHITE.mix(0.9))
+        .label_font(("sans-serif", 14))
         .draw()?;
 
     root.present()?;
     Ok(())
 }
 
-/// Generate comparison chart showing all profiles.
+/// Generate comparison chart showing all profiles for both PUT and GET.
 fn generate_comparison_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Result<()> {
     let output_path = output_dir.join("sync_comparison.svg");
 
-    // Combine PUT and GET results
     let all_results: Vec<_> = results
         .results
         .iter()
@@ -333,11 +310,15 @@ fn generate_comparison_chart(results: &BenchResults, output_dir: &Path) -> anyho
         return Ok(());
     }
 
-    let root = SVGBackend::new(&output_path, (800, 600)).into_drawing_area();
+    let root = SVGBackend::new(&output_path, (900, 650)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    // Split into PUT and GET sections
-    let (upper, lower) = root.split_vertically(300);
+    // Title at top
+    root.titled("Sync Profile Comparison", ("sans-serif", 26).into_font())?;
+
+    // Split into upper (PUT) and lower (GET) sections with legend space
+    let (main_area, legend_area) = root.split_vertically(580);
+    let (upper, lower) = main_area.split_vertically(290);
 
     // Draw PUT comparison
     let put_results: Vec<_> = all_results
@@ -361,6 +342,9 @@ fn generate_comparison_chart(results: &BenchResults, output_dir: &Path) -> anyho
         draw_comparison_section(&lower, &get_results, "GET Operations")?;
     }
 
+    // Draw legend at bottom
+    draw_legend(&legend_area)?;
+
     root.present()?;
     println!("Generated: {}", output_path.display());
     Ok(())
@@ -375,12 +359,6 @@ fn draw_comparison_section(
     let profiles = ["fast", "balanced", "durable"];
     let sizes = ["1KB", "64KB", "1MB"];
 
-    let colors = [
-        RGBColor(59, 130, 246),  // Blue
-        RGBColor(34, 197, 94),   // Green
-        RGBColor(239, 68, 68),   // Red
-    ];
-
     // Build lookup table
     let mut lookup: BTreeMap<(&str, &str), f64> = BTreeMap::new();
     for r in results {
@@ -391,26 +369,30 @@ fn draw_comparison_section(
         .iter()
         .map(|r| r.throughput_mbs)
         .fold(0.0_f64, f64::max)
-        * 1.15;
+        * 1.2;
 
-    let num_groups = sizes.len() * profiles.len();
+    let bar_width = 0.8;
+    let group_gap = 1.0;
+    let total_width = sizes.len() as f64 * (profiles.len() as f64 * bar_width + group_gap);
 
     let mut chart = ChartBuilder::on(area)
-        .caption(title, ("sans-serif", 20).into_font())
-        .margin(15)
-        .x_label_area_size(40)
+        .caption(title, ("sans-serif", 18).into_font())
+        .margin(10)
+        .margin_top(25)
+        .x_label_area_size(35)
         .y_label_area_size(70)
-        .build_cartesian_2d(0..num_groups, 0.0..max_throughput)?;
+        .build_cartesian_2d(0.0..total_width, 0.0..max_throughput)?;
 
     chart
         .configure_mesh()
         .disable_x_mesh()
         .y_desc("MB/s")
-        .x_label_formatter(&|idx| {
-            let size_idx = idx / profiles.len();
-            let profile_idx = idx % profiles.len();
-            if profile_idx == 1 {
-                sizes.get(size_idx).map(|s| s.to_string()).unwrap_or_default()
+        .x_label_formatter(&|x| {
+            let group_width = profiles.len() as f64 * bar_width + group_gap;
+            let group_idx = (*x / group_width) as usize;
+            let within_group = *x - group_idx as f64 * group_width;
+            if within_group > 0.8 && within_group < group_width - 0.5 {
+                sizes.get(group_idx).map(|s| s.to_string()).unwrap_or_default()
             } else {
                 String::new()
             }
@@ -418,18 +400,54 @@ fn draw_comparison_section(
         .draw()?;
 
     // Draw bars
-    for (size_idx, size) in sizes.iter().enumerate() {
-        for (profile_idx, profile) in profiles.iter().enumerate() {
+    for (profile_idx, profile) in profiles.iter().enumerate() {
+        let color = profile_color(profile);
+
+        for (size_idx, size) in sizes.iter().enumerate() {
             if let Some(&throughput) = lookup.get(&(*profile, *size)) {
-                let x = size_idx * profiles.len() + profile_idx;
-                let color = colors[profile_idx];
+                let group_width = profiles.len() as f64 * bar_width + group_gap;
+                let x = size_idx as f64 * group_width + profile_idx as f64 * bar_width;
 
                 chart.draw_series(std::iter::once(Rectangle::new(
-                    [(x, 0.0), (x + 1, throughput)],
-                    color.mix(0.8).filled(),
+                    [(x, 0.0), (x + bar_width * 0.9, throughput)],
+                    color.mix(0.85).filled(),
                 )))?;
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Draw legend for the comparison chart.
+fn draw_legend(area: &DrawingArea<SVGBackend<'_>, plotters::coord::Shift>) -> anyhow::Result<()> {
+    let profiles = [
+        ("fast", COLOR_FAST, "No fsync, periodic metadata"),
+        ("balanced", COLOR_BALANCED, "Periodic fsync, durable metadata"),
+        ("durable", COLOR_DURABLE, "Always fsync, maximum durability"),
+    ];
+
+    let (width, _height) = area.dim_in_pixel();
+    let start_x = (width as i32 - 600) / 2;
+    let y = 25;
+    let box_size = 16;
+    let spacing = 200;
+
+    for (i, (name, color, _desc)) in profiles.iter().enumerate() {
+        let x = start_x + (i as i32) * spacing;
+
+        // Draw color box
+        area.draw(&Rectangle::new(
+            [(x, y - box_size / 2), (x + box_size, y + box_size / 2)],
+            color.filled(),
+        ))?;
+
+        // Draw label
+        area.draw(&Text::new(
+            *name,
+            (x + box_size + 8, y),
+            ("sans-serif", 15).into_font().color(&BLACK),
+        ))?;
     }
 
     Ok(())
@@ -451,14 +469,12 @@ fn main() -> anyhow::Result<()> {
     let graphs_dir = Path::new("docs/benchmarks/graphs");
     let results_path = Path::new("docs/benchmarks/results/latest.json");
 
-    // Check if criterion results exist
     if !criterion_dir.exists() {
         eprintln!("Error: No benchmark results found at {}", criterion_dir.display());
         eprintln!("Run 'cargo bench --bench throughput' first.");
         std::process::exit(1);
     }
 
-    // Create output directories
     fs::create_dir_all(graphs_dir)?;
     if let Some(parent) = results_path.parent() {
         fs::create_dir_all(parent)?;
@@ -475,12 +491,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("Found {} benchmark results", results.results.len());
 
-    // Generate charts
     generate_put_chart(&results, graphs_dir)?;
     generate_get_chart(&results, graphs_dir)?;
     generate_comparison_chart(&results, graphs_dir)?;
 
-    // Export JSON
     export_json(&results, results_path)?;
 
     println!("\nDone! Charts saved to {}", graphs_dir.display());
