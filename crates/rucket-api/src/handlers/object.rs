@@ -15,8 +15,10 @@ use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
+use crate::xml::request::DeleteObjects;
 use crate::xml::response::{
-    to_xml, CommonPrefix, CopyObjectResponse, ListObjectsV2Response, ObjectEntry,
+    to_xml, CommonPrefix, CopyObjectResponse, DeleteError, DeleteObjectsResponse, DeletedObject,
+    ListObjectsV2Response, ObjectEntry,
 };
 
 /// Format a datetime for HTTP headers (RFC 7231 format).
@@ -317,6 +319,52 @@ pub async fn list_objects_v2(
             .into_iter()
             .map(|p| CommonPrefix { prefix: p })
             .collect(),
+    };
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+}
+
+/// `POST /{bucket}?delete` - Delete multiple objects.
+pub async fn delete_objects(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    // Parse the XML request body
+    let request: DeleteObjects = quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+        ApiError::new(S3ErrorCode::InvalidRequest, format!("Failed to parse DeleteObjects: {e}"))
+    })?;
+
+    let mut deleted = Vec::new();
+    let mut errors = Vec::new();
+
+    // Delete each object
+    for obj in &request.objects {
+        match state.storage.delete_object(&bucket, &obj.key).await {
+            Ok(()) => {
+                deleted.push(DeletedObject { key: obj.key.clone(), version_id: None });
+            }
+            Err(e) => {
+                // Convert storage error to S3 error code and message
+                let api_err: ApiError = e.into();
+                errors.push(DeleteError {
+                    key: obj.key.clone(),
+                    code: api_err.code.as_str().to_string(),
+                    message: api_err.message,
+                });
+            }
+        }
+    }
+
+    // Build response - in quiet mode, only report errors
+    let response = if request.quiet {
+        DeleteObjectsResponse { deleted: Vec::new(), errors }
+    } else {
+        DeleteObjectsResponse { deleted, errors }
     };
 
     let xml = to_xml(&response).map_err(|e| {

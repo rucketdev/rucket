@@ -42,6 +42,8 @@ struct RequestQuery {
     /// Maximum keys to return (for ListObjectsV2).
     #[serde(rename = "max-keys")]
     max_keys: Option<u32>,
+    /// Delete marker (for DeleteObjects).
+    delete: Option<String>,
 }
 
 /// Create the S3 API router.
@@ -58,11 +60,19 @@ pub fn create_router(storage: Arc<LocalStorage>, max_body_size: u64) -> Router {
         // Bucket operations with complex routing (with and without trailing slash)
         .route(
             "/{bucket}",
-            get(handle_bucket_get).put(create_bucket).delete(delete_bucket).head(head_bucket),
+            get(handle_bucket_get)
+                .put(create_bucket)
+                .delete(delete_bucket)
+                .head(head_bucket)
+                .post(handle_bucket_post),
         )
         .route(
             "/{bucket}/",
-            get(handle_bucket_get).put(create_bucket).delete(delete_bucket).head(head_bucket),
+            get(handle_bucket_get)
+                .put(create_bucket)
+                .delete(delete_bucket)
+                .head(head_bucket)
+                .post(handle_bucket_post),
         )
         // Object operations with complex routing
         .route(
@@ -103,6 +113,26 @@ async fn head_bucket(state: State<AppState>, path: Path<String>) -> Response {
 
 async fn head_object(state: State<AppState>, path: Path<(String, String)>) -> Response {
     object::head_object(state, path).await.into_response()
+}
+
+/// Handle POST requests to bucket (delete multiple objects).
+async fn handle_bucket_post(
+    state: State<AppState>,
+    path: Path<String>,
+    Query(query): Query<RequestQuery>,
+    body: Bytes,
+) -> Response {
+    // Check for ?delete (DeleteObjects)
+    if query.delete.is_some() {
+        return object::delete_objects(state, path, body).await.into_response();
+    }
+
+    // Unsupported POST to bucket
+    crate::error::ApiError::new(
+        rucket_core::error::S3ErrorCode::InvalidRequest,
+        "Unsupported POST request to bucket",
+    )
+    .into_response()
 }
 
 /// Handle GET requests to bucket (list objects or list uploads).
