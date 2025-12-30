@@ -53,6 +53,7 @@ aws-credential-types.workspace = true
 tokio-test.workspace = true
 criterion.workspace = true
 bytes.workspace = true
+rucket-storage = { path = "../rucket-storage", features = ["bench"] }
 
 [[bin]]
 name = "bench-graph"

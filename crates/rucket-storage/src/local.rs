@@ -136,6 +136,25 @@ impl LocalStorage {
         }
         Ok(())
     }
+
+    /// Read object data directly, bypassing OS page cache.
+    ///
+    /// Used for benchmarking to get accurate disk I/O measurements.
+    #[cfg(feature = "bench")]
+    pub async fn get_object_direct(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
+        let meta = self.metadata.get_object(bucket, key).await?;
+        let path = self.object_path(bucket, &meta.uuid);
+
+        // Use blocking task for sync direct I/O
+        let data = tokio::task::spawn_blocking(move || {
+            crate::direct_io::read_direct(&path)
+        })
+        .await
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?
+        .map_err(Error::Io)?;
+
+        Ok((meta, Bytes::from(data)))
+    }
 }
 
 impl StorageBackend for LocalStorage {

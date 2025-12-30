@@ -147,15 +147,15 @@ fn parse_benchmark_result(path: &Path) -> anyhow::Result<Option<BenchResult>> {
 }
 
 // Profile colors
-const COLOR_FAST: RGBColor = RGBColor(59, 130, 246);     // Blue
-const COLOR_BALANCED: RGBColor = RGBColor(34, 197, 94); // Green
-const COLOR_DURABLE: RGBColor = RGBColor(239, 68, 68);  // Red
+const COLOR_NEVER: RGBColor = RGBColor(59, 130, 246);    // Blue
+const COLOR_PERIODIC: RGBColor = RGBColor(34, 197, 94);  // Green
+const COLOR_ALWAYS: RGBColor = RGBColor(239, 68, 68);    // Red
 
 fn profile_color(profile: &str) -> RGBColor {
     match profile {
-        "fast" => COLOR_FAST,
-        "balanced" => COLOR_BALANCED,
-        "durable" => COLOR_DURABLE,
+        "never" => COLOR_NEVER,
+        "periodic" => COLOR_PERIODIC,
+        "always" => COLOR_ALWAYS,
         _ => RGBColor(128, 128, 128),
     }
 }
@@ -204,7 +204,7 @@ fn generate_bar_chart(
     output_path: &Path,
     title: &str,
 ) -> anyhow::Result<()> {
-    let profiles = ["fast", "balanced", "durable"];
+    let profiles = ["never", "periodic", "always"];
     let sizes = ["1KB", "64KB", "1MB"];
 
     // Build lookup table
@@ -356,7 +356,7 @@ fn draw_comparison_section(
     results: &[&BenchResult],
     title: &str,
 ) -> anyhow::Result<()> {
-    let profiles = ["fast", "balanced", "durable"];
+    let profiles = ["never", "periodic", "always"];
     let sizes = ["1KB", "64KB", "1MB"];
 
     // Build lookup table
@@ -422,9 +422,9 @@ fn draw_comparison_section(
 /// Draw legend for the comparison chart.
 fn draw_legend(area: &DrawingArea<SVGBackend<'_>, plotters::coord::Shift>) -> anyhow::Result<()> {
     let profiles = [
-        ("fast", COLOR_FAST, "No fsync, periodic metadata"),
-        ("balanced", COLOR_BALANCED, "Periodic fsync, durable metadata"),
-        ("durable", COLOR_DURABLE, "Always fsync, maximum durability"),
+        ("never", COLOR_NEVER, "No fsync"),
+        ("periodic", COLOR_PERIODIC, "Periodic fsync"),
+        ("always", COLOR_ALWAYS, "Always fsync"),
     ];
 
     let (width, _height) = area.dim_in_pixel();

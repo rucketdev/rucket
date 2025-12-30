@@ -193,21 +193,10 @@ impl Default for SyncConfig {
 }
 
 impl SyncConfig {
-    /// Configuration optimized for maximum durability.
-    /// Syncs after every operation - slowest but safest.
+    /// Configuration that never explicitly syncs - relies on OS.
+    /// Maximum performance but risk of data loss on crash.
     #[must_use]
-    pub fn durable() -> Self {
-        Self {
-            data: SyncStrategy::Always,
-            metadata: SyncStrategy::Always,
-            ..Default::default()
-        }
-    }
-
-    /// Configuration optimized for maximum performance.
-    /// No explicit syncs - relies on OS. Risk of data loss on crash.
-    #[must_use]
-    pub fn fast() -> Self {
+    pub fn never() -> Self {
         Self {
             data: SyncStrategy::None,
             metadata: SyncStrategy::Periodic,
@@ -216,11 +205,22 @@ impl SyncConfig {
         }
     }
 
-    /// Configuration balanced for typical workloads.
-    /// Periodic data sync, always sync metadata.
+    /// Configuration with periodic sync.
+    /// Good balance for typical workloads.
     #[must_use]
-    pub fn balanced() -> Self {
+    pub fn periodic() -> Self {
         Self::default()
+    }
+
+    /// Configuration that always syncs after every operation.
+    /// Slowest but maximum durability.
+    #[must_use]
+    pub fn always() -> Self {
+        Self {
+            data: SyncStrategy::Always,
+            metadata: SyncStrategy::Always,
+            ..Default::default()
+        }
     }
 }
 

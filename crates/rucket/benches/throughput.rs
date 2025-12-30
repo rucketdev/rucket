@@ -49,16 +49,22 @@ impl BenchFixture {
         })
     }
 
-    /// Create a fixture optimized for benchmarking (no sync).
+    /// Create a fixture that never syncs (maximum performance).
     #[allow(dead_code)]
-    fn fast(rt: &Runtime) -> Self {
-        Self::with_sync_config(rt, SyncConfig::fast())
+    fn never(rt: &Runtime) -> Self {
+        Self::with_sync_config(rt, SyncConfig::never())
     }
 
-    /// Create a fixture with always-sync (current default behavior).
+    /// Create a fixture with periodic sync.
     #[allow(dead_code)]
-    fn durable(rt: &Runtime) -> Self {
-        Self::with_sync_config(rt, SyncConfig::durable())
+    fn periodic(rt: &Runtime) -> Self {
+        Self::with_sync_config(rt, SyncConfig::periodic())
+    }
+
+    /// Create a fixture that always syncs (maximum durability).
+    #[allow(dead_code)]
+    fn always(rt: &Runtime) -> Self {
+        Self::with_sync_config(rt, SyncConfig::always())
     }
 }
 
@@ -422,17 +428,17 @@ struct SyncProfile {
 /// Predefined sync profiles representing common use cases.
 const SYNC_PROFILES: &[SyncProfile] = &[
     SyncProfile {
-        name: "fast",
+        name: "never",
         data: SyncStrategy::None,
         metadata: SyncStrategy::Periodic,
     },
     SyncProfile {
-        name: "balanced",
+        name: "periodic",
         data: SyncStrategy::Periodic,
         metadata: SyncStrategy::Always,
     },
     SyncProfile {
-        name: "durable",
+        name: "always",
         data: SyncStrategy::Always,
         metadata: SyncStrategy::Always,
     },
@@ -522,8 +528,9 @@ fn bench_profile_matrix_get(c: &mut Criterion) {
 
                 b.iter(|| {
                     rt.block_on(async {
+                        // Use direct I/O to bypass OS page cache for accurate measurements
                         let (_meta, _data) = storage
-                            .get_object("bench", key)
+                            .get_object_direct("bench", key)
                             .await
                             .expect("get_object failed");
                     });

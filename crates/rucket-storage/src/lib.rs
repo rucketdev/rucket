@@ -8,8 +8,11 @@
 //! - Local filesystem storage for object data
 //! - Streaming I/O utilities
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
+
+#[cfg(feature = "bench")]
+pub mod direct_io;
 
 pub mod backend;
 pub mod local;

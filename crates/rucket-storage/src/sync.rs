@@ -49,16 +49,22 @@ impl SyncManager {
         manager
     }
 
-    /// Create a sync manager configured for maximum durability.
+    /// Create a sync manager that never explicitly syncs (maximum performance).
     #[must_use]
-    pub fn durable() -> Arc<Self> {
-        Self::new(SyncConfig::durable())
+    pub fn never() -> Arc<Self> {
+        Self::new(SyncConfig::never())
     }
 
-    /// Create a sync manager configured for maximum performance.
+    /// Create a sync manager with periodic sync.
     #[must_use]
-    pub fn fast() -> Arc<Self> {
-        Self::new(SyncConfig::fast())
+    pub fn periodic() -> Arc<Self> {
+        Self::new(SyncConfig::periodic())
+    }
+
+    /// Create a sync manager that always syncs (maximum durability).
+    #[must_use]
+    pub fn always() -> Arc<Self> {
+        Self::new(SyncConfig::always())
     }
 
     /// Get the current sync configuration.
