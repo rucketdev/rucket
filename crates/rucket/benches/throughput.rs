@@ -37,15 +37,9 @@ impl BenchFixture {
                 .await
                 .expect("Failed to create storage");
 
-            storage
-                .create_bucket("bench")
-                .await
-                .expect("Failed to create bucket");
+            storage.create_bucket("bench").await.expect("Failed to create bucket");
 
-            Self {
-                storage: Arc::new(storage),
-                _temp_dir: temp_dir,
-            }
+            Self { storage: Arc::new(storage), _temp_dir: temp_dir }
         })
     }
 
@@ -136,10 +130,8 @@ fn bench_get_object(c: &mut Criterion) {
 
             b.iter(|| {
                 rt.block_on(async {
-                    let (_meta, _data) = storage
-                        .get_object("bench", key)
-                        .await
-                        .expect("get_object failed");
+                    let (_meta, _data) =
+                        storage.get_object("bench", key).await.expect("get_object failed");
                 });
             });
         });
@@ -209,10 +201,7 @@ fn bench_head_object(c: &mut Criterion) {
 
         b.iter(|| {
             rt.block_on(async {
-                let _meta = storage
-                    .head_object("bench", key)
-                    .await
-                    .expect("head_object failed");
+                let _meta = storage.head_object("bench", key).await.expect("head_object failed");
             });
         });
     });
@@ -241,10 +230,7 @@ fn bench_delete_object(c: &mut Criterion) {
                     .expect("put_object failed");
 
                 // Delete it
-                storage
-                    .delete_object("bench", &key)
-                    .await
-                    .expect("delete_object failed");
+                storage.delete_object("bench", &key).await.expect("delete_object failed");
             });
         });
     });
@@ -315,23 +301,19 @@ fn bench_list_objects(c: &mut Criterion) {
     let mut group = c.benchmark_group("list_objects");
 
     for count in counts {
-        group.bench_with_input(
-            BenchmarkId::new("count", count),
-            &count,
-            |b, &count| {
-                let storage = fixture.storage.clone();
+        group.bench_with_input(BenchmarkId::new("count", count), &count, |b, &count| {
+            let storage = fixture.storage.clone();
 
-                b.iter(|| {
-                    rt.block_on(async {
-                        let result = storage
-                            .list_objects("bench", None, None, None, count as u32)
-                            .await
-                            .expect("list_objects failed");
-                        assert!(result.objects.len() <= count);
-                    });
+            b.iter(|| {
+                rt.block_on(async {
+                    let result = storage
+                        .list_objects("bench", None, None, None, count as u32)
+                        .await
+                        .expect("list_objects failed");
+                    assert!(result.objects.len() <= count);
                 });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -427,29 +409,13 @@ struct SyncProfile {
 
 /// Predefined sync profiles representing common use cases.
 const SYNC_PROFILES: &[SyncProfile] = &[
-    SyncProfile {
-        name: "never",
-        data: SyncStrategy::None,
-        metadata: SyncStrategy::Periodic,
-    },
-    SyncProfile {
-        name: "periodic",
-        data: SyncStrategy::Periodic,
-        metadata: SyncStrategy::Always,
-    },
-    SyncProfile {
-        name: "always",
-        data: SyncStrategy::Always,
-        metadata: SyncStrategy::Always,
-    },
+    SyncProfile { name: "never", data: SyncStrategy::None, metadata: SyncStrategy::Periodic },
+    SyncProfile { name: "periodic", data: SyncStrategy::Periodic, metadata: SyncStrategy::Always },
+    SyncProfile { name: "always", data: SyncStrategy::Always, metadata: SyncStrategy::Always },
 ];
 
 /// Object sizes for profile matrix benchmarks.
-const PROFILE_SIZES: &[(usize, &str)] = &[
-    (1024, "1KB"),
-    (64 * 1024, "64KB"),
-    (1024 * 1024, "1MB"),
-];
+const PROFILE_SIZES: &[(usize, &str)] = &[(1024, "1KB"), (64 * 1024, "64KB"), (1024 * 1024, "1MB")];
 
 /// Benchmark PUT operations across all profile × size combinations.
 /// This creates a matrix of 3 profiles × 3 sizes = 9 benchmark variants.
@@ -459,11 +425,8 @@ fn bench_profile_matrix_put(c: &mut Criterion) {
     let mut group = c.benchmark_group("profile_put");
 
     for profile in SYNC_PROFILES {
-        let config = SyncConfig {
-            data: profile.data,
-            metadata: profile.metadata,
-            ..Default::default()
-        };
+        let config =
+            SyncConfig { data: profile.data, metadata: profile.metadata, ..Default::default() };
         let fixture = BenchFixture::with_sync_config(&rt, config);
 
         for &(size, size_name) in PROFILE_SIZES {
@@ -500,11 +463,8 @@ fn bench_profile_matrix_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("profile_get");
 
     for profile in SYNC_PROFILES {
-        let config = SyncConfig {
-            data: profile.data,
-            metadata: profile.metadata,
-            ..Default::default()
-        };
+        let config =
+            SyncConfig { data: profile.data, metadata: profile.metadata, ..Default::default() };
         let fixture = BenchFixture::with_sync_config(&rt, config);
 
         for &(size, size_name) in PROFILE_SIZES {

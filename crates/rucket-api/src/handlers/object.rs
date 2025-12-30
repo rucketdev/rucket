@@ -65,22 +65,16 @@ async fn check_preconditions(
     }
 
     // Get current object ETag (if it exists)
-    let current_etag = state
-        .storage
-        .head_object(bucket, key)
-        .await
-        .ok()
-        .map(|m| m.etag.as_str().to_string());
+    let current_etag =
+        state.storage.head_object(bucket, key).await.ok().map(|m| m.etag.as_str().to_string());
 
     // Check If-Match: request succeeds only if ETag matches
     if let Some(if_match_value) = if_match {
         match &current_etag {
             Some(etag) => {
                 // Parse comma-separated ETags and check if any match
-                let matches = if_match_value
-                    .split(',')
-                    .map(|s| s.trim().trim_matches('"'))
-                    .any(|expected| {
+                let matches =
+                    if_match_value.split(',').map(|s| s.trim().trim_matches('"')).any(|expected| {
                         let actual = etag.trim_matches('"');
                         expected == actual || expected == "*"
                     });
@@ -114,13 +108,12 @@ async fn check_preconditions(
             }
 
             // Parse comma-separated ETags and check if any match
-            let matches = if_none_match_value
-                .split(',')
-                .map(|s| s.trim().trim_matches('"'))
-                .any(|expected| {
+            let matches = if_none_match_value.split(',').map(|s| s.trim().trim_matches('"')).any(
+                |expected| {
                     let actual = etag.trim_matches('"');
                     expected == actual
-                });
+                },
+            );
 
             if matches {
                 return Err(ApiError::new(
@@ -147,10 +140,7 @@ pub async fn put_object(
 
     let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
 
-    let etag = state
-        .storage
-        .put_object(&bucket, &key, body, content_type)
-        .await?;
+    let etag = state.storage.put_object(&bucket, &key, body, content_type).await?;
 
     Ok((StatusCode::OK, [("ETag", etag.as_str().to_string())]))
 }
@@ -192,10 +182,7 @@ async fn get_object_range(
     // Parse Range: bytes=start-end
     let (start, end) = parse_range_header(range_header)?;
 
-    let (meta, data) = state
-        .storage
-        .get_object_range(bucket, key, start, end)
-        .await?;
+    let (meta, data) = state.storage.get_object_range(bucket, key, start, end).await?;
 
     let actual_end = start + data.len() as u64 - 1;
     let content_range = format!("bytes {start}-{actual_end}/{}", meta.size);
@@ -221,9 +208,9 @@ fn parse_range_header(header: &str) -> Result<(u64, u64), ApiError> {
         .strip_prefix("bytes=")
         .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format"))?;
 
-    let (start, end) = range.split_once('-').ok_or_else(|| {
-        ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format")
-    })?;
+    let (start, end) = range
+        .split_once('-')
+        .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format"))?;
 
     let start: u64 = start
         .parse()
@@ -232,8 +219,7 @@ fn parse_range_header(header: &str) -> Result<(u64, u64), ApiError> {
     let end: u64 = if end.is_empty() {
         u64::MAX
     } else {
-        end.parse()
-            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range end"))?
+        end.parse().map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range end"))?
     };
 
     Ok((start, end))
@@ -280,37 +266,23 @@ pub async fn copy_object(
     // Check conditional headers for destination object
     check_preconditions(&state, &dst_bucket, &dst_key, &headers).await?;
 
-    let copy_source = headers
-        .get("x-amz-copy-source")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| {
-            ApiError::new(
-                S3ErrorCode::InvalidRequest,
-                "Missing x-amz-copy-source header",
-            )
+    let copy_source =
+        headers.get("x-amz-copy-source").and_then(|v| v.to_str().ok()).ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Missing x-amz-copy-source header")
         })?;
 
     // Parse source: /bucket/key or bucket/key
     let source = copy_source.trim_start_matches('/');
     let (src_bucket, src_key) = source.split_once('/').ok_or_else(|| {
-        ApiError::new(
-            S3ErrorCode::InvalidRequest,
-            "Invalid x-amz-copy-source format",
-        )
+        ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source format")
     })?;
 
-    let etag = state
-        .storage
-        .copy_object(src_bucket, src_key, &dst_bucket, &dst_key)
-        .await?;
+    let etag = state.storage.copy_object(src_bucket, src_key, &dst_bucket, &dst_key).await?;
 
     let response = CopyObjectResponse::new(etag.as_str().to_string(), Utc::now());
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
@@ -349,10 +321,7 @@ pub async fn list_objects_v2(
     };
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())

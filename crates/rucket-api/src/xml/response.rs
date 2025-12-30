@@ -32,10 +32,7 @@ pub struct Owner {
 
 impl Default for Owner {
     fn default() -> Self {
-        Self {
-            id: "rucket".to_string(),
-            display_name: "rucket".to_string(),
-        }
+        Self { id: "rucket".to_string(), display_name: "rucket".to_string() }
     }
 }
 
@@ -60,10 +57,7 @@ pub struct BucketEntry {
 
 impl From<&BucketInfo> for BucketEntry {
     fn from(info: &BucketInfo) -> Self {
-        Self {
-            name: info.name.clone(),
-            creation_date: info.created_at.to_rfc3339(),
-        }
+        Self { name: info.name.clone(), creation_date: info.created_at.to_rfc3339() }
     }
 }
 
@@ -247,10 +241,7 @@ impl CopyObjectResponse {
     /// Create a new copy response.
     #[must_use]
     pub fn new(etag: String, last_modified: DateTime<Utc>) -> Self {
-        Self {
-            etag,
-            last_modified: last_modified.to_rfc3339(),
-        }
+        Self { etag, last_modified: last_modified.to_rfc3339() }
     }
 }
 

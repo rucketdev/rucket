@@ -66,16 +66,11 @@ fn size_bytes(size: &str) -> u64 {
 
 /// Parse all criterion results from target/criterion directory.
 fn collect_results(criterion_dir: &Path) -> anyhow::Result<BenchResults> {
-    let mut results = BenchResults {
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        results: Vec::new(),
-    };
+    let mut results =
+        BenchResults { timestamp: chrono::Utc::now().to_rfc3339(), results: Vec::new() };
 
     // Walk through the criterion directory looking for estimates.json files
-    for entry in WalkDir::new(criterion_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(criterion_dir).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.file_name() == Some("estimates.json".as_ref())
             && path.parent().and_then(|p| p.file_name()) == Some("new".as_ref())
@@ -147,9 +142,9 @@ fn parse_benchmark_result(path: &Path) -> anyhow::Result<Option<BenchResult>> {
 }
 
 // Profile colors
-const COLOR_NEVER: RGBColor = RGBColor(59, 130, 246);    // Blue
-const COLOR_PERIODIC: RGBColor = RGBColor(34, 197, 94);  // Green
-const COLOR_ALWAYS: RGBColor = RGBColor(239, 68, 68);    // Red
+const COLOR_NEVER: RGBColor = RGBColor(59, 130, 246); // Blue
+const COLOR_PERIODIC: RGBColor = RGBColor(34, 197, 94); // Green
+const COLOR_ALWAYS: RGBColor = RGBColor(239, 68, 68); // Red
 
 fn profile_color(profile: &str) -> RGBColor {
     match profile {
@@ -163,11 +158,7 @@ fn profile_color(profile: &str) -> RGBColor {
 /// Generate PUT throughput chart.
 fn generate_put_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Result<()> {
     let output_path = output_dir.join("put_throughput.svg");
-    let put_results: Vec<_> = results
-        .results
-        .iter()
-        .filter(|r| r.group == "profile_put")
-        .collect();
+    let put_results: Vec<_> = results.results.iter().filter(|r| r.group == "profile_put").collect();
 
     if put_results.is_empty() {
         println!("No profile_put results found, skipping PUT chart");
@@ -182,11 +173,7 @@ fn generate_put_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Resu
 /// Generate GET throughput chart.
 fn generate_get_chart(results: &BenchResults, output_dir: &Path) -> anyhow::Result<()> {
     let output_path = output_dir.join("get_throughput.svg");
-    let get_results: Vec<_> = results
-        .results
-        .iter()
-        .filter(|r| r.group == "profile_get")
-        .collect();
+    let get_results: Vec<_> = results.results.iter().filter(|r| r.group == "profile_get").collect();
 
     if get_results.is_empty() {
         println!("No profile_get results found, skipping GET chart");
@@ -213,11 +200,7 @@ fn generate_bar_chart(
         lookup.insert((r.profile.as_str(), r.size.as_str()), r.throughput_mbs);
     }
 
-    let max_throughput = results
-        .iter()
-        .map(|r| r.throughput_mbs)
-        .fold(0.0_f64, f64::max)
-        * 1.2;
+    let max_throughput = results.iter().map(|r| r.throughput_mbs).fold(0.0_f64, f64::max) * 1.2;
 
     let root = SVGBackend::new(output_path, (800, 500)).into_drawing_area();
     root.fill(&WHITE)?;
@@ -270,16 +253,15 @@ fn generate_bar_chart(
         }
 
         // Draw bars for this profile
-        chart.draw_series(bar_data.iter().map(|&(x, throughput)| {
-            Rectangle::new(
-                [(x, 0.0), (x + bar_width * 0.9, throughput)],
-                color.mix(0.85).filled(),
-            )
-        }))?
-        .label(*profile)
-        .legend(move |(x, y)| {
-            Rectangle::new([(x, y - 6), (x + 18, y + 6)], color.filled())
-        });
+        chart
+            .draw_series(bar_data.iter().map(|&(x, throughput)| {
+                Rectangle::new(
+                    [(x, 0.0), (x + bar_width * 0.9, throughput)],
+                    color.mix(0.85).filled(),
+                )
+            }))?
+            .label(*profile)
+            .legend(move |(x, y)| Rectangle::new([(x, y - 6), (x + 18, y + 6)], color.filled()));
     }
 
     // Draw legend manually in the right margin (outside chart area)
