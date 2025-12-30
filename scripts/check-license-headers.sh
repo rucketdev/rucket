@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2024 The Rucket Authors
+# Copyright 2026 Rucket Dev
 # SPDX-License-Identifier: Apache-2.0
 
 # Check that all source files have the required license header
@@ -10,7 +10,7 @@ EXIT_CODE=0
 
 check_rust_files() {
     while IFS= read -r -d '' file; do
-        if ! head -n 2 "$file" | grep -q "Copyright 2024 The Rucket Authors"; then
+        if ! head -n 2 "$file" | grep -q "Copyright 2026 Rucket Dev"; then
             echo "Missing license header: $file"
             EXIT_CODE=1
         fi
@@ -21,12 +21,12 @@ check_shell_files() {
     while IFS= read -r -d '' file; do
         # Skip first line if it's a shebang
         if head -n 1 "$file" | grep -q "^#!"; then
-            if ! head -n 3 "$file" | tail -n 2 | grep -q "Copyright 2024 The Rucket Authors"; then
+            if ! head -n 3 "$file" | tail -n 2 | grep -q "Copyright 2026 Rucket Dev"; then
                 echo "Missing license header: $file"
                 EXIT_CODE=1
             fi
         else
-            if ! head -n 2 "$file" | grep -q "Copyright 2024 The Rucket Authors"; then
+            if ! head -n 2 "$file" | grep -q "Copyright 2026 Rucket Dev"; then
                 echo "Missing license header: $file"
                 EXIT_CODE=1
             fi
@@ -36,7 +36,7 @@ check_shell_files() {
 
 check_toml_files() {
     while IFS= read -r -d '' file; do
-        if ! head -n 2 "$file" | grep -q "Copyright 2024 The Rucket Authors"; then
+        if ! head -n 2 "$file" | grep -q "Copyright 2026 Rucket Dev"; then
             echo "Missing license header: $file"
             EXIT_CODE=1
         fi
@@ -45,7 +45,7 @@ check_toml_files() {
 
 check_yaml_files() {
     while IFS= read -r -d '' file; do
-        if ! head -n 2 "$file" | grep -q "Copyright 2024 The Rucket Authors"; then
+        if ! head -n 2 "$file" | grep -q "Copyright 2026 Rucket Dev"; then
             echo "Missing license header: $file"
             EXIT_CODE=1
         fi
@@ -66,11 +66,11 @@ else
     echo "Please add the appropriate license header to the files listed above."
     echo ""
     echo "For Rust files:"
-    echo "// Copyright 2024 The Rucket Authors"
+    echo "// Copyright 2026 Rucket Dev"
     echo "// SPDX-License-Identifier: Apache-2.0"
     echo ""
     echo "For shell/TOML/YAML files:"
-    echo "# Copyright 2024 The Rucket Authors"
+    echo "# Copyright 2026 Rucket Dev"
     echo "# SPDX-License-Identifier: Apache-2.0"
 fi
 

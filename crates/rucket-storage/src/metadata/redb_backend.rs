@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! redb-based metadata storage backend.
@@ -36,10 +36,7 @@ struct StoredBucketInfo {
 
 impl StoredBucketInfo {
     fn from_bucket_info(info: &BucketInfo) -> Self {
-        Self {
-            name: info.name.clone(),
-            created_at_millis: info.created_at.timestamp_millis(),
-        }
+        Self { name: info.name.clone(), created_at_millis: info.created_at.timestamp_millis() }
     }
 
     fn to_bucket_info(&self) -> BucketInfo {
@@ -112,10 +109,7 @@ impl RedbMetadataStore {
 
         let durability = Self::sync_to_durability(sync_strategy);
 
-        Ok(Self {
-            db: Arc::new(db),
-            durability,
-        })
+        Ok(Self { db: Arc::new(db), durability })
     }
 
     /// Open or create a redb database with cache size configuration.
@@ -143,10 +137,7 @@ impl RedbMetadataStore {
             .create_with_backend(redb::backends::InMemoryBackend::new())
             .map_err(|e| Error::Database(e.to_string()))?;
 
-        Ok(Self {
-            db: Arc::new(db),
-            durability: Durability::None,
-        })
+        Ok(Self { db: Arc::new(db), durability: Durability::None })
     }
 
     /// Map SyncStrategy to redb Durability.
@@ -181,14 +172,11 @@ impl MetadataBackend for RedbMetadataStore {
             let mut txn = db.begin_write().map_err(|e| Error::Database(e.to_string()))?;
 
             {
-                let mut table = txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
+                let mut table =
+                    txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
 
                 // Check if bucket already exists
-                if table
-                    .get(name.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?
-                    .is_some()
-                {
+                if table.get(name.as_str()).map_err(|e| Error::Database(e.to_string()))?.is_some() {
                     return Err(Error::s3_with_resource(
                         S3ErrorCode::BucketAlreadyExists,
                         "The bucket already exists",
@@ -196,10 +184,7 @@ impl MetadataBackend for RedbMetadataStore {
                     ));
                 }
 
-                let info = BucketInfo {
-                    name: name.clone(),
-                    created_at: now,
-                };
+                let info = BucketInfo { name: name.clone(), created_at: now };
                 let stored = StoredBucketInfo::from_bucket_info(&info);
                 let serialized =
                     bincode::serialize(&stored).map_err(|e| Error::Database(e.to_string()))?;
@@ -212,10 +197,7 @@ impl MetadataBackend for RedbMetadataStore {
             txn.set_durability(durability);
             txn.commit().map_err(|e| Error::Database(e.to_string()))?;
 
-            Ok(BucketInfo {
-                name,
-                created_at: now,
-            })
+            Ok(BucketInfo { name, created_at: now })
         })
         .await
         .map_err(|e| Error::Database(e.to_string()))?
@@ -265,9 +247,7 @@ impl MetadataBackend for RedbMetadataStore {
                     ));
                 }
 
-                buckets_table
-                    .remove(name.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?;
+                buckets_table.remove(name.as_str()).map_err(|e| Error::Database(e.to_string()))?;
             }
 
             txn.set_durability(durability);
@@ -287,10 +267,8 @@ impl MetadataBackend for RedbMetadataStore {
             let txn = db.begin_read().map_err(|e| Error::Database(e.to_string()))?;
             let table = txn.open_table(BUCKETS).map_err(|e| Error::Database(e.to_string()))?;
 
-            let exists = table
-                .get(name.as_str())
-                .map_err(|e| Error::Database(e.to_string()))?
-                .is_some();
+            let exists =
+                table.get(name.as_str()).map_err(|e| Error::Database(e.to_string()))?.is_some();
 
             Ok(exists)
         })
@@ -308,8 +286,8 @@ impl MetadataBackend for RedbMetadataStore {
             let mut buckets = Vec::new();
             for entry in table.iter().map_err(|e| Error::Database(e.to_string()))? {
                 let (_, value) = entry.map_err(|e| Error::Database(e.to_string()))?;
-                let stored: StoredBucketInfo =
-                    bincode::deserialize(value.value()).map_err(|e| Error::Database(e.to_string()))?;
+                let stored: StoredBucketInfo = bincode::deserialize(value.value())
+                    .map_err(|e| Error::Database(e.to_string()))?;
                 buckets.push(stored.to_bucket_info());
             }
 
@@ -379,10 +357,7 @@ impl MetadataBackend for RedbMetadataStore {
             let txn = db.begin_read().map_err(|e| Error::Database(e.to_string()))?;
             let table = txn.open_table(OBJECTS).map_err(|e| Error::Database(e.to_string()))?;
 
-            match table
-                .get(composite_key.as_str())
-                .map_err(|e| Error::Database(e.to_string()))?
-            {
+            match table.get(composite_key.as_str()).map_err(|e| Error::Database(e.to_string()))? {
                 Some(value) => {
                     let stored: StoredObjectMetadata = bincode::deserialize(value.value())
                         .map_err(|e| Error::Database(e.to_string()))?;
@@ -424,9 +399,7 @@ impl MetadataBackend for RedbMetadataStore {
                     None => None,
                 };
 
-                table
-                    .remove(composite_key.as_str())
-                    .map_err(|e| Error::Database(e.to_string()))?;
+                table.remove(composite_key.as_str()).map_err(|e| Error::Database(e.to_string()))?;
 
                 uuid
             };
@@ -495,9 +468,8 @@ impl MetadataBackend for RedbMetadataStore {
 
             for entry in range {
                 let (key, value) = entry.map_err(|e| Error::Database(e.to_string()))?;
-                let (_, obj_key) = Self::parse_object_key(key.value()).ok_or_else(|| {
-                    Error::Database("Invalid object key format".to_string())
-                })?;
+                let (_, obj_key) = Self::parse_object_key(key.value())
+                    .ok_or_else(|| Error::Database("Invalid object key format".to_string()))?;
 
                 // Check prefix match
                 if let Some(ref p) = prefix {
@@ -507,10 +479,7 @@ impl MetadataBackend for RedbMetadataStore {
                 }
 
                 // Skip if this is the continuation token itself
-                if continuation_token
-                    .as_ref()
-                    .is_some_and(|t| t == obj_key)
-                {
+                if continuation_token.as_ref().is_some_and(|t| t == obj_key) {
                     continue;
                 }
 
@@ -547,31 +516,19 @@ impl MetadataBackend for RedbMetadataStore {
         _key: &str,
         _upload_id: &str,
     ) -> Result<MultipartUpload> {
-        Err(Error::s3(
-            S3ErrorCode::NotImplemented,
-            "Multipart uploads are not yet implemented",
-        ))
+        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
     }
 
     async fn get_multipart_upload(&self, _upload_id: &str) -> Result<MultipartUpload> {
-        Err(Error::s3(
-            S3ErrorCode::NotImplemented,
-            "Multipart uploads are not yet implemented",
-        ))
+        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
     }
 
     async fn delete_multipart_upload(&self, _upload_id: &str) -> Result<()> {
-        Err(Error::s3(
-            S3ErrorCode::NotImplemented,
-            "Multipart uploads are not yet implemented",
-        ))
+        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
     }
 
     async fn list_multipart_uploads(&self, _bucket: &str) -> Result<Vec<MultipartUpload>> {
-        Err(Error::s3(
-            S3ErrorCode::NotImplemented,
-            "Multipart uploads are not yet implemented",
-        ))
+        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
     }
 
     async fn put_part(
@@ -582,24 +539,15 @@ impl MetadataBackend for RedbMetadataStore {
         _size: u64,
         _etag: &str,
     ) -> Result<Part> {
-        Err(Error::s3(
-            S3ErrorCode::NotImplemented,
-            "Multipart uploads are not yet implemented",
-        ))
+        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
     }
 
     async fn list_parts(&self, _upload_id: &str) -> Result<Vec<Part>> {
-        Err(Error::s3(
-            S3ErrorCode::NotImplemented,
-            "Multipart uploads are not yet implemented",
-        ))
+        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
     }
 
     async fn delete_parts(&self, _upload_id: &str) -> Result<Vec<Uuid>> {
-        Err(Error::s3(
-            S3ErrorCode::NotImplemented,
-            "Multipart uploads are not yet implemented",
-        ))
+        Err(Error::s3(S3ErrorCode::NotImplemented, "Multipart uploads are not yet implemented"))
     }
 }
 
@@ -658,10 +606,7 @@ mod tests {
         let meta = ObjectMetadata::new("test/key.txt", uuid, 1024, ETag::new("\"abc123\""));
 
         store.put_object("bucket1", meta).await.unwrap();
-        let deleted_uuid = store
-            .delete_object("bucket1", "test/key.txt")
-            .await
-            .unwrap();
+        let deleted_uuid = store.delete_object("bucket1", "test/key.txt").await.unwrap();
 
         assert_eq!(deleted_uuid, Some(uuid));
 
@@ -682,10 +627,7 @@ mod tests {
         }
 
         // List with prefix
-        let (objects, _) = store
-            .list_objects("bucket1", Some("photos/"), None, 100)
-            .await
-            .unwrap();
+        let (objects, _) = store.list_objects("bucket1", Some("photos/"), None, 100).await.unwrap();
 
         assert_eq!(objects.len(), 2);
         assert!(objects.iter().all(|o| o.key.starts_with("photos/")));
@@ -700,7 +642,7 @@ mod tests {
         // Create 5 objects
         for i in 0..5 {
             let meta = ObjectMetadata::new(
-                &format!("key{:02}", i),
+                format!("key{i:02}"),
                 Uuid::new_v4(),
                 100,
                 ETag::new("\"test\""),
@@ -709,28 +651,21 @@ mod tests {
         }
 
         // Get first page (max 2)
-        let (page1, token1) = store
-            .list_objects("bucket1", None, None, 2)
-            .await
-            .unwrap();
+        let (page1, token1) = store.list_objects("bucket1", None, None, 2).await.unwrap();
 
         assert_eq!(page1.len(), 2);
         assert!(token1.is_some());
 
         // Get second page
-        let (page2, token2) = store
-            .list_objects("bucket1", None, token1.as_deref(), 2)
-            .await
-            .unwrap();
+        let (page2, token2) =
+            store.list_objects("bucket1", None, token1.as_deref(), 2).await.unwrap();
 
         assert_eq!(page2.len(), 2);
         assert!(token2.is_some());
 
         // Get third page (should have 1 item, no more token)
-        let (page3, token3) = store
-            .list_objects("bucket1", None, token2.as_deref(), 2)
-            .await
-            .unwrap();
+        let (page3, token3) =
+            store.list_objects("bucket1", None, token2.as_deref(), 2).await.unwrap();
 
         assert_eq!(page3.len(), 1);
         assert!(token3.is_none());

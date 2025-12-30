@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Streaming I/O utilities.
@@ -85,8 +85,9 @@ pub fn compute_multipart_etag(part_etags: &[ETag]) -> ETag {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_write_and_hash() {

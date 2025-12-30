@@ -1,13 +1,13 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Bucket operation handlers.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use std::sync::Arc;
-
 use rucket_storage::{LocalStorage, StorageBackend};
 
 use crate::error::ApiError;
@@ -63,9 +63,7 @@ pub async fn list_buckets(State(state): State<AppState>) -> Result<Response, Api
 
     let response = ListBucketsResponse {
         owner: Owner::default(),
-        buckets: Buckets {
-            bucket: buckets.iter().map(BucketEntry::from).collect(),
-        },
+        buckets: Buckets { bucket: buckets.iter().map(BucketEntry::from).collect() },
     };
 
     let xml = to_xml(&response).map_err(|e| {

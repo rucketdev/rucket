@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Object operation handlers.
@@ -9,10 +9,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
-
 use rucket_core::error::S3ErrorCode;
 use rucket_storage::StorageBackend;
+use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
@@ -44,6 +43,90 @@ fn default_max_keys() -> u32 {
     1000
 }
 
+/// Check If-Match and If-None-Match precondition headers.
+///
+/// Returns an error if preconditions are not met:
+/// - `If-Match`: The request succeeds only if the object's ETag matches one of the specified ETags.
+/// - `If-None-Match`: The request succeeds only if the object's ETag does NOT match any of the specified ETags.
+///   The special value `*` matches any existing object.
+async fn check_preconditions(
+    state: &AppState,
+    bucket: &str,
+    key: &str,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
+    let if_match = headers.get("if-match").and_then(|v| v.to_str().ok());
+    let if_none_match = headers.get("if-none-match").and_then(|v| v.to_str().ok());
+
+    // If no conditional headers, nothing to check
+    if if_match.is_none() && if_none_match.is_none() {
+        return Ok(());
+    }
+
+    // Get current object ETag (if it exists)
+    let current_etag =
+        state.storage.head_object(bucket, key).await.ok().map(|m| m.etag.as_str().to_string());
+
+    // Check If-Match: request succeeds only if ETag matches
+    if let Some(if_match_value) = if_match {
+        match &current_etag {
+            Some(etag) => {
+                // Parse comma-separated ETags and check if any match
+                let matches =
+                    if_match_value.split(',').map(|s| s.trim().trim_matches('"')).any(|expected| {
+                        let actual = etag.trim_matches('"');
+                        expected == actual || expected == "*"
+                    });
+
+                if !matches {
+                    return Err(ApiError::new(
+                        S3ErrorCode::PreconditionFailed,
+                        "At least one of the pre-conditions you specified did not hold",
+                    ));
+                }
+            }
+            None => {
+                // Object doesn't exist but If-Match was specified
+                return Err(ApiError::new(
+                    S3ErrorCode::PreconditionFailed,
+                    "At least one of the pre-conditions you specified did not hold",
+                ));
+            }
+        }
+    }
+
+    // Check If-None-Match: request succeeds only if ETag does NOT match
+    if let Some(if_none_match_value) = if_none_match {
+        if let Some(etag) = &current_etag {
+            // Special case: "*" matches any existing object
+            if if_none_match_value.trim() == "*" {
+                return Err(ApiError::new(
+                    S3ErrorCode::PreconditionFailed,
+                    "At least one of the pre-conditions you specified did not hold",
+                ));
+            }
+
+            // Parse comma-separated ETags and check if any match
+            let matches = if_none_match_value.split(',').map(|s| s.trim().trim_matches('"')).any(
+                |expected| {
+                    let actual = etag.trim_matches('"');
+                    expected == actual
+                },
+            );
+
+            if matches {
+                return Err(ApiError::new(
+                    S3ErrorCode::PreconditionFailed,
+                    "At least one of the pre-conditions you specified did not hold",
+                ));
+            }
+        }
+        // If object doesn't exist and If-None-Match is specified, that's fine
+    }
+
+    Ok(())
+}
+
 /// `PUT /{bucket}/{key}` - Upload object.
 pub async fn put_object(
     State(state): State<AppState>,
@@ -51,12 +134,12 @@ pub async fn put_object(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Check conditional headers for optimistic locking
+    check_preconditions(&state, &bucket, &key, &headers).await?;
+
     let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
 
-    let etag = state
-        .storage
-        .put_object(&bucket, &key, body, content_type)
-        .await?;
+    let etag = state.storage.put_object(&bucket, &key, body, content_type).await?;
 
     Ok((StatusCode::OK, [("ETag", etag.as_str().to_string())]))
 }
@@ -98,10 +181,7 @@ async fn get_object_range(
     // Parse Range: bytes=start-end
     let (start, end) = parse_range_header(range_header)?;
 
-    let (meta, data) = state
-        .storage
-        .get_object_range(bucket, key, start, end)
-        .await?;
+    let (meta, data) = state.storage.get_object_range(bucket, key, start, end).await?;
 
     let actual_end = start + data.len() as u64 - 1;
     let content_range = format!("bytes {start}-{actual_end}/{}", meta.size);
@@ -127,9 +207,9 @@ fn parse_range_header(header: &str) -> Result<(u64, u64), ApiError> {
         .strip_prefix("bytes=")
         .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format"))?;
 
-    let (start, end) = range.split_once('-').ok_or_else(|| {
-        ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format")
-    })?;
+    let (start, end) = range
+        .split_once('-')
+        .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format"))?;
 
     let start: u64 = start
         .parse()
@@ -138,8 +218,7 @@ fn parse_range_header(header: &str) -> Result<(u64, u64), ApiError> {
     let end: u64 = if end.is_empty() {
         u64::MAX
     } else {
-        end.parse()
-            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range end"))?
+        end.parse().map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range end"))?
     };
 
     Ok((start, end))
@@ -183,37 +262,26 @@ pub async fn copy_object(
     Path((dst_bucket, dst_key)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let copy_source = headers
-        .get("x-amz-copy-source")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| {
-            ApiError::new(
-                S3ErrorCode::InvalidRequest,
-                "Missing x-amz-copy-source header",
-            )
+    // Check conditional headers for destination object
+    check_preconditions(&state, &dst_bucket, &dst_key, &headers).await?;
+
+    let copy_source =
+        headers.get("x-amz-copy-source").and_then(|v| v.to_str().ok()).ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Missing x-amz-copy-source header")
         })?;
 
     // Parse source: /bucket/key or bucket/key
     let source = copy_source.trim_start_matches('/');
     let (src_bucket, src_key) = source.split_once('/').ok_or_else(|| {
-        ApiError::new(
-            S3ErrorCode::InvalidRequest,
-            "Invalid x-amz-copy-source format",
-        )
+        ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source format")
     })?;
 
-    let etag = state
-        .storage
-        .copy_object(src_bucket, src_key, &dst_bucket, &dst_key)
-        .await?;
+    let etag = state.storage.copy_object(src_bucket, src_key, &dst_bucket, &dst_key).await?;
 
     let response = CopyObjectResponse::new(etag.as_str().to_string(), Utc::now());
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
@@ -252,10 +320,7 @@ pub async fn list_objects_v2(
     };
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())

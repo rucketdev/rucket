@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Error types for Rucket with S3-compatible error codes.
@@ -51,6 +51,8 @@ pub enum S3ErrorCode {
     InvalidRequest,
     /// The functionality is not implemented.
     NotImplemented,
+    /// At least one of the preconditions you specified did not hold.
+    PreconditionFailed,
 }
 
 impl S3ErrorCode {
@@ -73,13 +75,15 @@ impl S3ErrorCode {
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
+            Self::PreconditionFailed => 412,
         }
     }
 
     /// Returns the HTTP status code as an `http::StatusCode`.
     #[must_use]
     pub fn status_code(&self) -> http::StatusCode {
-        http::StatusCode::from_u16(self.http_status()).unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR)
+        http::StatusCode::from_u16(self.http_status())
+            .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR)
     }
 
     /// Returns the S3 error code string.
@@ -106,6 +110,7 @@ impl S3ErrorCode {
             Self::InvalidRange => "InvalidRange",
             Self::InvalidRequest => "InvalidRequest",
             Self::NotImplemented => "NotImplemented",
+            Self::PreconditionFailed => "PreconditionFailed",
         }
     }
 }
@@ -151,11 +156,7 @@ impl Error {
     /// Creates a new S3 error.
     #[must_use]
     pub fn s3(code: S3ErrorCode, message: impl Into<String>) -> Self {
-        Self::S3 {
-            code,
-            message: message.into(),
-            resource: None,
-        }
+        Self::S3 { code, message: message.into(), resource: None }
     }
 
     /// Creates a new S3 error with a resource.
@@ -165,11 +166,7 @@ impl Error {
         message: impl Into<String>,
         resource: impl Into<String>,
     ) -> Self {
-        Self::S3 {
-            code,
-            message: message.into(),
-            resource: Some(resource.into()),
-        }
+        Self::S3 { code, message: message.into(), resource: Some(resource.into()) }
     }
 
     /// Returns the S3 error code, if this is an S3 error.

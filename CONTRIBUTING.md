@@ -123,12 +123,6 @@ Use GitHub Issues for bug reports and feature requests. Please include:
 - Expected vs actual behavior
 - Relevant logs (with `RUST_LOG=debug`)
 
-## Security Issues
-
-Please report security vulnerabilities via email or GitHub's private security advisory feature. Do NOT report security issues via public GitHub issues.
-
-See [SECURITY.md](SECURITY.md) for details.
-
 ## Questions?
 
 Feel free to open a Discussion on GitHub for questions about contributing or the project in general.

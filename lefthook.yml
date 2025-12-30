@@ -1,0 +1,12 @@
+# Copyright 2026 Rucket Dev
+# SPDX-License-Identifier: Apache-2.0
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: make fmt-check
+    clippy:
+      run: make clippy
+    license-headers:
+      run: make license-headers

@@ -1,4 +1,4 @@
-# Copyright 2024 The Rucket Authors
+# Copyright 2026 Rucket Dev
 # SPDX-License-Identifier: Apache-2.0
 
 name: Security
@@ -15,6 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1
+      - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

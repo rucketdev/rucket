@@ -3,6 +3,8 @@
 [![CI](https://github.com/rucketdev/rucket/actions/workflows/ci.yml/badge.svg)](https://github.com/rucketdev/rucket/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+> **Warning**: This project is experimental and not ready for production use. Production-ready release planned for version 1.x.
+
 A high-performance, S3-compatible object storage server written in Rust.
 
 ## Features

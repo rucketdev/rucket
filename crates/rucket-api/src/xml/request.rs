@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! S3 XML request parsing.
@@ -62,8 +62,9 @@ pub struct ObjectIdentifier {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use quick_xml::de::from_str;
+
+    use super::*;
 
     #[test]
     fn test_parse_complete_multipart() {

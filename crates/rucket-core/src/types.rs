@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Common types used throughout Rucket.
@@ -79,10 +79,7 @@ impl BucketInfo {
     /// Creates a new bucket info.
     #[must_use]
     pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            created_at: Utc::now(),
-        }
+        Self { name: name.into(), created_at: Utc::now() }
     }
 }
 
@@ -140,10 +137,7 @@ pub struct Owner {
 
 impl Default for Owner {
     fn default() -> Self {
-        Self {
-            id: "rucket".to_string(),
-            display_name: "Rucket".to_string(),
-        }
+        Self { id: "rucket".to_string(), display_name: "Rucket".to_string() }
     }
 }
 
@@ -206,8 +200,8 @@ mod tests {
     fn test_object_metadata() {
         let uuid = Uuid::new_v4();
         let etag = ETag::new("\"abc123\"");
-        let meta = ObjectMetadata::new("test/key.txt", uuid, 1024, etag)
-            .with_content_type("text/plain");
+        let meta =
+            ObjectMetadata::new("test/key.txt", uuid, 1024, etag).with_content_type("text/plain");
 
         assert_eq!(meta.key, "test/key.txt");
         assert_eq!(meta.size, 1024);

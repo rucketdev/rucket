@@ -1,18 +1,18 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Storage throughput benchmarks.
 
 #![allow(missing_docs)]
 
+use std::sync::Arc;
+
 use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use std::sync::Arc;
-use tempfile::TempDir;
-use tokio::runtime::Runtime;
-
 use rucket_core::{SyncConfig, SyncStrategy};
 use rucket_storage::{LocalStorage, StorageBackend};
+use tempfile::TempDir;
+use tokio::runtime::Runtime;
 
 /// Benchmark fixture holding storage instance and temp directory.
 struct BenchFixture {
@@ -37,28 +37,28 @@ impl BenchFixture {
                 .await
                 .expect("Failed to create storage");
 
-            storage
-                .create_bucket("bench")
-                .await
-                .expect("Failed to create bucket");
+            storage.create_bucket("bench").await.expect("Failed to create bucket");
 
-            Self {
-                storage: Arc::new(storage),
-                _temp_dir: temp_dir,
-            }
+            Self { storage: Arc::new(storage), _temp_dir: temp_dir }
         })
     }
 
-    /// Create a fixture optimized for benchmarking (no sync).
+    /// Create a fixture that never syncs (maximum performance).
     #[allow(dead_code)]
-    fn fast(rt: &Runtime) -> Self {
-        Self::with_sync_config(rt, SyncConfig::fast())
+    fn never(rt: &Runtime) -> Self {
+        Self::with_sync_config(rt, SyncConfig::never())
     }
 
-    /// Create a fixture with always-sync (current default behavior).
+    /// Create a fixture with periodic sync.
     #[allow(dead_code)]
-    fn durable(rt: &Runtime) -> Self {
-        Self::with_sync_config(rt, SyncConfig::durable())
+    fn periodic(rt: &Runtime) -> Self {
+        Self::with_sync_config(rt, SyncConfig::periodic())
+    }
+
+    /// Create a fixture that always syncs (maximum durability).
+    #[allow(dead_code)]
+    fn always(rt: &Runtime) -> Self {
+        Self::with_sync_config(rt, SyncConfig::always())
     }
 }
 
@@ -130,10 +130,8 @@ fn bench_get_object(c: &mut Criterion) {
 
             b.iter(|| {
                 rt.block_on(async {
-                    let (_meta, _data) = storage
-                        .get_object("bench", key)
-                        .await
-                        .expect("get_object failed");
+                    let (_meta, _data) =
+                        storage.get_object("bench", key).await.expect("get_object failed");
                 });
             });
         });
@@ -203,10 +201,7 @@ fn bench_head_object(c: &mut Criterion) {
 
         b.iter(|| {
             rt.block_on(async {
-                let _meta = storage
-                    .head_object("bench", key)
-                    .await
-                    .expect("head_object failed");
+                let _meta = storage.head_object("bench", key).await.expect("head_object failed");
             });
         });
     });
@@ -235,10 +230,7 @@ fn bench_delete_object(c: &mut Criterion) {
                     .expect("put_object failed");
 
                 // Delete it
-                storage
-                    .delete_object("bench", &key)
-                    .await
-                    .expect("delete_object failed");
+                storage.delete_object("bench", &key).await.expect("delete_object failed");
             });
         });
     });
@@ -309,23 +301,19 @@ fn bench_list_objects(c: &mut Criterion) {
     let mut group = c.benchmark_group("list_objects");
 
     for count in counts {
-        group.bench_with_input(
-            BenchmarkId::new("count", count),
-            &count,
-            |b, &count| {
-                let storage = fixture.storage.clone();
+        group.bench_with_input(BenchmarkId::new("count", count), &count, |b, &count| {
+            let storage = fixture.storage.clone();
 
-                b.iter(|| {
-                    rt.block_on(async {
-                        let result = storage
-                            .list_objects("bench", None, None, None, count as u32)
-                            .await
-                            .expect("list_objects failed");
-                        assert!(result.objects.len() <= count);
-                    });
+            b.iter(|| {
+                rt.block_on(async {
+                    let result = storage
+                        .list_objects("bench", None, None, None, count as u32)
+                        .await
+                        .expect("list_objects failed");
+                    assert!(result.objects.len() <= count);
                 });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -421,29 +409,13 @@ struct SyncProfile {
 
 /// Predefined sync profiles representing common use cases.
 const SYNC_PROFILES: &[SyncProfile] = &[
-    SyncProfile {
-        name: "fast",
-        data: SyncStrategy::None,
-        metadata: SyncStrategy::Periodic,
-    },
-    SyncProfile {
-        name: "balanced",
-        data: SyncStrategy::Periodic,
-        metadata: SyncStrategy::Always,
-    },
-    SyncProfile {
-        name: "durable",
-        data: SyncStrategy::Always,
-        metadata: SyncStrategy::Always,
-    },
+    SyncProfile { name: "never", data: SyncStrategy::None, metadata: SyncStrategy::Periodic },
+    SyncProfile { name: "periodic", data: SyncStrategy::Periodic, metadata: SyncStrategy::Always },
+    SyncProfile { name: "always", data: SyncStrategy::Always, metadata: SyncStrategy::Always },
 ];
 
 /// Object sizes for profile matrix benchmarks.
-const PROFILE_SIZES: &[(usize, &str)] = &[
-    (1024, "1KB"),
-    (64 * 1024, "64KB"),
-    (1024 * 1024, "1MB"),
-];
+const PROFILE_SIZES: &[(usize, &str)] = &[(1024, "1KB"), (64 * 1024, "64KB"), (1024 * 1024, "1MB")];
 
 /// Benchmark PUT operations across all profile × size combinations.
 /// This creates a matrix of 3 profiles × 3 sizes = 9 benchmark variants.
@@ -453,11 +425,8 @@ fn bench_profile_matrix_put(c: &mut Criterion) {
     let mut group = c.benchmark_group("profile_put");
 
     for profile in SYNC_PROFILES {
-        let config = SyncConfig {
-            data: profile.data,
-            metadata: profile.metadata,
-            ..Default::default()
-        };
+        let config =
+            SyncConfig { data: profile.data, metadata: profile.metadata, ..Default::default() };
         let fixture = BenchFixture::with_sync_config(&rt, config);
 
         for &(size, size_name) in PROFILE_SIZES {
@@ -494,11 +463,8 @@ fn bench_profile_matrix_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("profile_get");
 
     for profile in SYNC_PROFILES {
-        let config = SyncConfig {
-            data: profile.data,
-            metadata: profile.metadata,
-            ..Default::default()
-        };
+        let config =
+            SyncConfig { data: profile.data, metadata: profile.metadata, ..Default::default() };
         let fixture = BenchFixture::with_sync_config(&rt, config);
 
         for &(size, size_name) in PROFILE_SIZES {
@@ -522,8 +488,9 @@ fn bench_profile_matrix_get(c: &mut Criterion) {
 
                 b.iter(|| {
                     rt.block_on(async {
+                        // Use direct I/O to bypass OS page cache for accurate measurements
                         let (_meta, _data) = storage
-                            .get_object("bench", key)
+                            .get_object_direct("bench", key)
                             .await
                             .expect("get_object failed");
                     });
@@ -537,17 +504,19 @@ fn bench_profile_matrix_get(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_put_object,
+    // Run GET benchmarks first (clean system state, no prior fsync activity)
+    bench_profile_matrix_get,
     bench_get_object,
     bench_get_object_range,
     bench_head_object,
+    // Then PUT benchmarks (fsync activity won't affect prior GET results)
+    bench_profile_matrix_put,
+    bench_put_object,
     bench_delete_object,
     bench_copy_object,
     bench_list_objects,
     bench_list_objects_with_prefix,
     bench_sync_strategies,
-    bench_profile_matrix_put,
-    bench_profile_matrix_get,
 );
 
 criterion_main!(benches);

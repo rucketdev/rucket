@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Storage backend for Rucket object storage.
@@ -8,8 +8,11 @@
 //! - Local filesystem storage for object data
 //! - Streaming I/O utilities
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
+
+#[cfg(feature = "bench")]
+pub mod direct_io;
 
 pub mod backend;
 pub mod local;

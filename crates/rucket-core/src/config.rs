@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Configuration management for Rucket.
@@ -130,9 +130,7 @@ impl StorageConfig {
     /// Returns the temporary directory path.
     #[must_use]
     pub fn temp_dir(&self) -> PathBuf {
-        self.temp_dir
-            .clone()
-            .unwrap_or_else(|| self.data_dir.join(".tmp"))
+        self.temp_dir.clone().unwrap_or_else(|| self.data_dir.join(".tmp"))
     }
 }
 
@@ -143,12 +141,13 @@ pub enum SyncStrategy {
     /// Never explicitly sync - rely on OS to flush.
     /// Fastest, but data may be lost on crash.
     None,
-    /// Sync periodically based on time interval.
-    /// Good balance of performance and durability.
+    /// Sync periodically based on time interval OR when thresholds are reached.
+    /// Syncs when: time interval elapses, OR bytes threshold reached, OR ops threshold reached.
+    /// Good balance of performance and durability with bounded data loss window.
     #[default]
     Periodic,
     /// Sync after a threshold of bytes written or operations completed.
-    /// Useful for high-throughput scenarios.
+    /// Similar to Periodic but without time-based background sync.
     Threshold,
     /// Sync after every write operation.
     /// Slowest, but guarantees durability.
@@ -184,30 +183,19 @@ impl Default for SyncConfig {
             // Default: periodic sync for data, always sync metadata
             data: SyncStrategy::Periodic,
             metadata: SyncStrategy::Always,
-            interval_ms: 1000,              // 1 second
+            interval_ms: 1000,                 // 1 second
             bytes_threshold: 10 * 1024 * 1024, // 10 MB
             ops_threshold: 100,
-            direct_io_min_size: 0,          // Disabled by default
+            direct_io_min_size: 0, // Disabled by default
         }
     }
 }
 
 impl SyncConfig {
-    /// Configuration optimized for maximum durability.
-    /// Syncs after every operation - slowest but safest.
+    /// Configuration that never explicitly syncs - relies on OS.
+    /// Maximum performance but risk of data loss on crash.
     #[must_use]
-    pub fn durable() -> Self {
-        Self {
-            data: SyncStrategy::Always,
-            metadata: SyncStrategy::Always,
-            ..Default::default()
-        }
-    }
-
-    /// Configuration optimized for maximum performance.
-    /// No explicit syncs - relies on OS. Risk of data loss on crash.
-    #[must_use]
-    pub fn fast() -> Self {
+    pub fn never() -> Self {
         Self {
             data: SyncStrategy::None,
             metadata: SyncStrategy::Periodic,
@@ -216,11 +204,19 @@ impl SyncConfig {
         }
     }
 
-    /// Configuration balanced for typical workloads.
-    /// Periodic data sync, always sync metadata.
+    /// Configuration with periodic sync.
+    /// Syncs when: time interval elapses (1s), bytes threshold reached (10MB), or ops threshold reached (100).
+    /// Good balance for typical workloads with bounded data loss window.
     #[must_use]
-    pub fn balanced() -> Self {
+    pub fn periodic() -> Self {
         Self::default()
+    }
+
+    /// Configuration that always syncs after every operation.
+    /// Slowest but maximum durability.
+    #[must_use]
+    pub fn always() -> Self {
+        Self { data: SyncStrategy::Always, metadata: SyncStrategy::Always, ..Default::default() }
     }
 }
 
@@ -236,10 +232,7 @@ pub struct AuthConfig {
 
 impl Default for AuthConfig {
     fn default() -> Self {
-        Self {
-            access_key: "rucket".to_string(),
-            secret_key: "rucket123".to_string(),
-        }
+        Self { access_key: "rucket".to_string(), secret_key: "rucket123".to_string() }
     }
 }
 
@@ -264,9 +257,7 @@ pub struct BucketConfig {
 
 impl Default for BucketConfig {
     fn default() -> Self {
-        Self {
-            naming_rules: BucketNamingRules::Relaxed,
-        }
+        Self { naming_rules: BucketNamingRules::Relaxed }
     }
 }
 
@@ -293,10 +284,7 @@ pub struct LoggingConfig {
 
 impl Default for LoggingConfig {
     fn default() -> Self {
-        Self {
-            level: "info".to_string(),
-            format: LogFormat::Pretty,
-        }
+        Self { level: "info".to_string(), format: LogFormat::Pretty }
     }
 }
 

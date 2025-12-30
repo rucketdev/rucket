@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Multipart upload handlers.
@@ -10,9 +10,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
-use serde::Deserialize;
-
 use rucket_core::error::S3ErrorCode;
+use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
@@ -42,17 +41,11 @@ pub async fn create_multipart_upload(
 
     // TODO: Store upload in metadata
 
-    let response = InitiateMultipartUploadResponse {
-        bucket: bucket.clone(),
-        key: key.clone(),
-        upload_id,
-    };
+    let response =
+        InitiateMultipartUploadResponse { bucket: bucket.clone(), key: key.clone(), upload_id };
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
@@ -65,9 +58,9 @@ pub async fn upload_part(
     Query(query): Query<MultipartQuery>,
     _body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _upload_id = query.upload_id.ok_or_else(|| {
-        ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter")
-    })?;
+    let _upload_id = query
+        .upload_id
+        .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
 
     let _part_number = query.part_number.ok_or_else(|| {
         ApiError::new(S3ErrorCode::InvalidRequest, "Missing partNumber parameter")
@@ -87,9 +80,9 @@ pub async fn complete_multipart_upload(
     Query(query): Query<MultipartQuery>,
     _body: Bytes,
 ) -> Result<Response, ApiError> {
-    let _upload_id = query.upload_id.ok_or_else(|| {
-        ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter")
-    })?;
+    let _upload_id = query
+        .upload_id
+        .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
 
     // TODO: Combine parts and create final object
 
@@ -101,10 +94,7 @@ pub async fn complete_multipart_upload(
     };
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
@@ -116,9 +106,9 @@ pub async fn abort_multipart_upload(
     Path((_bucket, _key)): Path<(String, String)>,
     Query(query): Query<MultipartQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _upload_id = query.upload_id.ok_or_else(|| {
-        ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter")
-    })?;
+    let _upload_id = query
+        .upload_id
+        .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
 
     // TODO: Delete uploaded parts
 
@@ -131,24 +121,16 @@ pub async fn list_parts(
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<MultipartQuery>,
 ) -> Result<Response, ApiError> {
-    let upload_id = query.upload_id.ok_or_else(|| {
-        ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter")
-    })?;
+    let upload_id = query
+        .upload_id
+        .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
 
     // TODO: Fetch parts from metadata
 
-    let response = ListPartsResponse {
-        bucket,
-        key,
-        upload_id,
-        parts: vec![],
-    };
+    let response = ListPartsResponse { bucket, key, upload_id, parts: vec![] };
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
@@ -161,16 +143,10 @@ pub async fn list_multipart_uploads(
 ) -> Result<Response, ApiError> {
     // TODO: Fetch uploads from metadata
 
-    let response = ListMultipartUploadsResponse {
-        bucket,
-        uploads: vec![],
-    };
+    let response = ListMultipartUploadsResponse { bucket, uploads: vec![] };
 
     let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(
-            S3ErrorCode::InternalError,
-            format!("Failed to serialize response: {e}"),
-        )
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())

@@ -1,4 +1,4 @@
-# Copyright 2024 The Rucket Authors
+# Copyright 2026 Rucket Dev
 # SPDX-License-Identifier: Apache-2.0
 
 name: Release
@@ -30,7 +30,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: rucket-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/rucket
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
       - uses: softprops/action-gh-release@v1
         with:
           files: |

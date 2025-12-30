@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! API error types and S3 error response formatting.
@@ -48,10 +48,8 @@ impl ApiError {
     /// Convert to XML error response body.
     #[must_use]
     pub fn to_xml(&self) -> String {
-        let resource = self
-            .resource
-            .as_deref()
-            .map_or(String::new(), |r| format!("<Resource>{r}</Resource>"));
+        let resource =
+            self.resource.as_deref().map_or(String::new(), |r| format!("<Resource>{r}</Resource>"));
 
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -73,42 +71,30 @@ impl IntoResponse for ApiError {
         let status = self.status_code();
         let body = self.to_xml();
 
-        (
-            status,
-            [("Content-Type", "application/xml")],
-            body,
-        )
-            .into_response()
+        (status, [("Content-Type", "application/xml")], body).into_response()
     }
 }
 
 impl From<CoreError> for ApiError {
     fn from(err: CoreError) -> Self {
         match err {
-            CoreError::S3 {
-                code,
-                message,
-                resource,
-            } => {
+            CoreError::S3 { code, message, resource } => {
                 let mut api_err = ApiError::new(code, message);
                 if let Some(r) = resource {
                     api_err = api_err.with_resource(r);
                 }
                 api_err
             }
-            CoreError::Io(e) => ApiError::new(
-                S3ErrorCode::InternalError,
-                format!("I/O error: {e}"),
-            ),
+            CoreError::Io(e) => {
+                ApiError::new(S3ErrorCode::InternalError, format!("I/O error: {e}"))
+            }
             CoreError::Database(msg) => {
                 ApiError::new(S3ErrorCode::InternalError, format!("Database error: {msg}"))
             }
             CoreError::Config(msg) => {
                 ApiError::new(S3ErrorCode::InternalError, format!("Configuration error: {msg}"))
             }
-            CoreError::InvalidRequest(msg) => {
-                ApiError::new(S3ErrorCode::InvalidRequest, msg)
-            }
+            CoreError::InvalidRequest(msg) => ApiError::new(S3ErrorCode::InvalidRequest, msg),
         }
     }
 }
@@ -119,8 +105,8 @@ mod tests {
 
     #[test]
     fn test_api_error_to_xml() {
-        let err = ApiError::new(S3ErrorCode::NoSuchBucket, "Bucket not found")
-            .with_resource("my-bucket");
+        let err =
+            ApiError::new(S3ErrorCode::NoSuchBucket, "Bucket not found").with_resource("my-bucket");
 
         let xml = err.to_xml();
         assert!(xml.contains("<Code>NoSuchBucket</Code>"));

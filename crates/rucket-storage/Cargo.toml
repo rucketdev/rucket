@@ -1,4 +1,4 @@
-# Copyright 2024 The Rucket Authors
+# Copyright 2026 Rucket Dev
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
@@ -13,6 +13,10 @@ authors.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+default = []
+bench = ["libc"]
 
 [dependencies]
 rucket-core.workspace = true
@@ -30,6 +34,8 @@ md-5.workspace = true
 hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+libc = { workspace = true, optional = true }
+dashmap.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

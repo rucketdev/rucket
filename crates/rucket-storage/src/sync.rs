@@ -1,4 +1,4 @@
-// Copyright 2024 The Rucket Authors
+// Copyright 2026 Rucket Dev
 // SPDX-License-Identifier: Apache-2.0
 
 //! Sync management for controlling durability vs performance.
@@ -49,16 +49,22 @@ impl SyncManager {
         manager
     }
 
-    /// Create a sync manager configured for maximum durability.
+    /// Create a sync manager that never explicitly syncs (maximum performance).
     #[must_use]
-    pub fn durable() -> Arc<Self> {
-        Self::new(SyncConfig::durable())
+    pub fn never() -> Arc<Self> {
+        Self::new(SyncConfig::never())
     }
 
-    /// Create a sync manager configured for maximum performance.
+    /// Create a sync manager with periodic sync.
     #[must_use]
-    pub fn fast() -> Arc<Self> {
-        Self::new(SyncConfig::fast())
+    pub fn periodic() -> Arc<Self> {
+        Self::new(SyncConfig::periodic())
+    }
+
+    /// Create a sync manager that always syncs (maximum durability).
+    #[must_use]
+    pub fn always() -> Arc<Self> {
+        Self::new(SyncConfig::always())
     }
 
     /// Get the current sync configuration.
@@ -67,7 +73,26 @@ impl SyncManager {
         &self.config
     }
 
-    /// Record that bytes were written. Returns true if sync should happen now.
+    /// Check if we should sync immediately based on thresholds.
+    /// Returns true if sync should happen now (Always mode, or threshold reached for Periodic/Threshold).
+    /// Does NOT update counters - call `record_write()` after the sync decision.
+    pub fn should_sync_now(&self, bytes: u64) -> bool {
+        let current_bytes = self.bytes_written.load(Ordering::SeqCst);
+        let current_ops = self.ops_count.load(Ordering::SeqCst);
+
+        match self.config.data {
+            SyncStrategy::Always => true,
+            SyncStrategy::None => false,
+            SyncStrategy::Periodic | SyncStrategy::Threshold => {
+                (current_bytes + bytes) >= self.config.bytes_threshold
+                    || (current_ops + 1) >= self.config.ops_threshold
+            }
+        }
+    }
+
+    /// Record that bytes were written and update counters.
+    /// For Periodic mode, also notifies the background task.
+    /// Returns true if sync should happen now (for backwards compatibility).
     pub fn record_write(&self, bytes: u64) -> bool {
         let total_bytes = self.bytes_written.fetch_add(bytes, Ordering::SeqCst) + bytes;
         let ops = self.ops_count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -76,13 +101,17 @@ impl SyncManager {
             SyncStrategy::Always => true,
             SyncStrategy::None => false,
             SyncStrategy::Periodic => {
-                // Notify the background task
-                self.notify.notify_one();
-                false
+                // Check threshold
+                if total_bytes >= self.config.bytes_threshold || ops >= self.config.ops_threshold {
+                    true
+                } else {
+                    // Notify the background task for time-based sync
+                    self.notify.notify_one();
+                    false
+                }
             }
             SyncStrategy::Threshold => {
-                total_bytes >= self.config.bytes_threshold
-                    || ops >= self.config.ops_threshold
+                total_bytes >= self.config.bytes_threshold || ops >= self.config.ops_threshold
             }
         }
     }
@@ -95,8 +124,7 @@ impl SyncManager {
 
     /// Add a file path to the list of files pending sync.
     pub async fn add_pending_file(&self, path: std::path::PathBuf) {
-        if self.config.data == SyncStrategy::Periodic
-            || self.config.data == SyncStrategy::Threshold
+        if self.config.data == SyncStrategy::Periodic || self.config.data == SyncStrategy::Threshold
         {
             let mut pending = self.pending_files.lock().await;
             pending.push(path);
@@ -151,15 +179,13 @@ pub use crate::streaming::write_and_hash_with_sync as write_and_hash_with_strate
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_sync_manager_always() {
-        let config = SyncConfig {
-            data: SyncStrategy::Always,
-            ..Default::default()
-        };
+        let config = SyncConfig { data: SyncStrategy::Always, ..Default::default() };
         let manager = SyncManager::new(config);
 
         assert!(manager.record_write(1024));
@@ -168,10 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_manager_none() {
-        let config = SyncConfig {
-            data: SyncStrategy::None,
-            ..Default::default()
-        };
+        let config = SyncConfig { data: SyncStrategy::None, ..Default::default() };
         let manager = SyncManager::new(config);
 
         assert!(!manager.record_write(1024));
@@ -208,9 +231,7 @@ mod tests {
         let path = temp_dir.path().join("test.dat");
 
         let data = b"Hello, World!";
-        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::None)
-            .await
-            .unwrap();
+        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::None).await.unwrap();
 
         // Verify file was written
         let content = tokio::fs::read(&path).await.unwrap();
@@ -224,9 +245,7 @@ mod tests {
         let path = temp_dir.path().join("test.dat");
 
         let data = b"Hello, World!";
-        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::Always)
-            .await
-            .unwrap();
+        let etag = write_and_hash_with_strategy(&path, data, SyncStrategy::Always).await.unwrap();
 
         // Verify file was written
         let content = tokio::fs::read(&path).await.unwrap();
