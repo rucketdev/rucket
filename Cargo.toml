@@ -58,7 +58,7 @@ toml = "0.8"
 
 # Database
 redb = "2.4"
-bincode = "1.3"
+bincode = "3.0"
 
 # Async utilities
 async-trait = "0.1"
