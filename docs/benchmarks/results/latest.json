@@ -1,0 +1,149 @@
+{
+  "timestamp": "2025-12-30T01:48:03.807349163+00:00",
+  "results": [
+    {
+      "group": "profile_get",
+      "name": "balanced/1KB",
+      "profile": "balanced",
+      "size": "1KB",
+      "mean_ns": 19960.10868536721,
+      "throughput_mbs": 48.92571054565047
+    },
+    {
+      "group": "profile_get",
+      "name": "balanced/1MB",
+      "profile": "balanced",
+      "size": "1MB",
+      "mean_ns": 66945.67051221049,
+      "throughput_mbs": 14937.48576045117
+    },
+    {
+      "group": "profile_get",
+      "name": "durable/64KB",
+      "profile": "durable",
+      "size": "64KB",
+      "mean_ns": 21888.965901114618,
+      "throughput_mbs": 2855.319903295085
+    },
+    {
+      "group": "profile_get",
+      "name": "durable/1MB",
+      "profile": "durable",
+      "size": "1MB",
+      "mean_ns": 66921.98517598846,
+      "throughput_mbs": 14942.77250398721
+    },
+    {
+      "group": "profile_get",
+      "name": "fast/1KB",
+      "profile": "fast",
+      "size": "1KB",
+      "mean_ns": 14223.844913018052,
+      "throughput_mbs": 68.65671736242169
+    },
+    {
+      "group": "profile_get",
+      "name": "durable/1KB",
+      "profile": "durable",
+      "size": "1KB",
+      "mean_ns": 19384.58620306655,
+      "throughput_mbs": 50.378300045709125
+    },
+    {
+      "group": "profile_get",
+      "name": "balanced/64KB",
+      "profile": "balanced",
+      "size": "64KB",
+      "mean_ns": 23215.54230361873,
+      "throughput_mbs": 2692.16196557501
+    },
+    {
+      "group": "profile_get",
+      "name": "fast/64KB",
+      "profile": "fast",
+      "size": "64KB",
+      "mean_ns": 19014.792907698935,
+      "throughput_mbs": 3286.9145776862106
+    },
+    {
+      "group": "profile_get",
+      "name": "fast/1MB",
+      "profile": "fast",
+      "size": "1MB",
+      "mean_ns": 59998.62738423189,
+      "throughput_mbs": 16667.047957547242
+    },
+    {
+      "group": "profile_put",
+      "name": "balanced/1KB",
+      "profile": "balanced",
+      "size": "1KB",
+      "mean_ns": 681781.9717168664,
+      "throughput_mbs": 1.432367737065291
+    },
+    {
+      "group": "profile_put",
+      "name": "balanced/1MB",
+      "profile": "balanced",
+      "size": "1MB",
+      "mean_ns": 2296845.118750001,
+      "throughput_mbs": 435.3798137439169
+    },
+    {
+      "group": "profile_put",
+      "name": "durable/64KB",
+      "profile": "durable",
+      "size": "64KB",
+      "mean_ns": 9188121.746666668,
+      "throughput_mbs": 6.802260758318118
+    },
+    {
+      "group": "profile_put",
+      "name": "durable/1MB",
+      "profile": "durable",
+      "size": "1MB",
+      "mean_ns": 19112622.243333332,
+      "throughput_mbs": 52.32144429311941
+    },
+    {
+      "group": "profile_put",
+      "name": "fast/1KB",
+      "profile": "fast",
+      "size": "1KB",
+      "mean_ns": 169053.16655919843,
+      "throughput_mbs": 5.776659023172043
+    },
+    {
+      "group": "profile_put",
+      "name": "durable/1KB",
+      "profile": "durable",
+      "size": "1KB",
+      "mean_ns": 8263260.271428573,
+      "throughput_mbs": 0.11818125871898374
+    },
+    {
+      "group": "profile_put",
+      "name": "balanced/64KB",
+      "profile": "balanced",
+      "size": "64KB",
+      "mean_ns": 265675.89929470955,
+      "throughput_mbs": 235.24903902054686
+    },
+    {
+      "group": "profile_put",
+      "name": "fast/64KB",
+      "profile": "fast",
+      "size": "64KB",
+      "mean_ns": 281060.97852730507,
+      "throughput_mbs": 222.37167296394412
+    },
+    {
+      "group": "profile_put",
+      "name": "fast/1MB",
+      "profile": "fast",
+      "size": "1MB",
+      "mean_ns": 2441773.75409091,
+      "throughput_mbs": 409.53835232466383
+    }
+  ]
+}
