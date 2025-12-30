@@ -5,3 +5,10 @@ edition = "2021"
 max_width = 100
 use_small_heuristics = "Max"
 reorder_imports = true
+
+# Note: imports_granularity and group_imports are unstable options.
+# They are passed via --config in CI to avoid warnings on stable Rust.
+# For local development, run:
+#   make fmt
+# Or manually:
+#   cargo fmt -- --config imports_granularity=Module --config group_imports=StdExternalCrate
