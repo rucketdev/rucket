@@ -12,6 +12,7 @@ use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client;
 use rucket_api::create_router;
+use rucket_core::config::ApiCompatibilityMode;
 use rucket_storage::LocalStorage;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -36,7 +37,12 @@ impl TestServer {
             LocalStorage::new_in_memory(data_dir, tmp_dir).await.expect("Failed to create storage");
 
         // 5 GiB max body size (S3 max single PUT)
-        let app = create_router(Arc::new(storage), 5 * 1024 * 1024 * 1024);
+        let app = create_router(
+            Arc::new(storage),
+            5 * 1024 * 1024 * 1024,
+            ApiCompatibilityMode::Minio,
+            false, // log_requests disabled for tests
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
         let addr = listener.local_addr().expect("Failed to get local addr");

@@ -22,6 +22,8 @@ pub struct Config {
     pub bucket: BucketConfig,
     /// Logging configuration.
     pub logging: LoggingConfig,
+    /// Metrics configuration.
+    pub metrics: MetricsConfig,
     /// API configuration.
     pub api: ApiConfig,
 }
@@ -488,11 +490,42 @@ pub struct LoggingConfig {
     pub level: String,
     /// Log output format.
     pub format: LogFormat,
+    /// Include HTTP request/response logging.
+    pub log_requests: bool,
 }
 
 impl Default for LoggingConfig {
     fn default() -> Self {
-        Self { level: "info".to_string(), format: LogFormat::Pretty }
+        Self { level: "info".to_string(), format: LogFormat::Pretty, log_requests: true }
+    }
+}
+
+/// Metrics configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetricsConfig {
+    /// Enable metrics collection and endpoint.
+    pub enabled: bool,
+    /// Port for the metrics endpoint (separate from main server).
+    pub port: u16,
+    /// Bind address for metrics server.
+    pub bind: String,
+    /// Include storage metrics (bucket counts, object counts, bytes).
+    /// These require periodic metadata scans.
+    pub include_storage_metrics: bool,
+    /// Interval in seconds for storage metrics refresh.
+    pub storage_metrics_interval_secs: u64,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: 9001,
+            bind: "0.0.0.0".to_string(),
+            include_storage_metrics: true,
+            storage_metrics_interval_secs: 60,
+        }
     }
 }
 

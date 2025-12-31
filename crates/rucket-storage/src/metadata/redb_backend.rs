@@ -27,7 +27,8 @@ const BUCKETS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("buckets"
 const OBJECTS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("objects");
 
 /// Multipart uploads table: upload_id -> StoredMultipartUpload (bincode)
-const MULTIPART_UPLOADS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("multipart_uploads");
+const MULTIPART_UPLOADS: TableDefinition<'_, &str, &[u8]> =
+    TableDefinition::new("multipart_uploads");
 
 /// Parts table: composite key "upload_id\0part_number" -> StoredPart (bincode)
 const PARTS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("parts");
@@ -630,9 +631,7 @@ impl MetadataBackend for RedbMetadataStore {
                 let stored = StoredMultipartUpload::from_multipart_upload(&upload);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
 
-                uploads_table
-                    .insert(upload_id.as_str(), serialized.as_slice())
-                    .map_err(db_err)?;
+                uploads_table.insert(upload_id.as_str(), serialized.as_slice()).map_err(db_err)?;
             }
 
             txn.set_durability(durability).map_err(db_err)?;
@@ -751,12 +750,7 @@ impl MetadataBackend for RedbMetadataStore {
                 let mut parts_table = txn.open_table(PARTS).map_err(db_err)?;
                 let part_key = Self::part_key(&upload_id, part_number);
 
-                let part = Part {
-                    part_number,
-                    etag: ETag::new(&etag),
-                    size,
-                    last_modified: now,
-                };
+                let part = Part { part_number, etag: ETag::new(&etag), size, last_modified: now };
                 let stored = StoredPart::from_part(&part, uuid);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
 
@@ -839,7 +833,8 @@ impl MetadataBackend for RedbMetadataStore {
                 let mut keys_to_delete = Vec::new();
 
                 {
-                    let range = table.range(start_key.as_str()..end_key.as_str()).map_err(db_err)?;
+                    let range =
+                        table.range(start_key.as_str()..end_key.as_str()).map_err(db_err)?;
                     for entry in range {
                         let (key, value) = entry.map_err(db_err)?;
                         let stored: StoredPart =

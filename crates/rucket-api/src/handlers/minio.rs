@@ -28,8 +28,9 @@ pub async fn health_ready() -> impl IntoResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use axum::http::StatusCode;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_health_live() {

@@ -8,8 +8,11 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use rucket_api::create_router;
+use rucket_api::metrics::init_metrics;
 use rucket_core::config::{Config, LogFormat};
+use rucket_storage::metrics::{init_storage_metrics, start_storage_metrics_collector};
 use rucket_storage::LocalStorage;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -41,6 +44,25 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
     // Initialize logging
     init_logging(&config)?;
 
+    // Initialize metrics if enabled
+    if config.metrics.enabled {
+        init_metrics();
+        init_storage_metrics();
+
+        // Start Prometheus exporter on separate port
+        let metrics_addr: std::net::SocketAddr =
+            format!("{}:{}", config.metrics.bind, config.metrics.port)
+                .parse()
+                .context("Invalid metrics bind address")?;
+
+        PrometheusBuilder::new()
+            .with_http_listener(metrics_addr)
+            .install()
+            .context("Failed to install Prometheus exporter")?;
+
+        info!("Metrics endpoint listening on http://{}/metrics", metrics_addr);
+    }
+
     // Print banner
     print_banner(&config);
 
@@ -54,11 +76,22 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
 
     let storage = Arc::new(storage);
 
+    // Start storage metrics collector if enabled
+    let _metrics_task = if config.metrics.enabled && config.metrics.include_storage_metrics {
+        Some(start_storage_metrics_collector(
+            Arc::clone(&storage),
+            config.metrics.storage_metrics_interval_secs,
+        ))
+    } else {
+        None
+    };
+
     // Create router with body size limit and compatibility mode
     let app = create_router(
         storage,
         config.server.max_body_size,
         config.api.compatibility_mode,
+        config.logging.log_requests,
     );
 
     // Bind to address

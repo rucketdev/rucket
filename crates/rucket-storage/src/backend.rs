@@ -97,12 +97,7 @@ pub trait StorageBackend: Send + Sync {
     ) -> Result<ETag>;
 
     /// Abort a multipart upload, cleaning up all parts.
-    async fn abort_multipart_upload(
-        &self,
-        bucket: &str,
-        key: &str,
-        upload_id: &str,
-    ) -> Result<()>;
+    async fn abort_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str) -> Result<()>;
 
     /// List parts for a multipart upload.
     async fn list_parts(&self, bucket: &str, key: &str, upload_id: &str) -> Result<Vec<Part>>;

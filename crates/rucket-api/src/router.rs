@@ -9,14 +9,17 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
+use axum::{middleware as axum_middleware, Router};
 use bytes::Bytes;
 use rucket_core::config::ApiCompatibilityMode;
 use rucket_storage::LocalStorage;
 use serde::Deserialize;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 use crate::handlers::bucket::{self, AppState};
 use crate::handlers::{minio, multipart, object};
+use crate::middleware::metrics_layer;
 
 /// Query parameters to determine request type.
 #[derive(Debug, Deserialize, Default)]
@@ -54,10 +57,12 @@ struct RequestQuery {
 /// * `storage` - The storage backend
 /// * `max_body_size` - Maximum request body size in bytes (0 for unlimited)
 /// * `compatibility_mode` - API compatibility mode (s3-strict or minio)
+/// * `log_requests` - Whether to log HTTP requests
 pub fn create_router(
     storage: Arc<LocalStorage>,
     max_body_size: u64,
     compatibility_mode: ApiCompatibilityMode,
+    log_requests: bool,
 ) -> Router {
     let state = AppState { storage };
 
@@ -99,6 +104,19 @@ pub fn create_router(
     }
 
     let router = router.with_state(state);
+
+    // Add metrics middleware
+    let router = router.layer(axum_middleware::from_fn(metrics_layer));
+
+    // Add HTTP request/response tracing if enabled
+    let router = if log_requests {
+        let trace_layer = TraceLayer::new_for_http()
+            .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+            .on_response(DefaultOnResponse::new().level(Level::INFO));
+        router.layer(trace_layer)
+    } else {
+        router
+    };
 
     // Apply body limit (0 means unlimited)
     if max_body_size > 0 {
@@ -163,10 +181,8 @@ async fn handle_bucket_get(
 
     // Default: ListObjectsV2
     // Clamp max_keys to valid range [0, 1000], treating negative values as default
-    let max_keys = query
-        .max_keys
-        .map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 })
-        .unwrap_or(1000);
+    let max_keys =
+        query.max_keys.map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 }).unwrap_or(1000);
 
     let list_query = object::ListObjectsQuery {
         prefix: query.prefix,

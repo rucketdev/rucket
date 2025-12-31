@@ -18,6 +18,7 @@ pub mod backend;
 pub mod batch;
 pub mod local;
 pub mod metadata;
+pub mod metrics;
 pub mod streaming;
 pub mod sync;
 pub mod wal;
