@@ -146,11 +146,38 @@ secret_key = $RUCKET_SECRET_KEY
 api_name = default
 
 [s3 alt]
-display_name = Rucket Alt User  
+display_name = Rucket Alt User
 user_id = altuser
 email = alt@rucket.dev
 access_key = $RUCKET_ACCESS_KEY
 secret_key = $RUCKET_SECRET_KEY
+
+[s3 tenant]
+display_name = Rucket Tenant User
+user_id = tenantuser
+email = tenant@rucket.dev
+access_key = $RUCKET_ACCESS_KEY
+secret_key = $RUCKET_SECRET_KEY
+tenant = rucket
+
+[iam]
+display_name = Rucket IAM User
+user_id = iamuser
+email = iam@rucket.dev
+access_key = $RUCKET_ACCESS_KEY
+secret_key = $RUCKET_SECRET_KEY
+
+[iam root]
+access_key = $RUCKET_ACCESS_KEY
+secret_key = $RUCKET_SECRET_KEY
+user_id = iamrootuser
+email = iamroot@rucket.dev
+
+[iam alt root]
+access_key = $RUCKET_ACCESS_KEY
+secret_key = $RUCKET_SECRET_KEY
+user_id = iamaltroot
+email = iamaltroot@rucket.dev
 EOCONF
     
     log_info "Generated config: $config_file"

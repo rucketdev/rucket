@@ -23,21 +23,8 @@ RUN git clone --depth 1 https://github.com/ceph/s3-tests.git
 
 WORKDIR /opt/s3-tests
 
-# Install Python dependencies
-RUN pip install --no-cache-dir tox pytest pytest-json-report
-
-# Pre-install test dependencies to speed up test runs
-RUN pip install --no-cache-dir \
-    boto3 \
-    boto \
-    httplib2 \
-    lxml \
-    python-dateutil \
-    pytz \
-    pyyaml \
-    requests \
-    isodate \
-    xmltodict
+# Install test dependencies from requirements.txt plus pytest extras
+RUN pip install --no-cache-dir -r requirements.txt pytest-json-report
 
 # Create config and results directories
 RUN mkdir -p /results /config
