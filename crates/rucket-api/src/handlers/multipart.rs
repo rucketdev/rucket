@@ -94,10 +94,7 @@ pub async fn complete_multipart_upload(
     let parts: Vec<(u32, String)> =
         request.parts.into_iter().map(|p| (p.part_number, p.etag)).collect();
 
-    let etag = state
-        .storage
-        .complete_multipart_upload(&bucket, &key, &upload_id, &parts)
-        .await?;
+    let etag = state.storage.complete_multipart_upload(&bucket, &key, &upload_id, &parts).await?;
 
     let response = CompleteMultipartUploadResponse {
         location: format!("/{bucket}/{key}"),

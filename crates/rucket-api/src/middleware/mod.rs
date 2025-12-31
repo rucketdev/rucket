@@ -5,11 +5,9 @@
 
 use std::time::Instant;
 
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
+use axum::extract::Request;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use http::header::CONTENT_LENGTH;
 use tracing::{info_span, Instrument};
 use uuid::Uuid;

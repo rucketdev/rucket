@@ -7,10 +7,9 @@ use std::sync::Arc;
 
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::HeaderMap;
-use axum::middleware as axum_middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
+use axum::{middleware as axum_middleware, Router};
 use bytes::Bytes;
 use rucket_core::config::ApiCompatibilityMode;
 use rucket_storage::LocalStorage;
@@ -182,10 +181,8 @@ async fn handle_bucket_get(
 
     // Default: ListObjectsV2
     // Clamp max_keys to valid range [0, 1000], treating negative values as default
-    let max_keys = query
-        .max_keys
-        .map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 })
-        .unwrap_or(1000);
+    let max_keys =
+        query.max_keys.map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 }).unwrap_or(1000);
 
     let list_query = object::ListObjectsQuery {
         prefix: query.prefix,

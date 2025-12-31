@@ -794,12 +794,7 @@ impl StorageBackend for LocalStorage {
         Ok(etag)
     }
 
-    async fn abort_multipart_upload(
-        &self,
-        bucket: &str,
-        key: &str,
-        upload_id: &str,
-    ) -> Result<()> {
+    async fn abort_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str) -> Result<()> {
         // Get upload info to validate
         let upload = self.metadata.get_multipart_upload(upload_id).await?;
         if upload.bucket != bucket || upload.key != key {
