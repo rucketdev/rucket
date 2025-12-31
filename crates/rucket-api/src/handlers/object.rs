@@ -17,7 +17,7 @@ use crate::handlers::bucket::AppState;
 use crate::xml::request::DeleteObjects;
 use crate::xml::response::{
     to_xml, CommonPrefix, CopyObjectResponse, DeleteError, DeleteObjectsResponse, DeletedObject,
-    ListObjectsV2Response, ObjectEntry,
+    ListObjectVersionsResponse, ListObjectsV2Response, ObjectEntry, ObjectVersion,
 };
 
 /// Format a datetime for HTTP headers (RFC 7231 format).
@@ -439,6 +439,57 @@ pub async fn list_objects_v2(
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
 }
 
+/// `GET /{bucket}?versions` - List object versions.
+///
+/// Returns all versions of objects in a bucket. For non-versioned buckets,
+/// returns all objects with a version ID of "null".
+pub async fn list_object_versions(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+    Query(query): Query<ListObjectsQuery>,
+) -> Result<Response, ApiError> {
+    // For now, use list_objects and convert to versions format
+    // (full versioning support would require storage changes)
+    let result = state
+        .storage
+        .list_objects(
+            &bucket,
+            query.prefix.as_deref(),
+            query.delimiter.as_deref(),
+            query.continuation_token.as_deref(),
+            query.max_keys,
+        )
+        .await?;
+
+    // Convert objects to versions (with "null" version ID for non-versioned)
+    let versions: Vec<ObjectVersion> =
+        result.objects.iter().map(ObjectVersion::from_metadata).collect();
+
+    let response = ListObjectVersionsResponse {
+        name: bucket,
+        prefix: query.prefix,
+        key_marker: None,
+        version_id_marker: None,
+        next_key_marker: result.next_continuation_token.clone(),
+        next_version_id_marker: None,
+        max_keys: query.max_keys,
+        is_truncated: result.is_truncated,
+        versions,
+        delete_markers: Vec::new(), // No delete markers for non-versioned buckets
+        common_prefixes: result
+            .common_prefixes
+            .into_iter()
+            .map(|p| CommonPrefix { prefix: p })
+            .collect(),
+    };
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+}
+
 /// `POST /{bucket}?delete` - Delete multiple objects.
 pub async fn delete_objects(
     State(state): State<AppState>,
@@ -457,7 +508,9 @@ pub async fn delete_objects(
     for obj in &request.objects {
         match state.storage.delete_object(&bucket, &obj.key).await {
             Ok(()) => {
-                deleted.push(DeletedObject { key: obj.key.clone(), version_id: None });
+                // Return the version ID from the request, or "null" for non-versioned objects
+                let version_id = obj.version_id.clone().or_else(|| Some("null".to_string()));
+                deleted.push(DeletedObject { key: obj.key.clone(), version_id });
             }
             Err(e) => {
                 // Convert storage error to S3 error code and message

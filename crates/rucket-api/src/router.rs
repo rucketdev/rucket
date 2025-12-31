@@ -61,6 +61,8 @@ struct RequestQuery {
     encryption: Option<String>,
     /// Bucket notification.
     notification: Option<String>,
+    /// List object versions.
+    versions: Option<String>,
 }
 
 /// Create the S3 API router.
@@ -274,6 +276,22 @@ async fn handle_bucket_get(
     // Check for ?notification (GetBucketNotification)
     if query.notification.is_some() {
         return bucket::get_bucket_notification(state, path).await.into_response();
+    }
+
+    // Check for ?versions (ListObjectVersions)
+    if query.versions.is_some() {
+        let list_query = object::ListObjectsQuery {
+            prefix: query.prefix,
+            delimiter: query.delimiter,
+            continuation_token: query.continuation_token,
+            max_keys: query
+                .max_keys
+                .map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 })
+                .unwrap_or(1000),
+        };
+        return object::list_object_versions(state, path, Query(list_query))
+            .await
+            .into_response();
     }
 
     // Default: ListObjectsV2

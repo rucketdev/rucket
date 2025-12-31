@@ -547,6 +547,17 @@ pub enum ApiCompatibilityMode {
     /// Use this for compatibility with MinIO clients and tools.
     #[default]
     Minio,
+
+    /// S3 API with Ceph RGW compatibility extensions.
+    ///
+    /// Enables Ceph-specific behaviors and endpoints for compatibility
+    /// with Ceph RGW clients and the ceph/s3-tests test suite.
+    ///
+    /// Includes:
+    /// - Full versioning support with list_object_versions
+    /// - Delete markers handling
+    /// - Ceph-compatible response formats
+    Ceph,
 }
 
 /// API configuration.

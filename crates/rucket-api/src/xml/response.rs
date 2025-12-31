@@ -320,6 +320,110 @@ pub struct DeleteError {
     pub message: String,
 }
 
+/// `ListVersionsResult` response (ListObjectVersions).
+#[derive(Debug, Serialize)]
+#[serde(rename = "ListVersionsResult")]
+pub struct ListObjectVersionsResponse {
+    /// Bucket name.
+    #[serde(rename = "Name")]
+    pub name: String,
+    /// Prefix filter.
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    /// Key marker for pagination.
+    #[serde(rename = "KeyMarker", skip_serializing_if = "Option::is_none")]
+    pub key_marker: Option<String>,
+    /// Version ID marker for pagination.
+    #[serde(rename = "VersionIdMarker", skip_serializing_if = "Option::is_none")]
+    pub version_id_marker: Option<String>,
+    /// Next key marker for pagination.
+    #[serde(rename = "NextKeyMarker", skip_serializing_if = "Option::is_none")]
+    pub next_key_marker: Option<String>,
+    /// Next version ID marker for pagination.
+    #[serde(rename = "NextVersionIdMarker", skip_serializing_if = "Option::is_none")]
+    pub next_version_id_marker: Option<String>,
+    /// Max keys requested.
+    #[serde(rename = "MaxKeys")]
+    pub max_keys: u32,
+    /// Whether results are truncated.
+    #[serde(rename = "IsTruncated")]
+    pub is_truncated: bool,
+    /// Object versions.
+    #[serde(rename = "Version", default, skip_serializing_if = "Vec::is_empty")]
+    pub versions: Vec<ObjectVersion>,
+    /// Delete markers.
+    #[serde(rename = "DeleteMarker", default, skip_serializing_if = "Vec::is_empty")]
+    pub delete_markers: Vec<DeleteMarker>,
+    /// Common prefixes (when using delimiter).
+    #[serde(rename = "CommonPrefixes", default, skip_serializing_if = "Vec::is_empty")]
+    pub common_prefixes: Vec<CommonPrefix>,
+}
+
+/// Object version entry.
+#[derive(Debug, Serialize)]
+pub struct ObjectVersion {
+    /// Object key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Version ID.
+    #[serde(rename = "VersionId")]
+    pub version_id: String,
+    /// Whether this is the latest version.
+    #[serde(rename = "IsLatest")]
+    pub is_latest: bool,
+    /// Last modified timestamp.
+    #[serde(rename = "LastModified")]
+    pub last_modified: String,
+    /// ETag.
+    #[serde(rename = "ETag")]
+    pub etag: String,
+    /// Size in bytes.
+    #[serde(rename = "Size")]
+    pub size: u64,
+    /// Owner information.
+    #[serde(rename = "Owner")]
+    pub owner: Owner,
+    /// Storage class.
+    #[serde(rename = "StorageClass")]
+    pub storage_class: String,
+}
+
+impl ObjectVersion {
+    /// Create a new ObjectVersion from metadata (for non-versioned buckets).
+    pub fn from_metadata(meta: &ObjectMetadata) -> Self {
+        Self {
+            key: meta.key.clone(),
+            version_id: "null".to_string(),
+            is_latest: true,
+            last_modified: format_s3_timestamp(&meta.last_modified),
+            etag: meta.etag.as_str().to_string(),
+            size: meta.size,
+            owner: Owner::default(),
+            storage_class: "STANDARD".to_string(),
+        }
+    }
+}
+
+/// Delete marker entry.
+#[derive(Debug, Serialize)]
+pub struct DeleteMarker {
+    /// Object key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Version ID.
+    #[serde(rename = "VersionId")]
+    pub version_id: String,
+    /// Whether this is the latest version.
+    #[serde(rename = "IsLatest")]
+    pub is_latest: bool,
+    /// Last modified timestamp.
+    #[serde(rename = "LastModified")]
+    pub last_modified: String,
+    /// Owner information.
+    #[serde(rename = "Owner")]
+    pub owner: Owner,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors
