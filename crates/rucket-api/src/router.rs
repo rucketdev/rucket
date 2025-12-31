@@ -11,11 +11,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use bytes::Bytes;
+use rucket_core::config::ApiCompatibilityMode;
 use rucket_storage::LocalStorage;
 use serde::Deserialize;
 
 use crate::handlers::bucket::{self, AppState};
-use crate::handlers::{multipart, object};
+use crate::handlers::{minio, multipart, object};
 
 /// Query parameters to determine request type.
 #[derive(Debug, Deserialize, Default)]
@@ -52,10 +53,15 @@ struct RequestQuery {
 /// # Arguments
 /// * `storage` - The storage backend
 /// * `max_body_size` - Maximum request body size in bytes (0 for unlimited)
-pub fn create_router(storage: Arc<LocalStorage>, max_body_size: u64) -> Router {
+/// * `compatibility_mode` - API compatibility mode (s3-strict or minio)
+pub fn create_router(
+    storage: Arc<LocalStorage>,
+    max_body_size: u64,
+    compatibility_mode: ApiCompatibilityMode,
+) -> Router {
     let state = AppState { storage };
 
-    let router = Router::new()
+    let mut router = Router::new()
         // Service-level operations
         .route("/", get(list_buckets))
         // Bucket operations with complex routing (with and without trailing slash)
@@ -83,8 +89,16 @@ pub fn create_router(storage: Arc<LocalStorage>, max_body_size: u64) -> Router {
                 .delete(handle_object_delete)
                 .head(head_object)
                 .post(handle_object_post),
-        )
-        .with_state(state);
+        );
+
+    // Add MinIO-specific routes if compatibility mode is Minio
+    if compatibility_mode == ApiCompatibilityMode::Minio {
+        router = router
+            .route("/minio/health/live", get(minio::health_live))
+            .route("/minio/health/ready", get(minio::health_ready));
+    }
+
+    let router = router.with_state(state);
 
     // Apply body limit (0 means unlimited)
     if max_body_size > 0 {

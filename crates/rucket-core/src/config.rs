@@ -22,6 +22,8 @@ pub struct Config {
     pub bucket: BucketConfig,
     /// Logging configuration.
     pub logging: LoggingConfig,
+    /// API configuration.
+    pub api: ApiConfig,
 }
 
 impl Config {
@@ -494,6 +496,43 @@ impl Default for LoggingConfig {
     }
 }
 
+/// API compatibility mode.
+///
+/// Controls which API endpoints are available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApiCompatibilityMode {
+    /// Strict S3 API compatibility only.
+    ///
+    /// Only standard S3 API endpoints are available.
+    /// Use this for maximum compatibility with S3 clients.
+    S3Strict,
+
+    /// S3 API plus MinIO-specific extensions.
+    ///
+    /// Includes additional MinIO endpoints:
+    /// - `/minio/health/live` - Liveness probe
+    /// - `/minio/health/ready` - Readiness probe
+    ///
+    /// Use this for compatibility with MinIO clients and tools.
+    #[default]
+    Minio,
+}
+
+/// API configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ApiConfig {
+    /// API compatibility mode.
+    pub compatibility_mode: ApiCompatibilityMode,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self { compatibility_mode: ApiCompatibilityMode::Minio }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,6 +543,7 @@ mod tests {
         assert_eq!(config.server.bind.port(), 9000);
         assert_eq!(config.auth.access_key, "rucket");
         assert_eq!(config.bucket.naming_rules, BucketNamingRules::Relaxed);
+        assert_eq!(config.api.compatibility_mode, ApiCompatibilityMode::Minio);
     }
 
     #[test]
@@ -571,5 +611,25 @@ format = "json"
     fn test_default_durability_preset() {
         let preset = DurabilityPreset::default();
         assert_eq!(preset, DurabilityPreset::Balanced);
+    }
+
+    #[test]
+    fn test_api_compatibility_mode_s3_strict() {
+        let toml = r#"
+[api]
+compatibility_mode = "s3-strict"
+"#;
+        let config = Config::parse(toml).unwrap();
+        assert_eq!(config.api.compatibility_mode, ApiCompatibilityMode::S3Strict);
+    }
+
+    #[test]
+    fn test_api_compatibility_mode_minio() {
+        let toml = r#"
+[api]
+compatibility_mode = "minio"
+"#;
+        let config = Config::parse(toml).unwrap();
+        assert_eq!(config.api.compatibility_mode, ApiCompatibilityMode::Minio);
     }
 }

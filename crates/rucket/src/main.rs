@@ -54,8 +54,12 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
 
     let storage = Arc::new(storage);
 
-    // Create router with body size limit
-    let app = create_router(storage, config.server.max_body_size);
+    // Create router with body size limit and compatibility mode
+    let app = create_router(
+        storage,
+        config.server.max_body_size,
+        config.api.compatibility_mode,
+    );
 
     // Bind to address
     let addr = config.server.bind;
