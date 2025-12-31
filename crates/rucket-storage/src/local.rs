@@ -912,7 +912,13 @@ mod tests {
         // Put object
         let data = Bytes::from("Hello, World!");
         let etag = storage
-            .put_object("test-bucket", "hello.txt", data.clone(), Some("text/plain"), HashMap::new())
+            .put_object(
+                "test-bucket",
+                "hello.txt",
+                data.clone(),
+                Some("text/plain"),
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -1081,7 +1087,10 @@ mod tests {
         // Overwrite multiple times
         for i in 0..5 {
             let data = Bytes::from(format!("overwrite-{i}"));
-            storage.put_object("test-bucket", "test-key", data, None, HashMap::new()).await.unwrap();
+            storage
+                .put_object("test-bucket", "test-key", data, None, HashMap::new())
+                .await
+                .unwrap();
         }
 
         // Count data files - should be exactly 1

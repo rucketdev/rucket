@@ -88,9 +88,8 @@ fn decode_aws_chunked(body: Bytes) -> Result<Bytes, ApiError> {
 
         // Extract chunk size (everything before first ';')
         let size_str = header.split(';').next().unwrap_or("0");
-        let chunk_size = usize::from_str_radix(size_str, 16).map_err(|_| {
-            ApiError::new(S3ErrorCode::InvalidRequest, "Invalid chunk size")
-        })?;
+        let chunk_size = usize::from_str_radix(size_str, 16)
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRequest, "Invalid chunk size"))?;
 
         // Move past the header line (including CRLF)
         pos = header_end + 2;
@@ -121,12 +120,7 @@ fn decode_aws_chunked(body: Bytes) -> Result<Bytes, ApiError> {
 
 /// Find CRLF (\r\n) in data starting from offset.
 fn find_crlf(data: &[u8], start: usize) -> Option<usize> {
-    for i in start..data.len().saturating_sub(1) {
-        if data[i] == b'\r' && data[i + 1] == b'\n' {
-            return Some(i);
-        }
-    }
-    None
+    (start..data.len().saturating_sub(1)).find(|&i| data[i] == b'\r' && data[i + 1] == b'\n')
 }
 
 /// Query parameters for `ListObjectsV2`.
@@ -246,11 +240,7 @@ pub async fn put_object(
     let user_metadata = extract_user_metadata(&headers);
 
     // Decode AWS chunked encoding if present
-    let body = if is_aws_chunked(&headers) {
-        decode_aws_chunked(body)?
-    } else {
-        body
-    };
+    let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
 
     let etag = state.storage.put_object(&bucket, &key, body, content_type, user_metadata).await?;
 

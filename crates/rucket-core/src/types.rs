@@ -136,7 +136,10 @@ impl ObjectMetadata {
 
     /// Sets the user metadata.
     #[must_use]
-    pub fn with_user_metadata(mut self, user_metadata: std::collections::HashMap<String, String>) -> Self {
+    pub fn with_user_metadata(
+        mut self,
+        user_metadata: std::collections::HashMap<String, String>,
+    ) -> Self {
         self.user_metadata = user_metadata;
         self
     }

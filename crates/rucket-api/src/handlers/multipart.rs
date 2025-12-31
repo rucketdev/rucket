@@ -72,9 +72,8 @@ fn decode_aws_chunked(body: Bytes) -> Result<Bytes, ApiError> {
         })?;
 
         let size_str = header.split(';').next().unwrap_or("0");
-        let chunk_size = usize::from_str_radix(size_str, 16).map_err(|_| {
-            ApiError::new(S3ErrorCode::InvalidRequest, "Invalid chunk size")
-        })?;
+        let chunk_size = usize::from_str_radix(size_str, 16)
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRequest, "Invalid chunk size"))?;
 
         pos = header_end + 2;
 
@@ -97,12 +96,7 @@ fn decode_aws_chunked(body: Bytes) -> Result<Bytes, ApiError> {
 }
 
 fn find_crlf(data: &[u8], start: usize) -> Option<usize> {
-    for i in start..data.len().saturating_sub(1) {
-        if data[i] == b'\r' && data[i + 1] == b'\n' {
-            return Some(i);
-        }
-    }
-    None
+    (start..data.len().saturating_sub(1)).find(|&i| data[i] == b'\r' && data[i + 1] == b'\n')
 }
 
 /// Query parameters for multipart operations.
@@ -125,10 +119,8 @@ pub async fn create_multipart_upload(
     let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
     let user_metadata = extract_user_metadata(&headers);
 
-    let upload = state
-        .storage
-        .create_multipart_upload(&bucket, &key, content_type, user_metadata)
-        .await?;
+    let upload =
+        state.storage.create_multipart_upload(&bucket, &key, content_type, user_metadata).await?;
 
     let response = InitiateMultipartUploadResponse {
         bucket: upload.bucket,
@@ -160,11 +152,7 @@ pub async fn upload_part(
     })?;
 
     // Decode AWS chunked encoding if present
-    let body = if is_aws_chunked(&headers) {
-        decode_aws_chunked(body)?
-    } else {
-        body
-    };
+    let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
 
     let etag = state.storage.upload_part(&bucket, &key, &upload_id, part_number, body).await?;
 

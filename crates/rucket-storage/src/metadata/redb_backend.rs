@@ -648,7 +648,14 @@ impl MetadataBackend for RedbMetadataStore {
             txn.set_durability(durability).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
 
-            Ok(MultipartUpload { upload_id, bucket, key, initiated: now, content_type, user_metadata })
+            Ok(MultipartUpload {
+                upload_id,
+                bucket,
+                key,
+                initiated: now,
+                content_type,
+                user_metadata,
+            })
         })
         .await
         .map_err(db_err)?
