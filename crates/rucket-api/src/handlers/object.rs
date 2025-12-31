@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Object operation handlers.
 
 use axum::body::Body;

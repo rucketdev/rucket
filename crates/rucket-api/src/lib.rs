@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! S3 API implementation for Rucket object storage.
 //!
 //! This crate provides the HTTP API layer including:

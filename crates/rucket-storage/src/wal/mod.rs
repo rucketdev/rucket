@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Write-Ahead Log (WAL) for crash recovery.
 //!
 //! The WAL provides durability guarantees by logging operation intents before

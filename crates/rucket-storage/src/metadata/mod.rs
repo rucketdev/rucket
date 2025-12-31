@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Metadata storage backends.
 //!
 //! This module provides the [`MetadataBackend`] trait and implementations

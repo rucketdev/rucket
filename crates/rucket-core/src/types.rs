@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Common types used throughout Rucket.
 
 use chrono::{DateTime, Utc};

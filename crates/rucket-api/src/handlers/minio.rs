@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! MinIO-specific endpoint handlers.
 //!
 //! These handlers provide MinIO-compatible endpoints that are not part of

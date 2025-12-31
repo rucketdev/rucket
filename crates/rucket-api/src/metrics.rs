@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! S3 API metrics definitions.
 //!
 //! This module provides Prometheus-compatible metrics for S3 operations.
