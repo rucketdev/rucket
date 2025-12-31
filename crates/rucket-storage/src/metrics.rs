@@ -21,14 +21,8 @@ use crate::local::LocalStorage;
 pub fn init_storage_metrics() {
     describe_gauge!("rucket_buckets_total", "Total number of buckets");
     describe_gauge!("rucket_objects_total", "Total number of objects");
-    describe_gauge!(
-        "rucket_storage_bytes_total",
-        "Total storage used in bytes"
-    );
-    describe_gauge!(
-        "rucket_multipart_uploads_active",
-        "Number of active multipart uploads"
-    );
+    describe_gauge!("rucket_storage_bytes_total", "Total storage used in bytes");
+    describe_gauge!("rucket_multipart_uploads_active", "Number of active multipart uploads");
 }
 
 /// Start a background task to periodically collect storage metrics.

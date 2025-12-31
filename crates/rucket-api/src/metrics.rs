@@ -83,18 +83,9 @@ impl S3Operation {
 pub fn init_metrics() {
     // Request metrics
     describe_counter!("rucket_requests_total", "Total number of S3 API requests");
-    describe_histogram!(
-        "rucket_request_duration_seconds",
-        "Request duration in seconds"
-    );
-    describe_counter!(
-        "rucket_request_bytes_total",
-        "Total bytes received in requests"
-    );
-    describe_counter!(
-        "rucket_response_bytes_total",
-        "Total bytes sent in responses"
-    );
+    describe_histogram!("rucket_request_duration_seconds", "Request duration in seconds");
+    describe_counter!("rucket_request_bytes_total", "Total bytes received in requests");
+    describe_counter!("rucket_response_bytes_total", "Total bytes sent in responses");
     describe_counter!("rucket_errors_total", "Total number of errors by type");
 }
 
@@ -253,8 +244,7 @@ mod tests {
 
     #[test]
     fn test_determine_operation_upload_part() {
-        let op =
-            determine_operation(&http::Method::PUT, "/my-bucket/my-key", Some("partNumber=1"));
+        let op = determine_operation(&http::Method::PUT, "/my-bucket/my-key", Some("partNumber=1"));
         assert_eq!(op, Some(S3Operation::UploadPart));
     }
 
