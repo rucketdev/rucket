@@ -597,14 +597,23 @@ impl StorageBackend for LocalStorage {
         // Handle delimiter (compute common prefixes)
         let mut common_prefixes = Vec::new();
         let filtered_objects = if let Some(delim) = delimiter {
-            let prefix_len = prefix.map_or(0, str::len);
+            let prefix_str = prefix.unwrap_or("");
             let mut seen_prefixes = std::collections::HashSet::new();
             let mut result = Vec::new();
 
             for obj in objects {
-                let key_suffix = &obj.key[prefix_len..];
+                // Safely get the suffix after the prefix
+                let key_suffix = if obj.key.starts_with(prefix_str) {
+                    &obj.key[prefix_str.len()..]
+                } else {
+                    &obj.key
+                };
+
                 if let Some(pos) = key_suffix.find(delim) {
-                    let common_prefix = format!("{}{}", prefix.unwrap_or(""), &key_suffix[..=pos]);
+                    // Find the end of the delimiter (handle multi-byte chars)
+                    let delim_end = pos + delim.len();
+                    // Safely slice: prefix + part before delimiter + delimiter
+                    let common_prefix = format!("{}{}", prefix_str, &key_suffix[..delim_end]);
                     if seen_prefixes.insert(common_prefix.clone()) {
                         common_prefixes.push(common_prefix);
                     }
