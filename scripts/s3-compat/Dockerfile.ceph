@@ -1,0 +1,54 @@
+# Ceph S3 Compatibility Test Image
+#
+# This Dockerfile creates an image for running ceph/s3-tests against Rucket.
+# It installs the s3-tests suite with all dependencies.
+#
+# Build: docker build -f Dockerfile.ceph -t rucket/s3-tests:latest .
+# Run: docker run -v /path/to/s3tests.conf:/s3tests.conf rucket/s3-tests
+
+FROM python:3.11-slim
+
+LABEL maintainer="rucket"
+LABEL description="Ceph S3 compatibility tests for Rucket"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone s3-tests repository
+WORKDIR /opt
+RUN git clone --depth 1 https://github.com/ceph/s3-tests.git
+
+WORKDIR /opt/s3-tests
+
+# Install Python dependencies
+RUN pip install --no-cache-dir tox pytest pytest-json-report
+
+# Pre-install test dependencies to speed up test runs
+RUN pip install --no-cache-dir \
+    boto3 \
+    boto \
+    httplib2 \
+    lxml \
+    python-dateutil \
+    pytz \
+    pyyaml \
+    requests \
+    isodate \
+    xmltodict
+
+# Create config and results directories
+RUN mkdir -p /results /config
+
+# Copy entrypoint script
+COPY scripts/s3-compat/ceph-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Default config location
+ENV S3TEST_CONF=/config/s3tests.conf
+ENV RESULTS_DIR=/results
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["--help"]

@@ -32,6 +32,7 @@ Usage: $0 [SUITE] [OPTIONS]
 
 Suites:
   minio     Run MinIO Mint tests (default)
+  ceph      Run Ceph S3 compatibility tests
 
 Options (passed to suite runner):
   --build-image       Build test image from source (gets latest fixes)
@@ -86,9 +87,16 @@ run_suite() {
             fi
             exec "$runner" "$@"
             ;;
+        ceph|s3-tests)
+            local runner="$S3_COMPAT_DIR/ceph-runner.sh"
+            if [[ ! -x "$runner" ]]; then
+                chmod +x "$runner"
+            fi
+            exec "$runner" "$@"
+            ;;
         *)
             log_error "Unknown test suite: $suite"
-            log_info "Supported suites: minio"
+            log_info "Supported suites: minio, ceph"
             exit 1
             ;;
     esac
