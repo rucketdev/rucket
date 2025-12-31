@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::HeaderMap;
+use axum::middleware as axum_middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -14,9 +15,12 @@ use bytes::Bytes;
 use rucket_core::config::ApiCompatibilityMode;
 use rucket_storage::LocalStorage;
 use serde::Deserialize;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 use crate::handlers::bucket::{self, AppState};
 use crate::handlers::{minio, multipart, object};
+use crate::middleware::metrics_layer;
 
 /// Query parameters to determine request type.
 #[derive(Debug, Deserialize, Default)]
@@ -54,10 +58,12 @@ struct RequestQuery {
 /// * `storage` - The storage backend
 /// * `max_body_size` - Maximum request body size in bytes (0 for unlimited)
 /// * `compatibility_mode` - API compatibility mode (s3-strict or minio)
+/// * `log_requests` - Whether to log HTTP requests
 pub fn create_router(
     storage: Arc<LocalStorage>,
     max_body_size: u64,
     compatibility_mode: ApiCompatibilityMode,
+    log_requests: bool,
 ) -> Router {
     let state = AppState { storage };
 
@@ -99,6 +105,19 @@ pub fn create_router(
     }
 
     let router = router.with_state(state);
+
+    // Add metrics middleware
+    let router = router.layer(axum_middleware::from_fn(metrics_layer));
+
+    // Add HTTP request/response tracing if enabled
+    let router = if log_requests {
+        let trace_layer = TraceLayer::new_for_http()
+            .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+            .on_response(DefaultOnResponse::new().level(Level::INFO));
+        router.layer(trace_layer)
+    } else {
+        router
+    };
 
     // Apply body limit (0 means unlimited)
     if max_body_size > 0 {

@@ -14,9 +14,12 @@
 pub mod auth;
 pub mod error;
 pub mod handlers;
+pub mod metrics;
+pub mod middleware;
 pub mod router;
 pub mod xml;
 
 pub use error::ApiError;
 pub use handlers::bucket::AppState;
+pub use metrics::init_metrics;
 pub use router::create_router;

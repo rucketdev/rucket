@@ -76,3 +76,18 @@ naming_rules = "relaxed"
 level = "info"
 # Log format: "json" or "pretty"
 format = "pretty"
+# Include HTTP request/response logging
+log_requests = true
+
+[metrics]
+# Enable Prometheus metrics collection and endpoint
+enabled = true
+# Port for the metrics endpoint (separate from main server)
+port = 9001
+# Bind address for metrics server
+bind = "0.0.0.0"
+# Include storage metrics (bucket/object counts, bytes used)
+# These require periodic metadata scans
+include_storage_metrics = true
+# Interval in seconds for storage metrics refresh
+storage_metrics_interval_secs = 60
