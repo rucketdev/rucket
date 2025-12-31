@@ -40,6 +40,15 @@ struct RequestQuery {
     /// Continuation token (for ListObjectsV2).
     #[serde(rename = "continuation-token")]
     continuation_token: Option<String>,
+    /// StartAfter for ListObjectsV2.
+    #[serde(rename = "start-after")]
+    start_after: Option<String>,
+    /// Encoding type (url) for ListObjectsV2.
+    #[serde(rename = "encoding-type")]
+    encoding_type: Option<String>,
+    /// FetchOwner for ListObjectsV2.
+    #[serde(rename = "fetch-owner")]
+    fetch_owner: Option<String>,
     /// Maximum keys to return (for ListObjectsV2).
     /// Parsed as i32 to handle invalid negative values from some SDKs.
     #[serde(rename = "max-keys")]
@@ -284,10 +293,13 @@ async fn handle_bucket_get(
             prefix: query.prefix,
             delimiter: query.delimiter,
             continuation_token: query.continuation_token,
+            start_after: query.start_after,
+            encoding_type: query.encoding_type,
             max_keys: query
                 .max_keys
                 .map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 })
                 .unwrap_or(1000),
+            fetch_owner: query.fetch_owner,
         };
         return object::list_object_versions(state, path, Query(list_query))
             .await
@@ -303,7 +315,10 @@ async fn handle_bucket_get(
         prefix: query.prefix,
         delimiter: query.delimiter,
         continuation_token: query.continuation_token,
+        start_after: query.start_after,
+        encoding_type: query.encoding_type,
         max_keys,
+        fetch_owner: query.fetch_owner,
     };
 
     object::list_objects_v2(state, path, Query(list_query)).await.into_response()

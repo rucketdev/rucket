@@ -133,9 +133,18 @@ pub struct ListObjectsQuery {
     /// Continuation token.
     #[serde(rename = "continuation-token")]
     pub continuation_token: Option<String>,
+    /// StartAfter - where to start listing from.
+    #[serde(rename = "start-after")]
+    pub start_after: Option<String>,
+    /// Encoding type for keys (url).
+    #[serde(rename = "encoding-type")]
+    pub encoding_type: Option<String>,
     /// Maximum keys to return.
     #[serde(rename = "max-keys", default = "default_max_keys")]
     pub max_keys: u32,
+    /// FetchOwner - whether to include owner info.
+    #[serde(rename = "fetch-owner")]
+    pub fetch_owner: Option<String>,
 }
 
 fn default_max_keys() -> u32 {
@@ -406,13 +415,16 @@ pub async fn list_objects_v2(
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Response, ApiError> {
+    // Handle start-after: use it as the continuation token if no continuation token is provided
+    let effective_token = query.continuation_token.as_deref().or(query.start_after.as_deref());
+
     let result = state
         .storage
         .list_objects(
             &bucket,
             query.prefix.as_deref(),
             query.delimiter.as_deref(),
-            query.continuation_token.as_deref(),
+            effective_token,
             query.max_keys,
         )
         .await?;
@@ -420,9 +432,13 @@ pub async fn list_objects_v2(
     let response = ListObjectsV2Response {
         name: bucket,
         prefix: query.prefix,
+        delimiter: query.delimiter,
         max_keys: query.max_keys,
+        encoding_type: query.encoding_type,
         is_truncated: result.is_truncated,
+        continuation_token: query.continuation_token,
         next_continuation_token: result.next_continuation_token,
+        start_after: query.start_after,
         key_count: result.objects.len() as u32,
         contents: result.objects.iter().map(ObjectEntry::from).collect(),
         common_prefixes: result

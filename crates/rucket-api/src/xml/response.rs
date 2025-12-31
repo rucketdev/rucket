@@ -76,15 +76,27 @@ pub struct ListObjectsV2Response {
     /// Prefix filter.
     #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
+    /// Delimiter used for grouping.
+    #[serde(rename = "Delimiter", skip_serializing_if = "Option::is_none")]
+    pub delimiter: Option<String>,
     /// Max keys requested.
     #[serde(rename = "MaxKeys")]
     pub max_keys: u32,
+    /// Encoding type (url).
+    #[serde(rename = "EncodingType", skip_serializing_if = "Option::is_none")]
+    pub encoding_type: Option<String>,
     /// Whether results are truncated.
     #[serde(rename = "IsTruncated")]
     pub is_truncated: bool,
+    /// Continuation token from the request.
+    #[serde(rename = "ContinuationToken", skip_serializing_if = "Option::is_none")]
+    pub continuation_token: Option<String>,
     /// Continuation token for next page.
     #[serde(rename = "NextContinuationToken", skip_serializing_if = "Option::is_none")]
     pub next_continuation_token: Option<String>,
+    /// StartAfter from the request.
+    #[serde(rename = "StartAfter", skip_serializing_if = "Option::is_none")]
+    pub start_after: Option<String>,
     /// Number of keys returned.
     #[serde(rename = "KeyCount")]
     pub key_count: u32,
