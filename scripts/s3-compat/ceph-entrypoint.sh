@@ -128,16 +128,16 @@ fi
 # Determine test path
 case "$TEST_MODE" in
     all)
-        TEST_PATH="s3tests_boto3/functional"
+        TEST_PATH="s3tests/functional"
         ;;
     core)
-        TEST_PATH="s3tests_boto3/functional/test_s3.py"
+        TEST_PATH="s3tests/functional/test_s3.py"
         ;;
     boto3)
-        TEST_PATH="s3tests_boto3/functional"
+        TEST_PATH="s3tests/functional"
         ;;
     specific)
-        TEST_PATH="s3tests_boto3/functional/test_s3.py::$SPECIFIC_TEST"
+        TEST_PATH="s3tests/functional/test_s3.py::$SPECIFIC_TEST"
         ;;
 esac
 
