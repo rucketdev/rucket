@@ -42,6 +42,93 @@ fn extract_user_metadata(headers: &HeaderMap) -> HashMap<String, String> {
     metadata
 }
 
+/// Check if the request uses AWS chunked encoding.
+///
+/// AWS uses chunked encoding for streaming uploads, indicated by:
+/// - `x-amz-content-sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD`
+/// - Or `Content-Encoding: aws-chunked`
+fn is_aws_chunked(headers: &HeaderMap) -> bool {
+    // Check x-amz-content-sha256 header
+    if let Some(sha256) = headers.get("x-amz-content-sha256") {
+        if let Ok(val) = sha256.to_str() {
+            if val.starts_with("STREAMING-") {
+                return true;
+            }
+        }
+    }
+    // Check Content-Encoding header
+    if let Some(encoding) = headers.get("content-encoding") {
+        if let Ok(val) = encoding.to_str() {
+            if val.contains("aws-chunked") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Decode AWS chunked transfer encoding.
+///
+/// Format: `<chunk-size-hex>;chunk-signature=<sig>\r\n<data>\r\n...0;chunk-signature=<sig>\r\n\r\n`
+fn decode_aws_chunked(body: Bytes) -> Result<Bytes, ApiError> {
+    let mut result = Vec::new();
+    let data = body.as_ref();
+    let mut pos = 0;
+
+    while pos < data.len() {
+        // Find end of chunk header line (CRLF)
+        let header_end = find_crlf(data, pos).ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Malformed chunked encoding: missing CRLF")
+        })?;
+
+        // Parse chunk header: "<size-hex>;chunk-signature=<sig>"
+        let header = std::str::from_utf8(&data[pos..header_end]).map_err(|_| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Invalid UTF-8 in chunk header")
+        })?;
+
+        // Extract chunk size (everything before first ';')
+        let size_str = header.split(';').next().unwrap_or("0");
+        let chunk_size = usize::from_str_radix(size_str, 16).map_err(|_| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Invalid chunk size")
+        })?;
+
+        // Move past the header line (including CRLF)
+        pos = header_end + 2;
+
+        // If chunk size is 0, we're done (final chunk)
+        if chunk_size == 0 {
+            break;
+        }
+
+        // Read chunk data
+        if pos + chunk_size > data.len() {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidRequest,
+                "Chunk size exceeds available data",
+            ));
+        }
+        result.extend_from_slice(&data[pos..pos + chunk_size]);
+        pos += chunk_size;
+
+        // Skip trailing CRLF after chunk data
+        if pos + 2 <= data.len() && &data[pos..pos + 2] == b"\r\n" {
+            pos += 2;
+        }
+    }
+
+    Ok(Bytes::from(result))
+}
+
+/// Find CRLF (\r\n) in data starting from offset.
+fn find_crlf(data: &[u8], start: usize) -> Option<usize> {
+    for i in start..data.len().saturating_sub(1) {
+        if data[i] == b'\r' && data[i + 1] == b'\n' {
+            return Some(i);
+        }
+    }
+    None
+}
+
 /// Query parameters for `ListObjectsV2`.
 #[derive(Debug, Deserialize)]
 pub struct ListObjectsQuery {
@@ -157,6 +244,13 @@ pub async fn put_object(
 
     let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
     let user_metadata = extract_user_metadata(&headers);
+
+    // Decode AWS chunked encoding if present
+    let body = if is_aws_chunked(&headers) {
+        decode_aws_chunked(body)?
+    } else {
+        body
+    };
 
     let etag = state.storage.put_object(&bucket, &key, body, content_type, user_metadata).await?;
 

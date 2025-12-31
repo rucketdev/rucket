@@ -330,7 +330,9 @@ async fn handle_object_put(
             upload_id: query.upload_id,
             part_number: query.part_number,
         };
-        return multipart::upload_part(state, path, Query(mp_query), body).await.into_response();
+        return multipart::upload_part(state, path, Query(mp_query), headers, body)
+            .await
+            .into_response();
     }
 
     // Default: PutObject
