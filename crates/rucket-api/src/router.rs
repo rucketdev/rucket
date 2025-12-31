@@ -46,6 +46,21 @@ struct RequestQuery {
     max_keys: Option<i32>,
     /// Delete marker (for DeleteObjects).
     delete: Option<String>,
+    /// Versioning configuration.
+    versioning: Option<String>,
+    /// Bucket policy.
+    policy: Option<String>,
+    /// Bucket tagging.
+    tagging: Option<String>,
+    /// Bucket lifecycle.
+    lifecycle: Option<String>,
+    /// Object lock configuration.
+    #[serde(rename = "object-lock")]
+    object_lock: Option<String>,
+    /// Bucket encryption.
+    encryption: Option<String>,
+    /// Bucket notification.
+    notification: Option<String>,
 }
 
 /// Create the S3 API router.
@@ -70,16 +85,16 @@ pub fn create_router(
         .route(
             "/{bucket}",
             get(handle_bucket_get)
-                .put(create_bucket)
-                .delete(delete_bucket)
+                .put(handle_bucket_put)
+                .delete(handle_bucket_delete)
                 .head(head_bucket)
                 .post(handle_bucket_post),
         )
         .route(
             "/{bucket}/",
             get(handle_bucket_get)
-                .put(create_bucket)
-                .delete(delete_bucket)
+                .put(handle_bucket_put)
+                .delete(handle_bucket_delete)
                 .head(head_bucket)
                 .post(handle_bucket_post),
         )
@@ -129,11 +144,68 @@ async fn list_buckets(state: State<AppState>) -> Response {
     bucket::list_buckets(state).await.into_response()
 }
 
-async fn create_bucket(state: State<AppState>, path: Path<String>) -> Response {
+/// Handle PUT requests to bucket (create bucket, versioning, policy, etc.).
+async fn handle_bucket_put(
+    state: State<AppState>,
+    path: Path<String>,
+    Query(query): Query<RequestQuery>,
+    body: Bytes,
+) -> Response {
+    // Check for ?versioning (SetBucketVersioning)
+    if query.versioning.is_some() {
+        return bucket::set_bucket_versioning(state, path, body).await.into_response();
+    }
+    // Check for ?policy (SetBucketPolicy)
+    if query.policy.is_some() {
+        return bucket::set_bucket_policy(state, path, body).await.into_response();
+    }
+    // Check for ?tagging (SetBucketTagging)
+    if query.tagging.is_some() {
+        return bucket::set_bucket_tagging(state, path, body).await.into_response();
+    }
+    // Check for ?lifecycle (SetBucketLifecycle)
+    if query.lifecycle.is_some() {
+        return bucket::set_bucket_lifecycle(state, path, body).await.into_response();
+    }
+    // Check for ?object-lock (SetObjectLockConfiguration)
+    if query.object_lock.is_some() {
+        return bucket::set_object_lock_configuration(state, path, body).await.into_response();
+    }
+    // Check for ?encryption (SetBucketEncryption)
+    if query.encryption.is_some() {
+        return bucket::set_bucket_encryption(state, path, body).await.into_response();
+    }
+    // Check for ?notification (SetBucketNotification)
+    if query.notification.is_some() {
+        return bucket::set_bucket_notification(state, path, body).await.into_response();
+    }
+    // Default: CreateBucket
     bucket::create_bucket(state, path).await.into_response()
 }
 
-async fn delete_bucket(state: State<AppState>, path: Path<String>) -> Response {
+/// Handle DELETE requests to bucket (delete bucket, policy, tagging, etc.).
+async fn handle_bucket_delete(
+    state: State<AppState>,
+    path: Path<String>,
+    Query(query): Query<RequestQuery>,
+) -> Response {
+    // Check for ?policy (DeleteBucketPolicy)
+    if query.policy.is_some() {
+        return bucket::delete_bucket_policy(state, path).await.into_response();
+    }
+    // Check for ?tagging (DeleteBucketTagging)
+    if query.tagging.is_some() {
+        return bucket::delete_bucket_tagging(state, path).await.into_response();
+    }
+    // Check for ?lifecycle (DeleteBucketLifecycle)
+    if query.lifecycle.is_some() {
+        return bucket::delete_bucket_lifecycle(state, path).await.into_response();
+    }
+    // Check for ?encryption (DeleteBucketEncryption)
+    if query.encryption.is_some() {
+        return bucket::delete_bucket_encryption(state, path).await.into_response();
+    }
+    // Default: DeleteBucket
     bucket::delete_bucket(state, path).await.into_response()
 }
 
@@ -165,7 +237,7 @@ async fn handle_bucket_post(
     .into_response()
 }
 
-/// Handle GET requests to bucket (list objects or list uploads).
+/// Handle GET requests to bucket (list objects, uploads, or config).
 async fn handle_bucket_get(
     state: State<AppState>,
     path: Path<String>,
@@ -174,6 +246,34 @@ async fn handle_bucket_get(
     // Check for ?uploads (list multipart uploads)
     if query.uploads.is_some() {
         return multipart::list_multipart_uploads(state, path).await.into_response();
+    }
+    // Check for ?versioning (GetBucketVersioning)
+    if query.versioning.is_some() {
+        return bucket::get_bucket_versioning(state, path).await.into_response();
+    }
+    // Check for ?policy (GetBucketPolicy)
+    if query.policy.is_some() {
+        return bucket::get_bucket_policy(state, path).await.into_response();
+    }
+    // Check for ?tagging (GetBucketTagging)
+    if query.tagging.is_some() {
+        return bucket::get_bucket_tagging(state, path).await.into_response();
+    }
+    // Check for ?lifecycle (GetBucketLifecycle)
+    if query.lifecycle.is_some() {
+        return bucket::get_bucket_lifecycle(state, path).await.into_response();
+    }
+    // Check for ?object-lock (GetObjectLockConfiguration)
+    if query.object_lock.is_some() {
+        return bucket::get_object_lock_configuration(state, path).await.into_response();
+    }
+    // Check for ?encryption (GetBucketEncryption)
+    if query.encryption.is_some() {
+        return bucket::get_bucket_encryption(state, path).await.into_response();
+    }
+    // Check for ?notification (GetBucketNotification)
+    if query.notification.is_some() {
+        return bucket::get_bucket_notification(state, path).await.into_response();
     }
 
     // Default: ListObjectsV2
@@ -230,7 +330,9 @@ async fn handle_object_put(
             upload_id: query.upload_id,
             part_number: query.part_number,
         };
-        return multipart::upload_part(state, path, Query(mp_query), body).await.into_response();
+        return multipart::upload_part(state, path, Query(mp_query), headers, body)
+            .await
+            .into_response();
     }
 
     // Default: PutObject
@@ -263,11 +365,12 @@ async fn handle_object_post(
     state: State<AppState>,
     path: Path<(String, String)>,
     Query(query): Query<RequestQuery>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     // Check for ?uploads (initiate multipart upload)
     if query.uploads.is_some() {
-        return multipart::create_multipart_upload(state, path).await.into_response();
+        return multipart::create_multipart_upload(state, path, headers).await.into_response();
     }
 
     // Check for ?uploadId (complete multipart upload)

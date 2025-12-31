@@ -1,5 +1,7 @@
 //! Storage backend trait definition.
 
+use std::collections::HashMap;
+
 use bytes::Bytes;
 use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part};
 use rucket_core::Result;
@@ -30,6 +32,7 @@ pub trait StorageBackend: Send + Sync {
         key: &str,
         data: Bytes,
         content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
     ) -> Result<ETag>;
 
     /// Retrieve an object.
@@ -72,7 +75,13 @@ pub trait StorageBackend: Send + Sync {
     // Multipart upload operations
 
     /// Initiate a multipart upload.
-    async fn create_multipart_upload(&self, bucket: &str, key: &str) -> Result<MultipartUpload>;
+    async fn create_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
+    ) -> Result<MultipartUpload>;
 
     /// Upload a part for a multipart upload.
     async fn upload_part(

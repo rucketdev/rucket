@@ -1,5 +1,7 @@
 //! Metadata backend trait definition.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use rucket_core::types::{BucketInfo, MultipartUpload, ObjectMetadata, Part};
 use rucket_core::Result;
@@ -108,6 +110,8 @@ pub trait MetadataBackend: Send + Sync + 'static {
         bucket: &str,
         key: &str,
         upload_id: &str,
+        content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
     ) -> Result<MultipartUpload>;
 
     /// Get multipart upload info.

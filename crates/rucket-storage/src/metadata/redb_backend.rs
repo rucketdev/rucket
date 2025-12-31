@@ -1,5 +1,6 @@
 //! redb-based metadata storage backend.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -106,6 +107,10 @@ struct StoredMultipartUpload {
     bucket: String,
     key: String,
     initiated_millis: i64,
+    #[serde(default)]
+    content_type: Option<String>,
+    #[serde(default)]
+    user_metadata: HashMap<String, String>,
 }
 
 impl StoredMultipartUpload {
@@ -115,6 +120,8 @@ impl StoredMultipartUpload {
             bucket: upload.bucket.clone(),
             key: upload.key.clone(),
             initiated_millis: upload.initiated.timestamp_millis(),
+            content_type: upload.content_type.clone(),
+            user_metadata: upload.user_metadata.clone(),
         }
     }
 
@@ -127,6 +134,8 @@ impl StoredMultipartUpload {
                 .timestamp_millis_opt(self.initiated_millis)
                 .single()
                 .unwrap_or_else(Utc::now),
+            content_type: self.content_type.clone(),
+            user_metadata: self.user_metadata.clone(),
         }
     }
 }
@@ -594,10 +603,13 @@ impl MetadataBackend for RedbMetadataStore {
         bucket: &str,
         key: &str,
         upload_id: &str,
+        content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
     ) -> Result<MultipartUpload> {
         let bucket = bucket.to_string();
         let key = key.to_string();
         let upload_id = upload_id.to_string();
+        let content_type = content_type.map(String::from);
         let now = Utc::now();
         let db = Arc::clone(&self.db);
         let durability = self.durability;
@@ -624,6 +636,8 @@ impl MetadataBackend for RedbMetadataStore {
                     bucket: bucket.clone(),
                     key: key.clone(),
                     initiated: now,
+                    content_type: content_type.clone(),
+                    user_metadata: user_metadata.clone(),
                 };
                 let stored = StoredMultipartUpload::from_multipart_upload(&upload);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
@@ -634,7 +648,14 @@ impl MetadataBackend for RedbMetadataStore {
             txn.set_durability(durability).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
 
-            Ok(MultipartUpload { upload_id, bucket, key, initiated: now })
+            Ok(MultipartUpload {
+                upload_id,
+                bucket,
+                key,
+                initiated: now,
+                content_type,
+                user_metadata,
+            })
         })
         .await
         .map_err(db_err)?

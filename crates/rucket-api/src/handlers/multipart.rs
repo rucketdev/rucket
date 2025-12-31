@@ -1,7 +1,9 @@
 //! Multipart upload handlers.
 
+use std::collections::HashMap;
+
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use rucket_core::error::S3ErrorCode;
@@ -15,6 +17,87 @@ use crate::xml::response::{
     to_xml, CompleteMultipartUploadResponse, InitiateMultipartUploadResponse,
     ListMultipartUploadsResponse, ListPartsResponse, MultipartUploadEntry, PartEntry,
 };
+
+/// Extract user metadata from request headers.
+///
+/// User metadata headers start with `x-amz-meta-` (case-insensitive).
+/// Returns a HashMap with lowercase keys (without the prefix) and the values.
+fn extract_user_metadata(headers: &HeaderMap) -> HashMap<String, String> {
+    let mut metadata = HashMap::new();
+    for (name, value) in headers.iter() {
+        let name_str = name.as_str().to_lowercase();
+        if let Some(key) = name_str.strip_prefix("x-amz-meta-") {
+            if let Ok(value_str) = value.to_str() {
+                metadata.insert(key.to_string(), value_str.to_string());
+            }
+        }
+    }
+    metadata
+}
+
+/// Check if the request uses AWS chunked encoding.
+fn is_aws_chunked(headers: &HeaderMap) -> bool {
+    if let Some(sha256) = headers.get("x-amz-content-sha256") {
+        if let Ok(val) = sha256.to_str() {
+            if val.starts_with("STREAMING-") {
+                return true;
+            }
+        }
+    }
+    if let Some(encoding) = headers.get("content-encoding") {
+        if let Ok(val) = encoding.to_str() {
+            if val.contains("aws-chunked") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Decode AWS chunked transfer encoding.
+fn decode_aws_chunked(body: Bytes) -> Result<Bytes, ApiError> {
+    let mut result = Vec::new();
+    let data = body.as_ref();
+    let mut pos = 0;
+
+    while pos < data.len() {
+        // Find end of chunk header line (CRLF)
+        let header_end = find_crlf(data, pos).ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Malformed chunked encoding")
+        })?;
+
+        // Parse chunk header: "<size-hex>;chunk-signature=<sig>"
+        let header = std::str::from_utf8(&data[pos..header_end]).map_err(|_| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Invalid UTF-8 in chunk header")
+        })?;
+
+        let size_str = header.split(';').next().unwrap_or("0");
+        let chunk_size = usize::from_str_radix(size_str, 16)
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRequest, "Invalid chunk size"))?;
+
+        pos = header_end + 2;
+
+        if chunk_size == 0 {
+            break;
+        }
+
+        if pos + chunk_size > data.len() {
+            return Err(ApiError::new(S3ErrorCode::InvalidRequest, "Chunk size exceeds data"));
+        }
+        result.extend_from_slice(&data[pos..pos + chunk_size]);
+        pos += chunk_size;
+
+        if pos + 2 <= data.len() && &data[pos..pos + 2] == b"\r\n" {
+            pos += 2;
+        }
+    }
+
+    Ok(Bytes::from(result))
+}
+
+fn find_crlf(data: &[u8], start: usize) -> Option<usize> {
+    (start..data.len().saturating_sub(1)).find(|&i| data[i] == b'\r' && data[i + 1] == b'\n')
+}
 
 /// Query parameters for multipart operations.
 #[derive(Debug, Deserialize)]
@@ -31,8 +114,13 @@ pub struct MultipartQuery {
 pub async fn create_multipart_upload(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let upload = state.storage.create_multipart_upload(&bucket, &key).await?;
+    let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
+    let user_metadata = extract_user_metadata(&headers);
+
+    let upload =
+        state.storage.create_multipart_upload(&bucket, &key, content_type, user_metadata).await?;
 
     let response = InitiateMultipartUploadResponse {
         bucket: upload.bucket,
@@ -52,6 +140,7 @@ pub async fn upload_part(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<MultipartQuery>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     let upload_id = query
@@ -61,6 +150,9 @@ pub async fn upload_part(
     let part_number = query.part_number.ok_or_else(|| {
         ApiError::new(S3ErrorCode::InvalidRequest, "Missing partNumber parameter")
     })?;
+
+    // Decode AWS chunked encoding if present
+    let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
 
     let etag = state.storage.upload_part(&bucket, &key, &upload_id, part_number, body).await?;
 

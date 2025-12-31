@@ -1,5 +1,6 @@
 //! Local filesystem storage implementation.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -338,6 +339,7 @@ impl StorageBackend for LocalStorage {
         key: &str,
         data: Bytes,
         content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
     ) -> Result<ETag> {
         // Check bucket exists first (before acquiring lock)
         if !self.metadata.bucket_exists(bucket).await? {
@@ -423,9 +425,10 @@ impl StorageBackend for LocalStorage {
             let _ = fs::remove_file(&old_path).await;
         }
 
-        // Step 4: Update metadata with checksum
+        // Step 4: Update metadata with checksum and user metadata
         let mut meta = ObjectMetadata::new(key, uuid, data_len, write_result.etag.clone())
-            .with_checksum(write_result.crc32c);
+            .with_checksum(write_result.crc32c)
+            .with_user_metadata(user_metadata);
         if let Some(ct) = content_type {
             meta = meta.with_content_type(ct);
         }
@@ -560,8 +563,15 @@ impl StorageBackend for LocalStorage {
         // Get source object
         let (src_meta, data) = self.get_object(src_bucket, src_key).await?;
 
-        // Put to destination
-        self.put_object(dst_bucket, dst_key, data, src_meta.content_type.as_deref()).await
+        // Put to destination, preserving content type and user metadata
+        self.put_object(
+            dst_bucket,
+            dst_key,
+            data,
+            src_meta.content_type.as_deref(),
+            src_meta.user_metadata,
+        )
+        .await
     }
 
     async fn list_objects(
@@ -587,14 +597,23 @@ impl StorageBackend for LocalStorage {
         // Handle delimiter (compute common prefixes)
         let mut common_prefixes = Vec::new();
         let filtered_objects = if let Some(delim) = delimiter {
-            let prefix_len = prefix.map_or(0, str::len);
+            let prefix_str = prefix.unwrap_or("");
             let mut seen_prefixes = std::collections::HashSet::new();
             let mut result = Vec::new();
 
             for obj in objects {
-                let key_suffix = &obj.key[prefix_len..];
+                // Safely get the suffix after the prefix
+                let key_suffix = if obj.key.starts_with(prefix_str) {
+                    &obj.key[prefix_str.len()..]
+                } else {
+                    &obj.key
+                };
+
                 if let Some(pos) = key_suffix.find(delim) {
-                    let common_prefix = format!("{}{}", prefix.unwrap_or(""), &key_suffix[..=pos]);
+                    // Find the end of the delimiter (handle multi-byte chars)
+                    let delim_end = pos + delim.len();
+                    // Safely slice: prefix + part before delimiter + delimiter
+                    let common_prefix = format!("{}{}", prefix_str, &key_suffix[..delim_end]);
                     if seen_prefixes.insert(common_prefix.clone()) {
                         common_prefixes.push(common_prefix);
                     }
@@ -617,7 +636,13 @@ impl StorageBackend for LocalStorage {
 
     // Multipart upload operations
 
-    async fn create_multipart_upload(&self, bucket: &str, key: &str) -> Result<MultipartUpload> {
+    async fn create_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
+    ) -> Result<MultipartUpload> {
         // Check bucket exists
         if !self.metadata.bucket_exists(bucket).await? {
             return Err(Error::s3_with_resource(
@@ -628,7 +653,9 @@ impl StorageBackend for LocalStorage {
         }
 
         let upload_id = Uuid::new_v4().to_string();
-        self.metadata.create_multipart_upload(bucket, key, &upload_id).await
+        self.metadata
+            .create_multipart_upload(bucket, key, &upload_id, content_type, user_metadata)
+            .await
     }
 
     async fn upload_part(
@@ -774,8 +801,12 @@ impl StorageBackend for LocalStorage {
             let _ = fs::remove_file(&old_path).await;
         }
 
-        // Store final object metadata
-        let meta = ObjectMetadata::new(key, final_uuid, total_size, etag.clone());
+        // Store final object metadata with content_type and user_metadata from the upload
+        let mut meta = ObjectMetadata::new(key, final_uuid, total_size, etag.clone())
+            .with_user_metadata(upload.user_metadata);
+        if let Some(ct) = upload.content_type {
+            meta = meta.with_content_type(&ct);
+        }
         self.metadata.put_object(bucket, meta).await?;
 
         // Clean up parts
@@ -881,7 +912,13 @@ mod tests {
         // Put object
         let data = Bytes::from("Hello, World!");
         let etag = storage
-            .put_object("test-bucket", "hello.txt", data.clone(), Some("text/plain"))
+            .put_object(
+                "test-bucket",
+                "hello.txt",
+                data.clone(),
+                Some("text/plain"),
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -908,7 +945,7 @@ mod tests {
         storage.create_bucket("test-bucket").await.unwrap();
 
         let data = Bytes::from("Hello, World!");
-        storage.put_object("test-bucket", "hello.txt", data, None).await.unwrap();
+        storage.put_object("test-bucket", "hello.txt", data, None, HashMap::new()).await.unwrap();
 
         // Get range
         let (_, range_data) =
@@ -929,7 +966,7 @@ mod tests {
 
         let data = Bytes::from("Hello, World!");
         storage
-            .put_object("bucket1", "source.txt", data.clone(), Some("text/plain"))
+            .put_object("bucket1", "source.txt", data.clone(), Some("text/plain"), HashMap::new())
             .await
             .unwrap();
 
@@ -967,7 +1004,7 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let data = Bytes::from(format!("data-from-writer-{i}"));
                 storage
-                    .put_object("test-bucket", "same-key", data, None)
+                    .put_object("test-bucket", "same-key", data, None, HashMap::new())
                     .await
                     .expect("put_object failed");
                 completed.fetch_add(1, Ordering::SeqCst);
@@ -1017,7 +1054,7 @@ mod tests {
                 let key = format!("key-{i}");
                 let data = Bytes::from(format!("data-{i}"));
                 storage
-                    .put_object("test-bucket", &key, data, None)
+                    .put_object("test-bucket", &key, data, None, HashMap::new())
                     .await
                     .expect("put_object failed");
             }));
@@ -1045,12 +1082,15 @@ mod tests {
 
         // Write initial object
         let data1 = Bytes::from("initial data");
-        storage.put_object("test-bucket", "test-key", data1, None).await.unwrap();
+        storage.put_object("test-bucket", "test-key", data1, None, HashMap::new()).await.unwrap();
 
         // Overwrite multiple times
         for i in 0..5 {
             let data = Bytes::from(format!("overwrite-{i}"));
-            storage.put_object("test-bucket", "test-key", data, None).await.unwrap();
+            storage
+                .put_object("test-bucket", "test-key", data, None, HashMap::new())
+                .await
+                .unwrap();
         }
 
         // Count data files - should be exactly 1

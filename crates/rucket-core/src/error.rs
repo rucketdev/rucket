@@ -26,6 +26,14 @@ pub enum S3ErrorCode {
     NoSuchKey,
     /// The specified upload does not exist.
     NoSuchUpload,
+    /// The bucket policy does not exist.
+    NoSuchBucketPolicy,
+    /// The lifecycle configuration does not exist.
+    NoSuchLifecycleConfiguration,
+    /// The Object Lock configuration does not exist.
+    ObjectLockConfigurationNotFoundError,
+    /// The server-side encryption configuration was not found.
+    ServerSideEncryptionConfigurationNotFoundError,
     /// Your proposed upload is smaller than the minimum allowed object size.
     EntityTooSmall,
     /// Your proposed upload exceeds the maximum allowed object size.
@@ -58,7 +66,13 @@ impl S3ErrorCode {
     pub const fn http_status(&self) -> u16 {
         match self {
             Self::AccessDenied | Self::SignatureDoesNotMatch | Self::InvalidAccessKeyId => 403,
-            Self::NoSuchBucket | Self::NoSuchKey | Self::NoSuchUpload => 404,
+            Self::NoSuchBucket
+            | Self::NoSuchKey
+            | Self::NoSuchUpload
+            | Self::NoSuchBucketPolicy
+            | Self::NoSuchLifecycleConfiguration
+            | Self::ObjectLockConfigurationNotFoundError
+            | Self::ServerSideEncryptionConfigurationNotFoundError => 404,
             Self::BucketAlreadyExists | Self::BucketNotEmpty => 409,
             Self::MethodNotAllowed => 405,
             Self::EntityTooSmall
@@ -96,6 +110,12 @@ impl S3ErrorCode {
             Self::NoSuchBucket => "NoSuchBucket",
             Self::NoSuchKey => "NoSuchKey",
             Self::NoSuchUpload => "NoSuchUpload",
+            Self::NoSuchBucketPolicy => "NoSuchBucketPolicy",
+            Self::NoSuchLifecycleConfiguration => "NoSuchLifecycleConfiguration",
+            Self::ObjectLockConfigurationNotFoundError => "ObjectLockConfigurationNotFoundError",
+            Self::ServerSideEncryptionConfigurationNotFoundError => {
+                "ServerSideEncryptionConfigurationNotFoundError"
+            }
             Self::EntityTooSmall => "EntityTooSmall",
             Self::EntityTooLarge => "EntityTooLarge",
             Self::InvalidPart => "InvalidPart",
