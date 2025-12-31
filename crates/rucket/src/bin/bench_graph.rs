@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Benchmark graph generator.
 //!
 //! This binary parses Criterion benchmark results and generates SVG charts

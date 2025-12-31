@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Error types for Rucket with S3-compatible error codes.
 
 use thiserror::Error;

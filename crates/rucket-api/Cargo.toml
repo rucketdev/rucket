@@ -1,6 +1,3 @@
-# Copyright 2026 Rucket Dev
-# SPDX-License-Identifier: Apache-2.0
-
 [package]
 name = "rucket-api"
 description = "S3 API implementation for Rucket object storage"

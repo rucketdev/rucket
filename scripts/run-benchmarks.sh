@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Copyright 2026 Rucket Dev
-# SPDX-License-Identifier: Apache-2.0
 
 # Run benchmarks and generate SVG graphs.
 #

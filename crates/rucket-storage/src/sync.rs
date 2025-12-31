@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Sync management for controlling durability vs performance.
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};

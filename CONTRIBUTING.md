@@ -83,22 +83,6 @@ aws --endpoint-url http://localhost:9000 s3 ls s3://test-bucket/
 - Include tests for new functionality
 - Keep commits atomic and well-described
 
-### License Headers
-
-All source files must include the Apache-2.0 SPDX header:
-
-**Rust files:**
-```rust
-// Copyright 2024 The Rucket Authors
-// SPDX-License-Identifier: Apache-2.0
-```
-
-**Shell/TOML/YAML files:**
-```bash
-# Copyright 2024 The Rucket Authors
-# SPDX-License-Identifier: Apache-2.0
-```
-
 ## Project Structure
 
 ```

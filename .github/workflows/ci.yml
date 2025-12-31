@@ -1,6 +1,3 @@
-# Copyright 2026 Rucket Dev
-# SPDX-License-Identifier: Apache-2.0
-
 name: CI
 
 on:
@@ -53,13 +50,6 @@ jobs:
       - run: make test
       - name: Run integration tests
         run: make test-integration
-
-  license-headers:
-    name: License Headers
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: make license-headers
 
   deny:
     name: Dependency Check

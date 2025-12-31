@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Integration tests for Rucket using aws-sdk-s3.
 
 use std::net::SocketAddr;

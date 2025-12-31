@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! WAL entry types for crash recovery.
 //!
 //! Each entry represents an intent or completion of an operation,

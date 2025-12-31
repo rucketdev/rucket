@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Direct I/O utilities for cache-bypassing file operations.
 //!
 //! This module provides functions to read and write files while bypassing the OS page cache.

@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! API error types and S3 error response formatting.
 
 use axum::http::StatusCode;

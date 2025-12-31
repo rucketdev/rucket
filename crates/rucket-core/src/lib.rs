@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Core types and utilities for Rucket object storage.
 //!
 //! This crate provides the fundamental building blocks used across all Rucket components:

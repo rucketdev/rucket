@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Axum middleware for metrics and request logging.
 
 use std::time::Instant;

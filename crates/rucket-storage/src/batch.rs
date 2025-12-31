@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Batched write operations for group commit.
 //!
 //! Group commit batches multiple write operations and performs a single fsync

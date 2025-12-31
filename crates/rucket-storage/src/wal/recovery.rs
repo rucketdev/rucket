@@ -1,6 +1,3 @@
-// Copyright 2026 Rucket Dev
-// SPDX-License-Identifier: Apache-2.0
-
 //! Crash recovery using WAL.
 //!
 //! The recovery manager runs on startup to identify and rollback
