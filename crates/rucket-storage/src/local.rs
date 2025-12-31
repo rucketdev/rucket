@@ -595,8 +595,9 @@ impl StorageBackend for LocalStorage {
             self.metadata.list_objects(bucket, prefix, continuation_token, max_keys).await?;
 
         // Handle delimiter (compute common prefixes)
+        // An empty delimiter is treated as no delimiter
         let mut common_prefixes = Vec::new();
-        let filtered_objects = if let Some(delim) = delimiter {
+        let filtered_objects = if let Some(delim) = delimiter.filter(|d| !d.is_empty()) {
             let prefix_str = prefix.unwrap_or("");
             let mut seen_prefixes = std::collections::HashSet::new();
             let mut result = Vec::new();

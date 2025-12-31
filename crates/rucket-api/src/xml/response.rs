@@ -4,6 +4,11 @@ use chrono::{DateTime, Utc};
 use rucket_core::types::{BucketInfo, ObjectMetadata};
 use serde::Serialize;
 
+/// Check if an Option<String> is None or empty.
+fn is_none_or_empty(s: &Option<String>) -> bool {
+    s.as_ref().map_or(true, |v| v.is_empty())
+}
+
 /// Format a DateTime<Utc> in S3-compatible ISO 8601 format with 'Z' suffix.
 ///
 /// AWS S3 SDKs expect timestamps in the format `2024-01-01T00:00:00.000Z`,
@@ -77,7 +82,7 @@ pub struct ListObjectsV2Response {
     #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
     /// Delimiter used for grouping.
-    #[serde(rename = "Delimiter", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "Delimiter", skip_serializing_if = "is_none_or_empty")]
     pub delimiter: Option<String>,
     /// Max keys requested.
     #[serde(rename = "MaxKeys")]
@@ -123,6 +128,9 @@ pub struct ObjectEntry {
     /// Size in bytes.
     #[serde(rename = "Size")]
     pub size: u64,
+    /// Owner (included when FetchOwner=true).
+    #[serde(rename = "Owner", skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Owner>,
     /// Storage class.
     #[serde(rename = "StorageClass")]
     pub storage_class: String,
@@ -135,6 +143,21 @@ impl From<&ObjectMetadata> for ObjectEntry {
             last_modified: format_s3_timestamp(&meta.last_modified),
             etag: meta.etag.as_str().to_string(),
             size: meta.size,
+            owner: None,
+            storage_class: "STANDARD".to_string(),
+        }
+    }
+}
+
+impl ObjectEntry {
+    /// Create an ObjectEntry with owner information.
+    pub fn with_owner(meta: &ObjectMetadata) -> Self {
+        Self {
+            key: meta.key.clone(),
+            last_modified: format_s3_timestamp(&meta.last_modified),
+            etag: meta.etag.as_str().to_string(),
+            size: meta.size,
+            owner: Some(Owner::default()),
             storage_class: "STANDARD".to_string(),
         }
     }

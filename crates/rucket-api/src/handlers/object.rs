@@ -429,6 +429,9 @@ pub async fn list_objects_v2(
         )
         .await?;
 
+    // Check if fetch-owner is requested
+    let fetch_owner = query.fetch_owner.as_deref() == Some("true");
+
     let response = ListObjectsV2Response {
         name: bucket,
         prefix: query.prefix,
@@ -440,7 +443,11 @@ pub async fn list_objects_v2(
         next_continuation_token: result.next_continuation_token,
         start_after: query.start_after,
         key_count: result.objects.len() as u32,
-        contents: result.objects.iter().map(ObjectEntry::from).collect(),
+        contents: if fetch_owner {
+            result.objects.iter().map(ObjectEntry::with_owner).collect()
+        } else {
+            result.objects.iter().map(ObjectEntry::from).collect()
+        },
         common_prefixes: result
             .common_prefixes
             .into_iter()
