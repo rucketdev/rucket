@@ -627,7 +627,13 @@ impl StorageBackend for LocalStorage {
 
     // Multipart upload operations
 
-    async fn create_multipart_upload(&self, bucket: &str, key: &str) -> Result<MultipartUpload> {
+    async fn create_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
+    ) -> Result<MultipartUpload> {
         // Check bucket exists
         if !self.metadata.bucket_exists(bucket).await? {
             return Err(Error::s3_with_resource(
@@ -638,7 +644,9 @@ impl StorageBackend for LocalStorage {
         }
 
         let upload_id = Uuid::new_v4().to_string();
-        self.metadata.create_multipart_upload(bucket, key, &upload_id).await
+        self.metadata
+            .create_multipart_upload(bucket, key, &upload_id, content_type, user_metadata)
+            .await
     }
 
     async fn upload_part(
@@ -784,8 +792,12 @@ impl StorageBackend for LocalStorage {
             let _ = fs::remove_file(&old_path).await;
         }
 
-        // Store final object metadata
-        let meta = ObjectMetadata::new(key, final_uuid, total_size, etag.clone());
+        // Store final object metadata with content_type and user_metadata from the upload
+        let mut meta = ObjectMetadata::new(key, final_uuid, total_size, etag.clone())
+            .with_user_metadata(upload.user_metadata);
+        if let Some(ct) = upload.content_type {
+            meta = meta.with_content_type(&ct);
+        }
         self.metadata.put_object(bucket, meta).await?;
 
         // Clean up parts

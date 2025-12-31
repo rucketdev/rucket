@@ -75,7 +75,13 @@ pub trait StorageBackend: Send + Sync {
     // Multipart upload operations
 
     /// Initiate a multipart upload.
-    async fn create_multipart_upload(&self, bucket: &str, key: &str) -> Result<MultipartUpload>;
+    async fn create_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
+    ) -> Result<MultipartUpload>;
 
     /// Upload a part for a multipart upload.
     async fn upload_part(

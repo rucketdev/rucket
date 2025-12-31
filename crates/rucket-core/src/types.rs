@@ -168,6 +168,12 @@ pub struct MultipartUpload {
     pub key: String,
     /// When the upload was initiated.
     pub initiated: DateTime<Utc>,
+    /// Content type (MIME type) for the final object.
+    #[serde(default)]
+    pub content_type: Option<String>,
+    /// Custom user metadata for the final object.
+    #[serde(default)]
+    pub user_metadata: std::collections::HashMap<String, String>,
 }
 
 /// Represents a part in a multipart upload.

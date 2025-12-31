@@ -1,7 +1,9 @@
 //! Multipart upload handlers.
 
+use std::collections::HashMap;
+
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use rucket_core::error::S3ErrorCode;
@@ -15,6 +17,23 @@ use crate::xml::response::{
     to_xml, CompleteMultipartUploadResponse, InitiateMultipartUploadResponse,
     ListMultipartUploadsResponse, ListPartsResponse, MultipartUploadEntry, PartEntry,
 };
+
+/// Extract user metadata from request headers.
+///
+/// User metadata headers start with `x-amz-meta-` (case-insensitive).
+/// Returns a HashMap with lowercase keys (without the prefix) and the values.
+fn extract_user_metadata(headers: &HeaderMap) -> HashMap<String, String> {
+    let mut metadata = HashMap::new();
+    for (name, value) in headers.iter() {
+        let name_str = name.as_str().to_lowercase();
+        if let Some(key) = name_str.strip_prefix("x-amz-meta-") {
+            if let Ok(value_str) = value.to_str() {
+                metadata.insert(key.to_string(), value_str.to_string());
+            }
+        }
+    }
+    metadata
+}
 
 /// Query parameters for multipart operations.
 #[derive(Debug, Deserialize)]
@@ -31,8 +50,15 @@ pub struct MultipartQuery {
 pub async fn create_multipart_upload(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let upload = state.storage.create_multipart_upload(&bucket, &key).await?;
+    let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
+    let user_metadata = extract_user_metadata(&headers);
+
+    let upload = state
+        .storage
+        .create_multipart_upload(&bucket, &key, content_type, user_metadata)
+        .await?;
 
     let response = InitiateMultipartUploadResponse {
         bucket: upload.bucket,

@@ -363,11 +363,12 @@ async fn handle_object_post(
     state: State<AppState>,
     path: Path<(String, String)>,
     Query(query): Query<RequestQuery>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     // Check for ?uploads (initiate multipart upload)
     if query.uploads.is_some() {
-        return multipart::create_multipart_upload(state, path).await.into_response();
+        return multipart::create_multipart_upload(state, path, headers).await.into_response();
     }
 
     // Check for ?uploadId (complete multipart upload)
