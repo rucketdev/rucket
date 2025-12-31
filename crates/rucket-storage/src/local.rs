@@ -1,5 +1,6 @@
 //! Local filesystem storage implementation.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -338,6 +339,7 @@ impl StorageBackend for LocalStorage {
         key: &str,
         data: Bytes,
         content_type: Option<&str>,
+        user_metadata: HashMap<String, String>,
     ) -> Result<ETag> {
         // Check bucket exists first (before acquiring lock)
         if !self.metadata.bucket_exists(bucket).await? {
@@ -423,9 +425,10 @@ impl StorageBackend for LocalStorage {
             let _ = fs::remove_file(&old_path).await;
         }
 
-        // Step 4: Update metadata with checksum
+        // Step 4: Update metadata with checksum and user metadata
         let mut meta = ObjectMetadata::new(key, uuid, data_len, write_result.etag.clone())
-            .with_checksum(write_result.crc32c);
+            .with_checksum(write_result.crc32c)
+            .with_user_metadata(user_metadata);
         if let Some(ct) = content_type {
             meta = meta.with_content_type(ct);
         }
@@ -560,8 +563,15 @@ impl StorageBackend for LocalStorage {
         // Get source object
         let (src_meta, data) = self.get_object(src_bucket, src_key).await?;
 
-        // Put to destination
-        self.put_object(dst_bucket, dst_key, data, src_meta.content_type.as_deref()).await
+        // Put to destination, preserving content type and user metadata
+        self.put_object(
+            dst_bucket,
+            dst_key,
+            data,
+            src_meta.content_type.as_deref(),
+            src_meta.user_metadata,
+        )
+        .await
     }
 
     async fn list_objects(
@@ -881,7 +891,7 @@ mod tests {
         // Put object
         let data = Bytes::from("Hello, World!");
         let etag = storage
-            .put_object("test-bucket", "hello.txt", data.clone(), Some("text/plain"))
+            .put_object("test-bucket", "hello.txt", data.clone(), Some("text/plain"), HashMap::new())
             .await
             .unwrap();
 
@@ -908,7 +918,7 @@ mod tests {
         storage.create_bucket("test-bucket").await.unwrap();
 
         let data = Bytes::from("Hello, World!");
-        storage.put_object("test-bucket", "hello.txt", data, None).await.unwrap();
+        storage.put_object("test-bucket", "hello.txt", data, None, HashMap::new()).await.unwrap();
 
         // Get range
         let (_, range_data) =
@@ -929,7 +939,7 @@ mod tests {
 
         let data = Bytes::from("Hello, World!");
         storage
-            .put_object("bucket1", "source.txt", data.clone(), Some("text/plain"))
+            .put_object("bucket1", "source.txt", data.clone(), Some("text/plain"), HashMap::new())
             .await
             .unwrap();
 
@@ -967,7 +977,7 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let data = Bytes::from(format!("data-from-writer-{i}"));
                 storage
-                    .put_object("test-bucket", "same-key", data, None)
+                    .put_object("test-bucket", "same-key", data, None, HashMap::new())
                     .await
                     .expect("put_object failed");
                 completed.fetch_add(1, Ordering::SeqCst);
@@ -1017,7 +1027,7 @@ mod tests {
                 let key = format!("key-{i}");
                 let data = Bytes::from(format!("data-{i}"));
                 storage
-                    .put_object("test-bucket", &key, data, None)
+                    .put_object("test-bucket", &key, data, None, HashMap::new())
                     .await
                     .expect("put_object failed");
             }));
@@ -1045,12 +1055,12 @@ mod tests {
 
         // Write initial object
         let data1 = Bytes::from("initial data");
-        storage.put_object("test-bucket", "test-key", data1, None).await.unwrap();
+        storage.put_object("test-bucket", "test-key", data1, None, HashMap::new()).await.unwrap();
 
         // Overwrite multiple times
         for i in 0..5 {
             let data = Bytes::from(format!("overwrite-{i}"));
-            storage.put_object("test-bucket", "test-key", data, None).await.unwrap();
+            storage.put_object("test-bucket", "test-key", data, None, HashMap::new()).await.unwrap();
         }
 
         // Count data files - should be exactly 1

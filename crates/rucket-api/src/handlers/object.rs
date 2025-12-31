@@ -1,5 +1,7 @@
 //! Object operation handlers.
 
+use std::collections::HashMap;
+
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -21,6 +23,23 @@ use crate::xml::response::{
 /// Format a datetime for HTTP headers (RFC 7231 format).
 fn format_http_date(dt: &DateTime<Utc>) -> String {
     dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+}
+
+/// Extract user metadata from request headers.
+///
+/// User metadata headers start with `x-amz-meta-` (case-insensitive).
+/// Returns a HashMap with lowercase keys (without the prefix) and the values.
+fn extract_user_metadata(headers: &HeaderMap) -> HashMap<String, String> {
+    let mut metadata = HashMap::new();
+    for (name, value) in headers.iter() {
+        let name_str = name.as_str().to_lowercase();
+        if let Some(key) = name_str.strip_prefix("x-amz-meta-") {
+            if let Ok(value_str) = value.to_str() {
+                metadata.insert(key.to_string(), value_str.to_string());
+            }
+        }
+    }
+    metadata
 }
 
 /// Query parameters for `ListObjectsV2`.
@@ -137,8 +156,9 @@ pub async fn put_object(
     check_preconditions(&state, &bucket, &key, &headers).await?;
 
     let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
+    let user_metadata = extract_user_metadata(&headers);
 
-    let etag = state.storage.put_object(&bucket, &key, body, content_type).await?;
+    let etag = state.storage.put_object(&bucket, &key, body, content_type, user_metadata).await?;
 
     Ok((StatusCode::OK, [("ETag", etag.as_str().to_string())]))
 }
@@ -164,6 +184,11 @@ pub async fn get_object(
 
     if let Some(ct) = &meta.content_type {
         response = response.header("Content-Type", ct.as_str());
+    }
+
+    // Add user metadata headers
+    for (key, value) in &meta.user_metadata {
+        response = response.header(format!("x-amz-meta-{key}"), value.as_str());
     }
 
     response
@@ -248,6 +273,11 @@ pub async fn head_object(
 
     if let Some(ct) = &meta.content_type {
         response = response.header("Content-Type", ct.as_str());
+    }
+
+    // Add user metadata headers
+    for (key, value) in &meta.user_metadata {
+        response = response.header(format!("x-amz-meta-{key}"), value.as_str());
     }
 
     response
