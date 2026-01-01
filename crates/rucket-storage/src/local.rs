@@ -591,19 +591,45 @@ impl StorageBackend for LocalStorage {
             ));
         }
 
-        let (objects, next_token): (Vec<ObjectMetadata>, Option<String>) =
-            self.metadata.list_objects(bucket, prefix, continuation_token, max_keys).await?;
+        // When using delimiter, multiple objects may collapse into a single common prefix.
+        // To get max_keys unique items, we may need to fetch more objects from the DB.
+        // We fetch in batches until we have enough unique items or run out of objects.
+        let use_delimiter = delimiter.map_or(false, |d| !d.is_empty());
 
-        // Handle delimiter (compute common prefixes)
-        // An empty delimiter is treated as no delimiter
+        if !use_delimiter {
+            // No delimiter - simple case, just fetch max_keys objects
+            let (objects, next_token) =
+                self.metadata.list_objects(bucket, prefix, continuation_token, max_keys).await?;
+
+            return Ok(ListObjectsResult {
+                objects,
+                common_prefixes: Vec::new(),
+                is_truncated: next_token.is_some(),
+                next_continuation_token: next_token,
+            });
+        }
+
+        // With delimiter - need to handle collapsing into common prefixes
+        let delim = delimiter.unwrap();
+        let prefix_str = prefix.unwrap_or("");
+        let marker = continuation_token.unwrap_or("");
+        let mut seen_prefixes = std::collections::HashSet::new();
         let mut common_prefixes = Vec::new();
-        let filtered_objects = if let Some(delim) = delimiter.filter(|d| !d.is_empty()) {
-            let prefix_str = prefix.unwrap_or("");
-            let mut seen_prefixes = std::collections::HashSet::new();
-            let mut result = Vec::new();
+        let mut filtered_objects = Vec::new();
+        let mut current_token = continuation_token.map(|s| s.to_string());
+        let mut final_next_token: Option<String> = None;
+
+        // Fetch objects in batches until we have max_keys unique items
+        let batch_size = max_keys.max(100); // Fetch at least 100 at a time for efficiency
+
+        loop {
+            let (objects, next_token) = self
+                .metadata
+                .list_objects(bucket, prefix, current_token.as_deref(), batch_size)
+                .await?;
 
             for obj in objects {
-                // Safely get the suffix after the prefix
+                // Process the object
                 let key_suffix = if obj.key.starts_with(prefix_str) {
                     &obj.key[prefix_str.len()..]
                 } else {
@@ -611,27 +637,60 @@ impl StorageBackend for LocalStorage {
                 };
 
                 if let Some(pos) = key_suffix.find(delim) {
-                    // Find the end of the delimiter (handle multi-byte chars)
                     let delim_end = pos + delim.len();
-                    // Safely slice: prefix + part before delimiter + delimiter
                     let common_prefix = format!("{}{}", prefix_str, &key_suffix[..delim_end]);
-                    if seen_prefixes.insert(common_prefix.clone()) {
+
+                    // Skip common prefixes that are <= marker (already returned in previous page)
+                    if common_prefix.as_str() <= marker {
+                        continue;
+                    }
+
+                    // Check if this would be a new unique item
+                    if !seen_prefixes.contains(&common_prefix) {
+                        // Check if we've already reached max_keys
+                        let total_items = filtered_objects.len() + common_prefixes.len();
+                        if total_items >= max_keys as usize {
+                            // This would be a new item beyond max_keys - we're truncated
+                            final_next_token = Some(obj.key.clone());
+                            break;
+                        }
+                        seen_prefixes.insert(common_prefix.clone());
                         common_prefixes.push(common_prefix);
                     }
+                    // If prefix already seen, just continue (don't count as new item)
                 } else {
-                    result.push(obj);
+                    // This is a direct key (not under a delimiter)
+                    let total_items = filtered_objects.len() + common_prefixes.len();
+                    if total_items >= max_keys as usize {
+                        final_next_token = Some(obj.key.clone());
+                        break;
+                    }
+                    filtered_objects.push(obj);
                 }
             }
-            result
-        } else {
-            objects
-        };
+
+            // If we found a next item beyond max_keys, we're done
+            if final_next_token.is_some() {
+                break;
+            }
+
+            // If no more objects in the DB, we're done
+            if next_token.is_none() {
+                break;
+            }
+
+            // Need to fetch more to see if there's a next item
+            current_token = next_token;
+        }
+
+        // We're truncated only if we found an actual next item beyond max_keys
+        let is_truncated = final_next_token.is_some();
 
         Ok(ListObjectsResult {
             objects: filtered_objects,
             common_prefixes,
-            is_truncated: next_token.is_some(),
-            next_continuation_token: next_token,
+            is_truncated,
+            next_continuation_token: final_next_token,
         })
     }
 

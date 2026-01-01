@@ -37,6 +37,14 @@ struct RequestQuery {
     prefix: Option<String>,
     /// Delimiter for grouping (for ListObjectsV2).
     delimiter: Option<String>,
+    /// Marker for ListObjectsV1 pagination.
+    marker: Option<String>,
+    /// Key marker for ListObjectVersions pagination.
+    #[serde(rename = "key-marker")]
+    key_marker: Option<String>,
+    /// Version ID marker for ListObjectVersions pagination.
+    #[serde(rename = "version-id-marker")]
+    version_id_marker: Option<String>,
     /// Continuation token (for ListObjectsV2).
     #[serde(rename = "continuation-token")]
     continuation_token: Option<String>,
@@ -292,6 +300,9 @@ async fn handle_bucket_get(
         let list_query = object::ListObjectsQuery {
             prefix: query.prefix,
             delimiter: query.delimiter,
+            marker: query.marker,
+            key_marker: query.key_marker,
+            version_id_marker: query.version_id_marker,
             continuation_token: query.continuation_token,
             start_after: query.start_after,
             encoding_type: query.encoding_type,
@@ -306,7 +317,6 @@ async fn handle_bucket_get(
             .into_response();
     }
 
-    // Default: ListObjectsV2
     // Clamp max_keys to valid range [0, 1000], treating negative values as default
     let max_keys =
         query.max_keys.map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 }).unwrap_or(1000);
@@ -314,6 +324,9 @@ async fn handle_bucket_get(
     let list_query = object::ListObjectsQuery {
         prefix: query.prefix,
         delimiter: query.delimiter,
+        marker: query.marker,
+        key_marker: query.key_marker,
+        version_id_marker: query.version_id_marker,
         continuation_token: query.continuation_token,
         start_after: query.start_after,
         encoding_type: query.encoding_type,
@@ -321,7 +334,13 @@ async fn handle_bucket_get(
         fetch_owner: query.fetch_owner,
     };
 
-    object::list_objects_v2(state, path, Query(list_query)).await.into_response()
+    // Use V1 or V2 based on list-type parameter
+    // list-type=2 means V2, otherwise V1
+    if query.list_type == Some(2) {
+        object::list_objects_v2(state, path, Query(list_query)).await.into_response()
+    } else {
+        object::list_objects_v1(state, path, Query(list_query)).await.into_response()
+    }
 }
 
 /// Handle GET requests to object (get object or list parts).

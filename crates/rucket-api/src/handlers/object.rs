@@ -8,6 +8,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
+use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use rucket_core::error::S3ErrorCode;
 use rucket_storage::StorageBackend;
 use serde::Deserialize;
@@ -17,12 +18,53 @@ use crate::handlers::bucket::AppState;
 use crate::xml::request::DeleteObjects;
 use crate::xml::response::{
     to_xml, CommonPrefix, CopyObjectResponse, DeleteError, DeleteObjectsResponse, DeletedObject,
-    ListObjectVersionsResponse, ListObjectsV2Response, ObjectEntry, ObjectVersion,
+    ListObjectVersionsResponse, ListObjectsV1Response, ListObjectsV2Response, ObjectEntry,
+    ObjectVersion,
 };
 
 /// Format a datetime for HTTP headers (RFC 7231 format).
 fn format_http_date(dt: &DateTime<Utc>) -> String {
     dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+}
+
+/// Characters that should NOT be encoded in S3 URL encoding.
+/// Per S3 spec, unreserved characters are: A-Z, a-z, 0-9, -, _, ., ~
+/// Everything else (including +, /, =, etc.) should be percent-encoded.
+const S3_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
+
+/// Characters that should NOT be encoded in S3 URL encoding for prefixes.
+/// Same as S3_ENCODE_SET but also preserves '/' since common prefixes
+/// contain the delimiter which should not be encoded.
+const S3_PREFIX_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~')
+    .remove(b'/');
+
+/// URL-encode a string using S3's encoding rules.
+///
+/// When `encoding-type=url` is specified, S3 URL-encodes keys, delimiters,
+/// prefixes, and markers using RFC 3986.
+fn s3_url_encode(s: &str) -> String {
+    utf8_percent_encode(s, S3_ENCODE_SET).to_string()
+}
+
+/// URL-encode a prefix string using S3's encoding rules.
+///
+/// Same as `s3_url_encode` but preserves the '/' character since
+/// common prefixes contain the delimiter which should not be encoded.
+fn s3_url_encode_prefix(s: &str) -> String {
+    utf8_percent_encode(s, S3_PREFIX_ENCODE_SET).to_string()
+}
+
+/// URL-decode a string. Returns the original string if decoding fails.
+fn s3_url_decode(s: &str) -> String {
+    percent_decode_str(s).decode_utf8().map(|s| s.to_string()).unwrap_or_else(|_| s.to_string())
 }
 
 /// Extract user metadata from request headers.
@@ -123,17 +165,25 @@ fn find_crlf(data: &[u8], start: usize) -> Option<usize> {
     (start..data.len().saturating_sub(1)).find(|&i| data[i] == b'\r' && data[i + 1] == b'\n')
 }
 
-/// Query parameters for `ListObjectsV2`.
+/// Query parameters for `ListObjects` (V1 and V2).
 #[derive(Debug, Deserialize)]
 pub struct ListObjectsQuery {
     /// Prefix filter.
     pub prefix: Option<String>,
     /// Delimiter for grouping.
     pub delimiter: Option<String>,
-    /// Continuation token.
+    /// Marker for ListObjectsV1 pagination.
+    pub marker: Option<String>,
+    /// Key marker for ListObjectVersions pagination.
+    #[serde(rename = "key-marker")]
+    pub key_marker: Option<String>,
+    /// Version ID marker for ListObjectVersions pagination.
+    #[serde(rename = "version-id-marker")]
+    pub version_id_marker: Option<String>,
+    /// Continuation token for ListObjectsV2.
     #[serde(rename = "continuation-token")]
     pub continuation_token: Option<String>,
-    /// StartAfter - where to start listing from.
+    /// StartAfter - where to start listing from (V2).
     #[serde(rename = "start-after")]
     pub start_after: Option<String>,
     /// Encoding type for keys (url).
@@ -142,7 +192,7 @@ pub struct ListObjectsQuery {
     /// Maximum keys to return.
     #[serde(rename = "max-keys", default = "default_max_keys")]
     pub max_keys: u32,
-    /// FetchOwner - whether to include owner info.
+    /// FetchOwner - whether to include owner info (V2).
     #[serde(rename = "fetch-owner")]
     pub fetch_owner: Option<String>,
 }
@@ -409,6 +459,92 @@ pub async fn copy_object(
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
 }
 
+/// `GET /{bucket}` - List objects V1.
+pub async fn list_objects_v1(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+    Query(query): Query<ListObjectsQuery>,
+) -> Result<Response, ApiError> {
+    let result = state
+        .storage
+        .list_objects(
+            &bucket,
+            query.prefix.as_deref(),
+            query.delimiter.as_deref(),
+            query.marker.as_deref(),
+            query.max_keys,
+        )
+        .await?;
+
+    // For V1, NextMarker is only set when using a delimiter and is_truncated
+    // It should be the lexicographically last item returned (object key OR common prefix)
+    let next_marker = if result.is_truncated && query.delimiter.is_some() {
+        // Find the last key and last prefix, then return the lexicographically greater one
+        let last_key = result.objects.last().map(|o| o.key.as_str());
+        let last_prefix = result.common_prefixes.last().map(|s| s.as_str());
+        match (last_key, last_prefix) {
+            (Some(key), Some(prefix)) => Some(std::cmp::max(key, prefix).to_string()),
+            (Some(key), None) => Some(key.to_string()),
+            (None, Some(prefix)) => Some(prefix.to_string()),
+            (None, None) => None,
+        }
+    } else {
+        None
+    };
+
+    // Check if URL encoding is requested
+    let use_url_encoding = query.encoding_type.as_deref() == Some("url");
+
+    let response = if use_url_encoding {
+        ListObjectsV1Response {
+            name: bucket,
+            prefix: s3_url_encode_prefix(&query.prefix.unwrap_or_default()),
+            marker: s3_url_encode_prefix(&query.marker.unwrap_or_default()),
+            next_marker: next_marker.map(|m| s3_url_encode_prefix(&m)),
+            // Note: Delimiter is NOT encoded per S3 spec
+            delimiter: query.delimiter.clone(),
+            max_keys: query.max_keys,
+            encoding_type: query.encoding_type,
+            is_truncated: result.is_truncated,
+            contents: result
+                .objects
+                .iter()
+                .map(|m| ObjectEntry::from(m).with_encoded_key(&s3_url_encode(&m.key)))
+                .collect(),
+            common_prefixes: result
+                .common_prefixes
+                .into_iter()
+                .map(|p| CommonPrefix { prefix: s3_url_encode_prefix(&p) })
+                .collect(),
+        }
+    } else {
+        // In non-encoded mode, URL-decode the prefix and marker
+        // (axum may not fully decode special characters like %0A)
+        ListObjectsV1Response {
+            name: bucket,
+            prefix: s3_url_decode(&query.prefix.unwrap_or_default()),
+            marker: s3_url_decode(&query.marker.unwrap_or_default()),
+            next_marker,
+            delimiter: query.delimiter,
+            max_keys: query.max_keys,
+            encoding_type: query.encoding_type,
+            is_truncated: result.is_truncated,
+            contents: result.objects.iter().map(ObjectEntry::from).collect(),
+            common_prefixes: result
+                .common_prefixes
+                .into_iter()
+                .map(|p| CommonPrefix { prefix: p })
+                .collect(),
+        }
+    };
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+}
+
 /// `GET /{bucket}?list-type=2` - List objects V2.
 pub async fn list_objects_v2(
     State(state): State<AppState>,
@@ -432,27 +568,85 @@ pub async fn list_objects_v2(
     // Check if fetch-owner is requested
     let fetch_owner = query.fetch_owner.as_deref() == Some("true");
 
-    let response = ListObjectsV2Response {
-        name: bucket,
-        prefix: query.prefix,
-        delimiter: query.delimiter,
-        max_keys: query.max_keys,
-        encoding_type: query.encoding_type,
-        is_truncated: result.is_truncated,
-        continuation_token: query.continuation_token,
-        next_continuation_token: result.next_continuation_token,
-        start_after: query.start_after,
-        key_count: result.objects.len() as u32,
-        contents: if fetch_owner {
-            result.objects.iter().map(ObjectEntry::with_owner).collect()
+    // Check if URL encoding is requested
+    let use_url_encoding = query.encoding_type.as_deref() == Some("url");
+
+    // For V2 with delimiter, use the last returned item as continuation token
+    // This ensures the next page starts after all returned items (including prefixes)
+    let next_continuation_token = if result.is_truncated {
+        if query.delimiter.is_some() {
+            // Use the lexicographically last item returned
+            let last_key = result.objects.last().map(|o| o.key.as_str());
+            let last_prefix = result.common_prefixes.last().map(|s| s.as_str());
+            match (last_key, last_prefix) {
+                (Some(key), Some(prefix)) => Some(std::cmp::max(key, prefix).to_string()),
+                (Some(key), None) => Some(key.to_string()),
+                (None, Some(prefix)) => Some(prefix.to_string()),
+                (None, None) => result.next_continuation_token.clone(),
+            }
         } else {
-            result.objects.iter().map(ObjectEntry::from).collect()
-        },
-        common_prefixes: result
-            .common_prefixes
-            .into_iter()
-            .map(|p| CommonPrefix { prefix: p })
-            .collect(),
+            // No delimiter - use storage layer's token (the next key to start from)
+            result.next_continuation_token.clone()
+        }
+    } else {
+        None
+    };
+
+    let response = if use_url_encoding {
+        ListObjectsV2Response {
+            name: bucket,
+            prefix: query.prefix.map(|p| s3_url_encode_prefix(&p)),
+            // Note: Delimiter is NOT encoded per S3 spec
+            delimiter: query.delimiter.clone(),
+            max_keys: query.max_keys,
+            encoding_type: query.encoding_type,
+            is_truncated: result.is_truncated,
+            continuation_token: query.continuation_token,
+            next_continuation_token: next_continuation_token.clone(),
+            start_after: query.start_after.map(|s| s3_url_encode_prefix(&s)),
+            key_count: (result.objects.len() + result.common_prefixes.len()) as u32,
+            contents: if fetch_owner {
+                result
+                    .objects
+                    .iter()
+                    .map(|m| ObjectEntry::with_owner(m).with_encoded_key(&s3_url_encode(&m.key)))
+                    .collect()
+            } else {
+                result
+                    .objects
+                    .iter()
+                    .map(|m| ObjectEntry::from(m).with_encoded_key(&s3_url_encode(&m.key)))
+                    .collect()
+            },
+            common_prefixes: result
+                .common_prefixes
+                .into_iter()
+                .map(|p| CommonPrefix { prefix: s3_url_encode_prefix(&p) })
+                .collect(),
+        }
+    } else {
+        ListObjectsV2Response {
+            name: bucket,
+            prefix: query.prefix,
+            delimiter: query.delimiter,
+            max_keys: query.max_keys,
+            encoding_type: query.encoding_type,
+            is_truncated: result.is_truncated,
+            continuation_token: query.continuation_token,
+            next_continuation_token,
+            start_after: query.start_after,
+            key_count: (result.objects.len() + result.common_prefixes.len()) as u32,
+            contents: if fetch_owner {
+                result.objects.iter().map(ObjectEntry::with_owner).collect()
+            } else {
+                result.objects.iter().map(ObjectEntry::from).collect()
+            },
+            common_prefixes: result
+                .common_prefixes
+                .into_iter()
+                .map(|p| CommonPrefix { prefix: p })
+                .collect(),
+        }
     };
 
     let xml = to_xml(&response).map_err(|e| {
@@ -473,13 +667,14 @@ pub async fn list_object_versions(
 ) -> Result<Response, ApiError> {
     // For now, use list_objects and convert to versions format
     // (full versioning support would require storage changes)
+    // Use key-marker for pagination in ListObjectVersions
     let result = state
         .storage
         .list_objects(
             &bucket,
             query.prefix.as_deref(),
             query.delimiter.as_deref(),
-            query.continuation_token.as_deref(),
+            query.key_marker.as_deref(),
             query.max_keys,
         )
         .await?;
@@ -488,13 +683,34 @@ pub async fn list_object_versions(
     let versions: Vec<ObjectVersion> =
         result.objects.iter().map(ObjectVersion::from_metadata).collect();
 
+    // For versioned listing with delimiter, compute next_key_marker from returned items
+    let next_key_marker = if result.is_truncated && query.delimiter.is_some() {
+        let last_key = result.objects.last().map(|o| o.key.as_str());
+        let last_prefix = result.common_prefixes.last().map(|s| s.as_str());
+        match (last_key, last_prefix) {
+            (Some(key), Some(prefix)) => Some(std::cmp::max(key, prefix).to_string()),
+            (Some(key), None) => Some(key.to_string()),
+            (None, Some(prefix)) => Some(prefix.to_string()),
+            (None, None) => result.next_continuation_token.clone(),
+        }
+    } else {
+        result.next_continuation_token.clone()
+    };
+
+    // When truncated, provide next_version_id_marker (use "null" since we don't support real versioning)
+    let next_version_id_marker = if result.is_truncated {
+        Some("null".to_string())
+    } else {
+        None
+    };
+
     let response = ListObjectVersionsResponse {
         name: bucket,
         prefix: query.prefix,
-        key_marker: None,
-        version_id_marker: None,
-        next_key_marker: result.next_continuation_token.clone(),
-        next_version_id_marker: None,
+        key_marker: query.key_marker.clone().unwrap_or_default(),
+        version_id_marker: query.version_id_marker.clone().unwrap_or_default(),
+        next_key_marker,
+        next_version_id_marker,
         max_keys: query.max_keys,
         is_truncated: result.is_truncated,
         versions,

@@ -71,6 +71,42 @@ impl From<&BucketInfo> for BucketEntry {
     }
 }
 
+/// `ListBucketResult` response (ListObjectsV1).
+#[derive(Debug, Serialize)]
+#[serde(rename = "ListBucketResult")]
+pub struct ListObjectsV1Response {
+    /// Bucket name.
+    #[serde(rename = "Name")]
+    pub name: String,
+    /// Prefix filter.
+    #[serde(rename = "Prefix")]
+    pub prefix: String,
+    /// Marker from the request.
+    #[serde(rename = "Marker")]
+    pub marker: String,
+    /// Next marker for pagination (only when truncated and using delimiter).
+    #[serde(rename = "NextMarker", skip_serializing_if = "Option::is_none")]
+    pub next_marker: Option<String>,
+    /// Delimiter used for grouping.
+    #[serde(rename = "Delimiter", skip_serializing_if = "is_none_or_empty")]
+    pub delimiter: Option<String>,
+    /// Max keys requested.
+    #[serde(rename = "MaxKeys")]
+    pub max_keys: u32,
+    /// Encoding type (url).
+    #[serde(rename = "EncodingType", skip_serializing_if = "Option::is_none")]
+    pub encoding_type: Option<String>,
+    /// Whether results are truncated.
+    #[serde(rename = "IsTruncated")]
+    pub is_truncated: bool,
+    /// Objects.
+    #[serde(rename = "Contents", default)]
+    pub contents: Vec<ObjectEntry>,
+    /// Common prefixes (when using delimiter).
+    #[serde(rename = "CommonPrefixes", default, skip_serializing_if = "Vec::is_empty")]
+    pub common_prefixes: Vec<CommonPrefix>,
+}
+
 /// `ListBucketResult` response (ListObjectsV2).
 #[derive(Debug, Serialize)]
 #[serde(rename = "ListBucketResult")]
@@ -160,6 +196,13 @@ impl ObjectEntry {
             owner: Some(Owner::default()),
             storage_class: "STANDARD".to_string(),
         }
+    }
+
+    /// Return a copy with a URL-encoded key.
+    #[must_use]
+    pub fn with_encoded_key(mut self, encoded_key: &str) -> Self {
+        self.key = encoded_key.to_string();
+        self
     }
 }
 
@@ -365,12 +408,12 @@ pub struct ListObjectVersionsResponse {
     /// Prefix filter.
     #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
-    /// Key marker for pagination.
-    #[serde(rename = "KeyMarker", skip_serializing_if = "Option::is_none")]
-    pub key_marker: Option<String>,
-    /// Version ID marker for pagination.
-    #[serde(rename = "VersionIdMarker", skip_serializing_if = "Option::is_none")]
-    pub version_id_marker: Option<String>,
+    /// Key marker for pagination (always present, empty string if not set).
+    #[serde(rename = "KeyMarker")]
+    pub key_marker: String,
+    /// Version ID marker for pagination (always present, empty string if not set).
+    #[serde(rename = "VersionIdMarker")]
+    pub version_id_marker: String,
     /// Next key marker for pagination.
     #[serde(rename = "NextKeyMarker", skip_serializing_if = "Option::is_none")]
     pub next_key_marker: Option<String>,
