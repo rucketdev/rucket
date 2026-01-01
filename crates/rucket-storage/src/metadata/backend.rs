@@ -3,9 +3,46 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use rucket_core::types::{BucketInfo, MultipartUpload, ObjectMetadata, Part};
+use rucket_core::types::{BucketInfo, MultipartUpload, ObjectMetadata, Part, VersioningStatus};
 use rucket_core::Result;
 use uuid::Uuid;
+
+/// Result of a delete operation in a versioned bucket.
+#[derive(Debug, Clone)]
+pub struct DeleteResult {
+    /// The version ID of the delete marker (if one was created).
+    pub delete_marker_version_id: Option<String>,
+    /// Whether this was a delete marker creation (vs. permanent delete).
+    pub is_delete_marker: bool,
+    /// The UUID of the deleted object's data file (if permanently deleted).
+    pub deleted_uuid: Option<Uuid>,
+}
+
+/// A version entry for listing object versions.
+#[derive(Debug, Clone)]
+pub struct VersionEntry {
+    /// The object metadata for this version.
+    pub metadata: ObjectMetadata,
+    /// Whether this is a delete marker.
+    pub is_delete_marker: bool,
+    /// Whether this is the latest version.
+    pub is_latest: bool,
+}
+
+/// Result of listing object versions.
+#[derive(Debug, Clone)]
+pub struct ListVersionsResult {
+    /// Object versions (including delete markers).
+    pub versions: Vec<VersionEntry>,
+    /// Common prefixes (when using delimiter).
+    pub common_prefixes: Vec<String>,
+    /// Whether there are more results.
+    pub is_truncated: bool,
+    /// Token for the next key (for pagination).
+    pub next_key_marker: Option<String>,
+    /// Token for the next version (for pagination).
+    pub next_version_id_marker: Option<String>,
+}
 
 /// Trait for metadata storage backends.
 ///
@@ -47,6 +84,20 @@ pub trait MetadataBackend: Send + Sync + 'static {
     /// Returns an error if the list cannot be retrieved.
     async fn list_buckets(&self) -> Result<Vec<BucketInfo>>;
 
+    /// Get bucket info by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_bucket(&self, name: &str) -> Result<BucketInfo>;
+
+    /// Set the versioning status for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist or the status cannot be set.
+    async fn set_bucket_versioning(&self, name: &str, status: VersioningStatus) -> Result<()>;
+
     // === Object Operations ===
 
     /// Insert or update object metadata.
@@ -67,11 +118,72 @@ pub trait MetadataBackend: Send + Sync + 'static {
     /// Delete object metadata.
     ///
     /// Returns the UUID of the deleted object if it existed, for file cleanup.
+    /// This performs a permanent deletion (removes the metadata entry).
     ///
     /// # Errors
     ///
     /// Returns an error if the deletion cannot be performed.
     async fn delete_object(&self, bucket: &str, key: &str) -> Result<Option<Uuid>>;
+
+    /// Get a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn get_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<ObjectMetadata>;
+
+    /// Delete a specific version of an object permanently.
+    ///
+    /// Returns the UUID of the deleted version's data file for cleanup.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the version does not exist or deletion fails.
+    async fn delete_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<Option<Uuid>>;
+
+    /// Create a delete marker for a versioned object.
+    ///
+    /// This is used when deleting an object in a versioned bucket without specifying
+    /// a version ID. Returns the version ID of the created delete marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist or the operation fails.
+    async fn create_delete_marker(&self, bucket: &str, key: &str) -> Result<String>;
+
+    /// List all versions of objects in a bucket.
+    ///
+    /// # Arguments
+    ///
+    /// * `bucket` - The bucket name
+    /// * `prefix` - Optional prefix to filter keys
+    /// * `delimiter` - Optional delimiter for common prefix grouping
+    /// * `key_marker` - Start listing after this key (for pagination)
+    /// * `version_id_marker` - Start listing after this version (for pagination)
+    /// * `max_keys` - Maximum number of keys to return
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist or the list cannot be retrieved.
+    async fn list_object_versions(
+        &self,
+        bucket: &str,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        key_marker: Option<&str>,
+        version_id_marker: Option<&str>,
+        max_keys: u32,
+    ) -> Result<ListVersionsResult>;
 
     /// List objects in a bucket with optional prefix and pagination.
     ///

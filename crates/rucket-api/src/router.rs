@@ -20,7 +20,7 @@ use crate::middleware::metrics_layer;
 
 /// Query parameters to determine request type.
 #[derive(Debug, Deserialize, Default)]
-struct RequestQuery {
+pub struct RequestQuery {
     /// List type (for ListObjectsV2).
     #[serde(rename = "list-type")]
     #[allow(dead_code)]
@@ -58,9 +58,9 @@ struct RequestQuery {
     #[serde(rename = "fetch-owner")]
     fetch_owner: Option<String>,
     /// Maximum keys to return (for ListObjectsV2).
-    /// Parsed as i32 to handle invalid negative values from some SDKs.
+    /// Kept as String to allow handler to validate and return proper S3 errors.
     #[serde(rename = "max-keys")]
-    max_keys: Option<i32>,
+    max_keys: Option<String>,
     /// Delete marker (for DeleteObjects).
     delete: Option<String>,
     /// Versioning configuration.
@@ -80,6 +80,32 @@ struct RequestQuery {
     notification: Option<String>,
     /// List object versions.
     versions: Option<String>,
+    /// Bucket location.
+    location: Option<String>,
+    /// Override response Content-Type.
+    #[serde(rename = "response-content-type")]
+    response_content_type: Option<String>,
+    /// Override response Content-Disposition.
+    #[serde(rename = "response-content-disposition")]
+    response_content_disposition: Option<String>,
+    /// Override response Content-Encoding.
+    #[serde(rename = "response-content-encoding")]
+    response_content_encoding: Option<String>,
+    /// Override response Content-Language.
+    #[serde(rename = "response-content-language")]
+    response_content_language: Option<String>,
+    /// Override response Expires.
+    #[serde(rename = "response-expires")]
+    response_expires: Option<String>,
+    /// Override response Cache-Control.
+    #[serde(rename = "response-cache-control")]
+    response_cache_control: Option<String>,
+    /// Allow unordered listing (Ceph extension).
+    #[serde(rename = "allow-unordered")]
+    allow_unordered: Option<String>,
+    /// Version ID for versioned object operations.
+    #[serde(rename = "versionId")]
+    pub version_id: Option<String>,
 }
 
 /// Create the S3 API router.
@@ -95,7 +121,7 @@ pub fn create_router(
     compatibility_mode: ApiCompatibilityMode,
     log_requests: bool,
 ) -> Router {
-    let state = AppState { storage };
+    let state = AppState { storage, compatibility_mode };
 
     let mut router = Router::new()
         // Service-level operations
@@ -232,8 +258,12 @@ async fn head_bucket(state: State<AppState>, path: Path<String>) -> Response {
     bucket::head_bucket(state, path).await.into_response()
 }
 
-async fn head_object(state: State<AppState>, path: Path<(String, String)>) -> Response {
-    object::head_object(state, path).await.into_response()
+async fn head_object(
+    state: State<AppState>,
+    path: Path<(String, String)>,
+    query: Query<RequestQuery>,
+) -> Response {
+    object::head_object(state, path, query).await.into_response()
 }
 
 /// Handle POST requests to bucket (delete multiple objects).
@@ -294,6 +324,10 @@ async fn handle_bucket_get(
     if query.notification.is_some() {
         return bucket::get_bucket_notification(state, path).await.into_response();
     }
+    // Check for ?location (GetBucketLocation)
+    if query.location.is_some() {
+        return bucket::get_bucket_location(state, path).await.into_response();
+    }
 
     // Check for ?versions (ListObjectVersions)
     if query.versions.is_some() {
@@ -306,20 +340,14 @@ async fn handle_bucket_get(
             continuation_token: query.continuation_token,
             start_after: query.start_after,
             encoding_type: query.encoding_type,
-            max_keys: query
-                .max_keys
-                .map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 })
-                .unwrap_or(1000),
+            max_keys: query.max_keys,
             fetch_owner: query.fetch_owner,
+            allow_unordered: query.allow_unordered,
         };
         return object::list_object_versions(state, path, Query(list_query))
             .await
             .into_response();
     }
-
-    // Clamp max_keys to valid range [0, 1000], treating negative values as default
-    let max_keys =
-        query.max_keys.map(|v| if v < 0 { 1000 } else { v.min(1000) as u32 }).unwrap_or(1000);
 
     let list_query = object::ListObjectsQuery {
         prefix: query.prefix,
@@ -330,8 +358,9 @@ async fn handle_bucket_get(
         continuation_token: query.continuation_token,
         start_after: query.start_after,
         encoding_type: query.encoding_type,
-        max_keys,
+        max_keys: query.max_keys,
         fetch_owner: query.fetch_owner,
+        allow_unordered: query.allow_unordered,
     };
 
     // Use V1 or V2 based on list-type parameter
@@ -359,8 +388,18 @@ async fn handle_object_get(
         return multipart::list_parts(state, path, Query(mp_query)).await.into_response();
     }
 
+    // Build response header overrides
+    let overrides = object::ResponseHeaderOverrides {
+        content_type: query.response_content_type,
+        content_disposition: query.response_content_disposition,
+        content_encoding: query.response_content_encoding,
+        content_language: query.response_content_language,
+        expires: query.response_expires,
+        cache_control: query.response_cache_control,
+    };
+
     // Default: GetObject
-    object::get_object(state, path, headers).await.into_response()
+    object::get_object(state, path, headers, overrides, query.version_id).await.into_response()
 }
 
 /// Handle PUT requests to object (put object, upload part, or copy).
@@ -409,7 +448,7 @@ async fn handle_object_delete(
     }
 
     // Default: DeleteObject
-    object::delete_object(state, path).await.into_response()
+    object::delete_object(state, path, Query(query)).await.into_response()
 }
 
 /// Handle POST requests to object (initiate or complete multipart).

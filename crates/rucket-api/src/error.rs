@@ -66,9 +66,15 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status_code();
+        let request_id = self.request_id.clone();
         let body = self.to_xml();
 
-        (status, [("Content-Type", "application/xml")], body).into_response()
+        (
+            status,
+            [("Content-Type", "application/xml"), ("x-amz-request-id", request_id.as_str())],
+            body,
+        )
+            .into_response()
     }
 }
 

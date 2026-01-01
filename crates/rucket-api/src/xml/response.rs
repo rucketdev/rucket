@@ -467,12 +467,14 @@ pub struct ObjectVersion {
 }
 
 impl ObjectVersion {
-    /// Create a new ObjectVersion from metadata (for non-versioned buckets).
+    /// Create a new ObjectVersion from metadata.
+    ///
+    /// Uses the stored version_id if present, otherwise "null" for non-versioned objects.
     pub fn from_metadata(meta: &ObjectMetadata) -> Self {
         Self {
             key: meta.key.clone(),
-            version_id: "null".to_string(),
-            is_latest: true,
+            version_id: meta.version_id.clone().unwrap_or_else(|| "null".to_string()),
+            is_latest: meta.is_latest,
             last_modified: format_s3_timestamp(&meta.last_modified),
             etag: meta.etag.as_str().to_string(),
             size: meta.size,
@@ -500,6 +502,19 @@ pub struct DeleteMarker {
     /// Owner information.
     #[serde(rename = "Owner")]
     pub owner: Owner,
+}
+
+impl DeleteMarker {
+    /// Create a new DeleteMarker from metadata.
+    pub fn from_metadata(meta: &ObjectMetadata) -> Self {
+        Self {
+            key: meta.key.clone(),
+            version_id: meta.version_id.clone().unwrap_or_else(|| "null".to_string()),
+            is_latest: meta.is_latest,
+            last_modified: format_s3_timestamp(&meta.last_modified),
+            owner: Owner::default(),
+        }
+    }
 }
 
 /// Serialize a response to XML.

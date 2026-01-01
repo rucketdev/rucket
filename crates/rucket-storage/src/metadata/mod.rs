@@ -12,5 +12,5 @@
 mod backend;
 mod redb_backend;
 
-pub use backend::MetadataBackend;
+pub use backend::{DeleteResult, ListVersionsResult, MetadataBackend, VersionEntry};
 pub use redb_backend::RedbMetadataStore;

@@ -4,22 +4,34 @@ use std::collections::HashMap;
 
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use rucket_core::config::ApiCompatibilityMode;
 use rucket_core::error::S3ErrorCode;
-use rucket_storage::StorageBackend;
+use rucket_storage::{ObjectHeaders, StorageBackend};
 use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
 use crate::xml::request::DeleteObjects;
+
+/// Query parameters for overriding response headers in GetObject.
+#[derive(Debug, Default)]
+pub struct ResponseHeaderOverrides {
+    pub content_type: Option<String>,
+    pub content_disposition: Option<String>,
+    pub content_encoding: Option<String>,
+    pub content_language: Option<String>,
+    pub expires: Option<String>,
+    pub cache_control: Option<String>,
+}
 use crate::xml::response::{
-    to_xml, CommonPrefix, CopyObjectResponse, DeleteError, DeleteObjectsResponse, DeletedObject,
-    ListObjectVersionsResponse, ListObjectsV1Response, ListObjectsV2Response, ObjectEntry,
-    ObjectVersion,
+    to_xml, CommonPrefix, CopyObjectResponse, DeleteError, DeleteMarker, DeleteObjectsResponse,
+    DeletedObject, ListObjectVersionsResponse, ListObjectsV1Response, ListObjectsV2Response,
+    ObjectEntry, ObjectVersion,
 };
 
 /// Format a datetime for HTTP headers (RFC 7231 format).
@@ -71,14 +83,27 @@ fn s3_url_decode(s: &str) -> String {
 ///
 /// User metadata headers start with `x-amz-meta-` (case-insensitive).
 /// Returns a HashMap with lowercase keys (without the prefix) and the values.
+///
+/// While HTTP/1.1 technically specifies ISO-8859-1 (Latin-1) for header values,
+/// many modern clients (including boto3) send UTF-8 encoded bytes. This function
+/// first tries UTF-8 decoding, then falls back to Latin-1 interpretation.
 fn extract_user_metadata(headers: &HeaderMap) -> HashMap<String, String> {
     let mut metadata = HashMap::new();
     for (name, value) in headers.iter() {
         let name_str = name.as_str().to_lowercase();
         if let Some(key) = name_str.strip_prefix("x-amz-meta-") {
-            if let Ok(value_str) = value.to_str() {
-                metadata.insert(key.to_string(), value_str.to_string());
-            }
+            // Try to_str() first (ASCII only), then try UTF-8, finally Latin-1
+            let value_str = value.to_str().map(String::from).unwrap_or_else(|_| {
+                let bytes = value.as_bytes();
+                // Try UTF-8 first (common with boto3 and modern clients)
+                std::str::from_utf8(bytes)
+                    .map(String::from)
+                    .unwrap_or_else(|_| {
+                        // Fall back to Latin-1 interpretation (each byte -> Unicode code point)
+                        bytes.iter().map(|&b| b as char).collect()
+                    })
+            });
+            metadata.insert(key.to_string(), value_str);
         }
     }
     metadata
@@ -189,16 +214,37 @@ pub struct ListObjectsQuery {
     /// Encoding type for keys (url).
     #[serde(rename = "encoding-type")]
     pub encoding_type: Option<String>,
-    /// Maximum keys to return.
-    #[serde(rename = "max-keys", default = "default_max_keys")]
-    pub max_keys: u32,
+    /// Maximum keys to return (as string to handle invalid values).
+    #[serde(rename = "max-keys")]
+    pub max_keys: Option<String>,
     /// FetchOwner - whether to include owner info (V2).
     #[serde(rename = "fetch-owner")]
     pub fetch_owner: Option<String>,
+    /// Allow unordered listing (Ceph extension).
+    #[serde(rename = "allow-unordered")]
+    pub allow_unordered: Option<String>,
 }
 
-fn default_max_keys() -> u32 {
-    1000
+/// Parse and validate max-keys parameter.
+/// Returns InvalidArgument error for negative or non-numeric values.
+fn parse_max_keys(max_keys: &Option<String>) -> Result<u32, ApiError> {
+    match max_keys {
+        None => Ok(1000), // Default
+        Some(s) => {
+            // Try to parse as i64 first to detect negative numbers
+            match s.parse::<i64>() {
+                Ok(n) if n < 0 => Err(ApiError::new(
+                    S3ErrorCode::InvalidArgument,
+                    "Argument max-keys must be a non-negative integer",
+                )),
+                Ok(n) => Ok(n.min(1000) as u32), // Cap at 1000
+                Err(_) => Err(ApiError::new(
+                    S3ErrorCode::InvalidArgument,
+                    "Argument max-keys must be an integer",
+                )),
+            }
+        }
+    }
 }
 
 /// Check If-Match and If-None-Match precondition headers.
@@ -291,19 +337,67 @@ pub async fn put_object(
     Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     // Check conditional headers for optimistic locking
     check_preconditions(&state, &bucket, &key, &headers).await?;
 
-    let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
     let user_metadata = extract_user_metadata(&headers);
+
+    // Extract HTTP headers
+    // Strip "aws-chunked" from Content-Encoding as per S3 spec - it's a transfer encoding,
+    // not a content encoding that should be stored with the object metadata.
+    let content_encoding = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|encoding| {
+            // Split by comma, filter out aws-chunked, rejoin
+            let filtered: Vec<&str> = encoding
+                .split(',')
+                .map(str::trim)
+                .filter(|&e| e != "aws-chunked")
+                .collect();
+            if filtered.is_empty() {
+                None
+            } else {
+                Some(filtered.join(", "))
+            }
+        });
+
+    let object_headers = ObjectHeaders {
+        content_type: headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+        cache_control: headers
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+        content_disposition: headers
+            .get("content-disposition")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+        content_encoding,
+        expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
+    };
 
     // Decode AWS chunked encoding if present
     let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
 
-    let etag = state.storage.put_object(&bucket, &key, body, content_type, user_metadata).await?;
+    let result =
+        state.storage.put_object(&bucket, &key, body, object_headers, user_metadata).await?;
 
-    Ok((StatusCode::OK, [("ETag", etag.as_str().to_string())]))
+    // Build response with headers
+    let mut response = Response::builder()
+        .status(StatusCode::OK)
+        .header("ETag", result.etag.as_str());
+
+    if let Some(ref version_id) = result.version_id {
+        response = response.header("x-amz-version-id", version_id.as_str());
+    }
+
+    response
+        .body(Body::empty())
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `GET /{bucket}/{key}` - Download object.
@@ -311,13 +405,80 @@ pub async fn get_object(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
+    overrides: ResponseHeaderOverrides,
+    version_id: Option<String>,
 ) -> Result<Response, ApiError> {
-    // Check for Range header
-    if let Some(range) = headers.get("range").and_then(|v| v.to_str().ok()) {
-        return get_object_range(state, &bucket, &key, range).await;
+    // Check bucket exists first to return proper error code
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
     }
 
-    let (meta, data) = state.storage.get_object(&bucket, &key).await?;
+    // Check for Range header (not supported with versionId for now)
+    if let Some(range) = headers.get("range").and_then(|v| v.to_str().ok()) {
+        if version_id.is_none() {
+            return get_object_range(state, &bucket, &key, range).await;
+        }
+        // For versioned objects with range, we'd need to extend get_object_range
+        // For now, we ignore range for versioned objects
+    }
+
+    // Get object, either latest or specific version
+    let (meta, data) = if let Some(ref vid) = version_id {
+        state.storage.get_object_version(&bucket, &key, vid).await?
+    } else {
+        state.storage.get_object(&bucket, &key).await?
+    };
+
+    // Check If-None-Match: return 304 Not Modified if ETag matches
+    if let Some(if_none_match) = headers.get("if-none-match").and_then(|v| v.to_str().ok()) {
+        let etag = meta.etag.as_str();
+        let etags: Vec<&str> = if_none_match.split(',').map(|s| s.trim()).collect();
+        if etags.iter().any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"')) {
+            return Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header("ETag", etag)
+                .body(Body::empty())
+                .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()));
+        }
+    }
+
+    // Check If-Match: return 412 Precondition Failed if ETag doesn't match
+    if let Some(if_match) = headers.get("if-match").and_then(|v| v.to_str().ok()) {
+        let etag = meta.etag.as_str();
+        let etags: Vec<&str> = if_match.split(',').map(|s| s.trim()).collect();
+        if !etags.iter().any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"')) {
+            return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));
+        }
+    }
+
+    // Check If-Modified-Since: return 304 if object was not modified since the date
+    if let Some(if_modified_since) = headers.get("if-modified-since").and_then(|v| v.to_str().ok())
+    {
+        if let Ok(since) = chrono::DateTime::parse_from_rfc2822(if_modified_since) {
+            if meta.last_modified <= since.with_timezone(&chrono::Utc) {
+                return Response::builder()
+                    .status(StatusCode::NOT_MODIFIED)
+                    .header("ETag", meta.etag.as_str())
+                    .body(Body::empty())
+                    .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()));
+            }
+        }
+    }
+
+    // Check If-Unmodified-Since: return 412 if object was modified since the date
+    if let Some(if_unmodified_since) =
+        headers.get("if-unmodified-since").and_then(|v| v.to_str().ok())
+    {
+        if let Ok(since) = chrono::DateTime::parse_from_rfc2822(if_unmodified_since) {
+            if meta.last_modified > since.with_timezone(&chrono::Utc) {
+                return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));
+            }
+        }
+    }
 
     let mut response = Response::builder()
         .status(StatusCode::OK)
@@ -325,13 +486,42 @@ pub async fn get_object(
         .header("Content-Length", meta.size.to_string())
         .header("Last-Modified", format_http_date(&meta.last_modified));
 
-    if let Some(ct) = &meta.content_type {
+    // Add version ID header if the object has one
+    if let Some(ref version_id) = meta.version_id {
+        response = response.header("x-amz-version-id", version_id.as_str());
+    }
+
+    // Use override values if provided, otherwise use stored metadata
+    if let Some(ct) = overrides.content_type.as_ref().or(meta.content_type.as_ref()) {
         response = response.header("Content-Type", ct.as_str());
+    }
+    if let Some(cc) = overrides.cache_control.as_ref().or(meta.cache_control.as_ref()) {
+        response = response.header("Cache-Control", cc.as_str());
+    }
+    if let Some(cd) = overrides.content_disposition.as_ref().or(meta.content_disposition.as_ref()) {
+        response = response.header("Content-Disposition", cd.as_str());
+    }
+    if let Some(ce) = overrides.content_encoding.as_ref().or(meta.content_encoding.as_ref()) {
+        response = response.header("Content-Encoding", ce.as_str());
+    }
+    if let Some(exp) = overrides.expires.as_ref().or(meta.expires.as_ref()) {
+        response = response.header("Expires", exp.as_str());
+    }
+    if let Some(cl) = overrides.content_language.as_ref() {
+        response = response.header("Content-Language", cl.as_str());
     }
 
     // Add user metadata headers
+    // boto3 sends UTF-8 in headers but expects Latin-1 back (per HTTP/1.1 spec).
+    // Convert Unicode chars to Latin-1 bytes (U+0000-U+00FF -> 0x00-0xFF).
     for (key, value) in &meta.user_metadata {
-        response = response.header(format!("x-amz-meta-{key}"), value.as_str());
+        let latin1_bytes: Vec<u8> = value.chars().filter_map(|c| {
+            let code = c as u32;
+            if code <= 0xFF { Some(code as u8) } else { None }
+        }).collect();
+        if let Ok(header_value) = HeaderValue::from_bytes(&latin1_bytes) {
+            response = response.header(format!("x-amz-meta-{key}"), header_value);
+        }
     }
 
     response
@@ -362,6 +552,18 @@ async fn get_object_range(
 
     if let Some(ct) = &meta.content_type {
         response = response.header("Content-Type", ct.as_str());
+    }
+    if let Some(cc) = &meta.cache_control {
+        response = response.header("Cache-Control", cc.as_str());
+    }
+    if let Some(cd) = &meta.content_disposition {
+        response = response.header("Content-Disposition", cd.as_str());
+    }
+    if let Some(ce) = &meta.content_encoding {
+        response = response.header("Content-Encoding", ce.as_str());
+    }
+    if let Some(exp) = &meta.expires {
+        response = response.header("Expires", exp.as_str());
     }
 
     response
@@ -395,17 +597,58 @@ fn parse_range_header(header: &str) -> Result<(u64, u64), ApiError> {
 pub async fn delete_object(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
-) -> Result<impl IntoResponse, ApiError> {
-    state.storage.delete_object(&bucket, &key).await?;
-    Ok(StatusCode::NO_CONTENT)
+    Query(query): Query<crate::router::RequestQuery>,
+) -> Result<Response, ApiError> {
+    // Check bucket exists first to return proper error code
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    let result = if let Some(ref version_id) = query.version_id {
+        // Delete specific version permanently
+        state.storage.delete_object_version(&bucket, &key, version_id).await?
+    } else {
+        // Delete latest version (may create delete marker for versioned buckets)
+        state.storage.delete_object(&bucket, &key).await?
+    };
+
+    let mut response = Response::builder().status(StatusCode::NO_CONTENT);
+
+    if let Some(version_id) = result.version_id {
+        response = response.header("x-amz-version-id", version_id);
+    }
+    if result.is_delete_marker {
+        response = response.header("x-amz-delete-marker", "true");
+    }
+
+    Ok(response.body(axum::body::Body::empty()).unwrap())
 }
 
 /// `HEAD /{bucket}/{key}` - Get object metadata.
 pub async fn head_object(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
+    Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
-    let meta = state.storage.head_object(&bucket, &key).await?;
+    // Check bucket exists first to return proper error code
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    // Get metadata, either latest or specific version
+    let meta = if let Some(ref vid) = query.version_id {
+        state.storage.head_object_version(&bucket, &key, vid).await?
+    } else {
+        state.storage.head_object(&bucket, &key).await?
+    };
 
     let mut response = Response::builder()
         .status(StatusCode::OK)
@@ -414,13 +657,38 @@ pub async fn head_object(
         .header("Last-Modified", format_http_date(&meta.last_modified))
         .header("Accept-Ranges", "bytes");
 
+    // Add version ID header if the object has one
+    if let Some(ref version_id) = meta.version_id {
+        response = response.header("x-amz-version-id", version_id.as_str());
+    }
+
     if let Some(ct) = &meta.content_type {
         response = response.header("Content-Type", ct.as_str());
     }
+    if let Some(cc) = &meta.cache_control {
+        response = response.header("Cache-Control", cc.as_str());
+    }
+    if let Some(cd) = &meta.content_disposition {
+        response = response.header("Content-Disposition", cd.as_str());
+    }
+    if let Some(ce) = &meta.content_encoding {
+        response = response.header("Content-Encoding", ce.as_str());
+    }
+    if let Some(exp) = &meta.expires {
+        response = response.header("Expires", exp.as_str());
+    }
 
     // Add user metadata headers
+    // boto3 sends UTF-8 in headers but expects Latin-1 back (per HTTP/1.1 spec).
+    // Convert Unicode chars to Latin-1 bytes (U+0000-U+00FF -> 0x00-0xFF).
     for (key, value) in &meta.user_metadata {
-        response = response.header(format!("x-amz-meta-{key}"), value.as_str());
+        let latin1_bytes: Vec<u8> = value.chars().filter_map(|c| {
+            let code = c as u32;
+            if code <= 0xFF { Some(code as u8) } else { None }
+        }).collect();
+        if let Ok(header_value) = HeaderValue::from_bytes(&latin1_bytes) {
+            response = response.header(format!("x-amz-meta-{key}"), header_value);
+        }
     }
 
     response
@@ -448,7 +716,55 @@ pub async fn copy_object(
         ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source format")
     })?;
 
-    let etag = state.storage.copy_object(src_bucket, src_key, &dst_bucket, &dst_key).await?;
+    // URL-decode the source key (it may be percent-encoded)
+    let src_key = s3_url_decode(src_key);
+
+    // Check MetadataDirective - COPY (default) or REPLACE
+    let metadata_directive = headers
+        .get("x-amz-metadata-directive")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("COPY");
+
+    // Check for copy-to-self without metadata replacement
+    // Per S3, copying an object to itself is only allowed with MetadataDirective=REPLACE
+    if src_bucket == dst_bucket && src_key == dst_key && metadata_directive != "REPLACE" {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidRequest,
+            "This copy request is illegal because it is trying to copy an object to itself without changing the object's metadata, storage class, website redirect location or encryption attributes.",
+        ));
+    }
+
+    // If MetadataDirective=REPLACE, extract new headers and metadata from request
+    let (new_headers, new_metadata) = if metadata_directive == "REPLACE" {
+        let object_headers = ObjectHeaders {
+            content_type: headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
+            cache_control: headers
+                .get("cache-control")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
+            content_disposition: headers
+                .get("content-disposition")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
+            content_encoding: headers
+                .get("content-encoding")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
+            expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
+        };
+        let user_metadata = extract_user_metadata(&headers);
+        (Some(object_headers), Some(user_metadata))
+    } else {
+        (None, None)
+    };
+
+    let etag = state
+        .storage
+        .copy_object(src_bucket, &src_key, &dst_bucket, &dst_key, new_headers, new_metadata)
+        .await?;
 
     let response = CopyObjectResponse::new(etag.as_str().to_string(), Utc::now());
 
@@ -465,6 +781,19 @@ pub async fn list_objects_v1(
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Response, ApiError> {
+    // Ceph extension: allow-unordered with delimiter is not supported
+    if state.compatibility_mode == ApiCompatibilityMode::Ceph
+        && query.allow_unordered.as_deref() == Some("true")
+        && query.delimiter.is_some()
+    {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidArgument,
+            "allow-unordered cannot be used with delimiter",
+        ));
+    }
+
+    let max_keys = parse_max_keys(&query.max_keys)?;
+
     let result = state
         .storage
         .list_objects(
@@ -472,7 +801,7 @@ pub async fn list_objects_v1(
             query.prefix.as_deref(),
             query.delimiter.as_deref(),
             query.marker.as_deref(),
-            query.max_keys,
+            max_keys,
         )
         .await?;
 
@@ -503,7 +832,7 @@ pub async fn list_objects_v1(
             next_marker: next_marker.map(|m| s3_url_encode_prefix(&m)),
             // Note: Delimiter is NOT encoded per S3 spec
             delimiter: query.delimiter.clone(),
-            max_keys: query.max_keys,
+            max_keys,
             encoding_type: query.encoding_type,
             is_truncated: result.is_truncated,
             contents: result
@@ -526,7 +855,7 @@ pub async fn list_objects_v1(
             marker: s3_url_decode(&query.marker.unwrap_or_default()),
             next_marker,
             delimiter: query.delimiter,
-            max_keys: query.max_keys,
+            max_keys,
             encoding_type: query.encoding_type,
             is_truncated: result.is_truncated,
             contents: result.objects.iter().map(ObjectEntry::from).collect(),
@@ -551,6 +880,19 @@ pub async fn list_objects_v2(
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Response, ApiError> {
+    // Ceph extension: allow-unordered with delimiter is not supported
+    if state.compatibility_mode == ApiCompatibilityMode::Ceph
+        && query.allow_unordered.as_deref() == Some("true")
+        && query.delimiter.is_some()
+    {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidArgument,
+            "allow-unordered cannot be used with delimiter",
+        ));
+    }
+
+    let max_keys = parse_max_keys(&query.max_keys)?;
+
     // Handle start-after: use it as the continuation token if no continuation token is provided
     let effective_token = query.continuation_token.as_deref().or(query.start_after.as_deref());
 
@@ -561,7 +903,7 @@ pub async fn list_objects_v2(
             query.prefix.as_deref(),
             query.delimiter.as_deref(),
             effective_token,
-            query.max_keys,
+            max_keys,
         )
         .await?;
 
@@ -598,7 +940,7 @@ pub async fn list_objects_v2(
             prefix: query.prefix.map(|p| s3_url_encode_prefix(&p)),
             // Note: Delimiter is NOT encoded per S3 spec
             delimiter: query.delimiter.clone(),
-            max_keys: query.max_keys,
+            max_keys,
             encoding_type: query.encoding_type,
             is_truncated: result.is_truncated,
             continuation_token: query.continuation_token,
@@ -629,7 +971,7 @@ pub async fn list_objects_v2(
             name: bucket,
             prefix: query.prefix,
             delimiter: query.delimiter,
-            max_keys: query.max_keys,
+            max_keys,
             encoding_type: query.encoding_type,
             is_truncated: result.is_truncated,
             continuation_token: query.continuation_token,
@@ -658,63 +1000,51 @@ pub async fn list_objects_v2(
 
 /// `GET /{bucket}?versions` - List object versions.
 ///
-/// Returns all versions of objects in a bucket. For non-versioned buckets,
-/// returns all objects with a version ID of "null".
+/// Returns all versions of objects in a bucket, including delete markers.
+/// For non-versioned buckets, returns all objects with a version ID of "null".
 pub async fn list_object_versions(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Response, ApiError> {
-    // For now, use list_objects and convert to versions format
-    // (full versioning support would require storage changes)
-    // Use key-marker for pagination in ListObjectVersions
+    let max_keys = parse_max_keys(&query.max_keys)?;
+
+    // Use the real list_object_versions method that returns all versions
     let result = state
         .storage
-        .list_objects(
+        .list_object_versions(
             &bucket,
             query.prefix.as_deref(),
             query.delimiter.as_deref(),
             query.key_marker.as_deref(),
-            query.max_keys,
+            query.version_id_marker.as_deref(),
+            max_keys,
         )
         .await?;
 
-    // Convert objects to versions (with "null" version ID for non-versioned)
-    let versions: Vec<ObjectVersion> =
-        result.objects.iter().map(ObjectVersion::from_metadata).collect();
+    // Separate versions and delete markers
+    let mut versions: Vec<ObjectVersion> = Vec::new();
+    let mut delete_markers: Vec<DeleteMarker> = Vec::new();
 
-    // For versioned listing with delimiter, compute next_key_marker from returned items
-    let next_key_marker = if result.is_truncated && query.delimiter.is_some() {
-        let last_key = result.objects.last().map(|o| o.key.as_str());
-        let last_prefix = result.common_prefixes.last().map(|s| s.as_str());
-        match (last_key, last_prefix) {
-            (Some(key), Some(prefix)) => Some(std::cmp::max(key, prefix).to_string()),
-            (Some(key), None) => Some(key.to_string()),
-            (None, Some(prefix)) => Some(prefix.to_string()),
-            (None, None) => result.next_continuation_token.clone(),
+    for entry in result.versions {
+        if entry.is_delete_marker {
+            delete_markers.push(DeleteMarker::from_metadata(&entry.metadata));
+        } else {
+            versions.push(ObjectVersion::from_metadata(&entry.metadata));
         }
-    } else {
-        result.next_continuation_token.clone()
-    };
-
-    // When truncated, provide next_version_id_marker (use "null" since we don't support real versioning)
-    let next_version_id_marker = if result.is_truncated {
-        Some("null".to_string())
-    } else {
-        None
-    };
+    }
 
     let response = ListObjectVersionsResponse {
         name: bucket,
         prefix: query.prefix,
         key_marker: query.key_marker.clone().unwrap_or_default(),
         version_id_marker: query.version_id_marker.clone().unwrap_or_default(),
-        next_key_marker,
-        next_version_id_marker,
-        max_keys: query.max_keys,
+        next_key_marker: result.next_key_marker,
+        next_version_id_marker: result.next_version_id_marker,
+        max_keys,
         is_truncated: result.is_truncated,
         versions,
-        delete_markers: Vec::new(), // No delete markers for non-versioned buckets
+        delete_markers,
         common_prefixes: result
             .common_prefixes
             .into_iter()
@@ -740,15 +1070,33 @@ pub async fn delete_objects(
         ApiError::new(S3ErrorCode::InvalidRequest, format!("Failed to parse DeleteObjects: {e}"))
     })?;
 
+    // S3 limits DeleteObjects to 1000 keys
+    if request.objects.len() > 1000 {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidRequest,
+            "DeleteObjects request must contain at most 1000 keys",
+        ));
+    }
+
     let mut deleted = Vec::new();
     let mut errors = Vec::new();
 
     // Delete each object
     for obj in &request.objects {
-        match state.storage.delete_object(&bucket, &obj.key).await {
-            Ok(()) => {
-                // Return the version ID from the request, or "null" for non-versioned objects
-                let version_id = obj.version_id.clone().or_else(|| Some("null".to_string()));
+        let result = if let Some(ref version_id) = obj.version_id {
+            // Delete specific version
+            state.storage.delete_object_version(&bucket, &obj.key, version_id).await
+        } else {
+            // Delete latest version (may create delete marker for versioned buckets)
+            state.storage.delete_object(&bucket, &obj.key).await
+        };
+
+        match result {
+            Ok(delete_result) => {
+                // Return the version ID from the result, or from the request, or "null"
+                let version_id = delete_result.version_id
+                    .or_else(|| obj.version_id.clone())
+                    .or_else(|| Some("null".to_string()));
                 deleted.push(DeletedObject { key: obj.key.clone(), version_id });
             }
             Err(e) => {
