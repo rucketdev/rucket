@@ -1,0 +1,396 @@
+//! S3 Compatibility Test Harness
+//!
+//! Provides `S3TestContext` for spinning up an in-memory Rucket server
+//! and testing S3 API operations against it.
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use aws_config::BehaviorVersion;
+use aws_credential_types::Credentials;
+use aws_sdk_s3::config::Region;
+use aws_sdk_s3::operation::get_object::GetObjectOutput;
+use aws_sdk_s3::operation::head_object::HeadObjectOutput;
+use aws_sdk_s3::operation::list_object_versions::ListObjectVersionsOutput;
+use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Output;
+use aws_sdk_s3::operation::put_object::PutObjectOutput;
+use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::{BucketVersioningStatus, VersioningConfiguration};
+use aws_sdk_s3::Client;
+use rand::Rng;
+use rucket_api::create_router;
+use rucket_core::config::ApiCompatibilityMode;
+use rucket_storage::LocalStorage;
+use tempfile::TempDir;
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use uuid::Uuid;
+
+/// Test context providing an S3 client connected to an in-memory Rucket server.
+pub struct S3TestContext {
+    /// The S3 client for making requests.
+    pub client: Client,
+    /// The endpoint URL of the test server.
+    pub endpoint: String,
+    /// The default bucket name (if created).
+    pub bucket: String,
+    /// The server address.
+    pub addr: SocketAddr,
+    _server_handle: JoinHandle<()>,
+    _shutdown_tx: oneshot::Sender<()>,
+    _temp_dir: TempDir,
+}
+
+impl S3TestContext {
+    /// Create a new test context with an auto-generated bucket.
+    pub async fn new() -> Self {
+        let bucket = random_bucket_name();
+        let mut ctx = Self::start_server().await;
+        ctx.bucket = bucket.clone();
+        ctx.create_bucket_internal(&bucket).await;
+        ctx
+    }
+
+    /// Create a new test context with a specific bucket name.
+    pub async fn with_bucket(name: &str) -> Self {
+        let mut ctx = Self::start_server().await;
+        ctx.bucket = name.to_string();
+        ctx.create_bucket_internal(name).await;
+        ctx
+    }
+
+    /// Create a new test context with versioning enabled on the default bucket.
+    pub async fn with_versioning() -> Self {
+        let ctx = Self::new().await;
+        ctx.enable_versioning().await;
+        ctx
+    }
+
+    /// Create a new test context with multiple buckets.
+    pub async fn with_buckets(names: &[&str]) -> Self {
+        let mut ctx = Self::start_server().await;
+        if let Some(first) = names.first() {
+            ctx.bucket = first.to_string();
+        }
+        for name in names {
+            ctx.create_bucket_internal(name).await;
+        }
+        ctx
+    }
+
+    /// Create a test context without creating any buckets.
+    pub async fn without_bucket() -> Self {
+        Self::start_server().await
+    }
+
+    /// Start the test server and return the context.
+    async fn start_server() -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let data_dir = temp_dir.path().join("data");
+        let tmp_dir = temp_dir.path().join("tmp");
+
+        let storage = LocalStorage::new_in_memory(data_dir, tmp_dir)
+            .await
+            .expect("Failed to create storage");
+
+        // 5 GiB max body size (S3 max single PUT)
+        let app = create_router(
+            Arc::new(storage),
+            5 * 1024 * 1024 * 1024,
+            ApiCompatibilityMode::Minio,
+            false, // log_requests disabled for tests
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("Failed to bind");
+        let addr = listener.local_addr().expect("Failed to get local addr");
+
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .expect("Server error");
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let endpoint = format!("http://{}", addr);
+        let client = Self::create_client(&endpoint);
+
+        Self {
+            client,
+            endpoint,
+            bucket: String::new(),
+            addr,
+            _server_handle: handle,
+            _shutdown_tx: shutdown_tx,
+            _temp_dir: temp_dir,
+        }
+    }
+
+    /// Create an S3 client for the given endpoint.
+    fn create_client(endpoint: &str) -> Client {
+        let credentials = Credentials::new("rucket", "rucket123", None, None, "test");
+
+        let config = aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("us-east-1"))
+            .endpoint_url(endpoint)
+            .credentials_provider(credentials)
+            .force_path_style(true)
+            .build();
+
+        Client::from_conf(config)
+    }
+
+    /// Create a bucket (internal helper).
+    async fn create_bucket_internal(&self, name: &str) {
+        self.client
+            .create_bucket()
+            .bucket(name)
+            .send()
+            .await
+            .expect("Failed to create bucket");
+    }
+
+    /// Create a bucket.
+    pub async fn create_bucket(&self, name: &str) {
+        self.create_bucket_internal(name).await;
+    }
+
+    /// Delete a bucket.
+    pub async fn delete_bucket(&self, name: &str) {
+        self.client
+            .delete_bucket()
+            .bucket(name)
+            .send()
+            .await
+            .expect("Failed to delete bucket");
+    }
+
+    /// Put an object with the given key and data.
+    pub async fn put(&self, key: &str, data: &[u8]) -> PutObjectOutput {
+        self.put_in_bucket(&self.bucket, key, data).await
+    }
+
+    /// Put an object in a specific bucket.
+    pub async fn put_in_bucket(&self, bucket: &str, key: &str, data: &[u8]) -> PutObjectOutput {
+        let body = ByteStream::from(data.to_vec());
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(body)
+            .send()
+            .await
+            .expect("Failed to put object")
+    }
+
+    /// Get an object's content.
+    pub async fn get(&self, key: &str) -> Vec<u8> {
+        self.get_from_bucket(&self.bucket, key).await
+    }
+
+    /// Get an object from a specific bucket.
+    pub async fn get_from_bucket(&self, bucket: &str, key: &str) -> Vec<u8> {
+        let response = self
+            .client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .expect("Failed to get object");
+        response
+            .body
+            .collect()
+            .await
+            .expect("Failed to read body")
+            .into_bytes()
+            .to_vec()
+    }
+
+    /// Get an object (full response).
+    pub async fn get_object(&self, key: &str) -> GetObjectOutput {
+        self.client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .expect("Failed to get object")
+    }
+
+    /// Head an object.
+    pub async fn head(&self, key: &str) -> HeadObjectOutput {
+        self.client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .expect("Failed to head object")
+    }
+
+    /// Delete an object.
+    pub async fn delete(&self, key: &str) {
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .expect("Failed to delete object");
+    }
+
+    /// Check if an object exists.
+    pub async fn exists(&self, key: &str) -> bool {
+        self.client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .is_ok()
+    }
+
+    /// Enable versioning on the default bucket.
+    pub async fn enable_versioning(&self) {
+        self.enable_versioning_on_bucket(&self.bucket).await;
+    }
+
+    /// Enable versioning on a specific bucket.
+    pub async fn enable_versioning_on_bucket(&self, bucket: &str) {
+        self.client
+            .put_bucket_versioning()
+            .bucket(bucket)
+            .versioning_configuration(
+                VersioningConfiguration::builder()
+                    .status(BucketVersioningStatus::Enabled)
+                    .build(),
+            )
+            .send()
+            .await
+            .expect("Failed to enable versioning");
+    }
+
+    /// Suspend versioning on the default bucket.
+    pub async fn suspend_versioning(&self) {
+        self.client
+            .put_bucket_versioning()
+            .bucket(&self.bucket)
+            .versioning_configuration(
+                VersioningConfiguration::builder()
+                    .status(BucketVersioningStatus::Suspended)
+                    .build(),
+            )
+            .send()
+            .await
+            .expect("Failed to suspend versioning");
+    }
+
+    /// List objects in the default bucket (V2).
+    pub async fn list_objects(&self) -> ListObjectsV2Output {
+        self.client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .expect("Failed to list objects")
+    }
+
+    /// List object versions in the default bucket.
+    pub async fn list_versions(&self) -> ListObjectVersionsOutput {
+        self.client
+            .list_object_versions()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .expect("Failed to list versions")
+    }
+}
+
+// =============================================================================
+// Test Data Helpers
+// =============================================================================
+
+/// Generate random bytes of the given size.
+pub fn random_bytes(size: usize) -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    (0..size).map(|_| rng.gen()).collect()
+}
+
+/// Generate a random string of the given length.
+pub fn random_string(len: usize) -> String {
+    use rand::distributions::Alphanumeric;
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect::<String>()
+        .to_lowercase()
+}
+
+/// Generate a random bucket name (S3-compliant).
+pub fn random_bucket_name() -> String {
+    format!("test-bucket-{}", Uuid::new_v4().to_string()[..8].to_lowercase())
+}
+
+/// Generate a random object key.
+pub fn random_key() -> String {
+    format!("object-{}", Uuid::new_v4().to_string()[..8].to_lowercase())
+}
+
+// =============================================================================
+// Assertion Helpers
+// =============================================================================
+
+/// Assert that an object has the expected content.
+pub async fn assert_object_content(ctx: &S3TestContext, key: &str, expected: &[u8]) {
+    let content = ctx.get(key).await;
+    assert_eq!(content.as_slice(), expected, "Object content mismatch for key: {}", key);
+}
+
+/// Assert that an object does not exist (404).
+pub async fn assert_not_found(ctx: &S3TestContext, key: &str) {
+    let result = ctx
+        .client
+        .head_object()
+        .bucket(&ctx.bucket)
+        .key(key)
+        .send()
+        .await;
+    assert!(result.is_err(), "Object should not exist: {}", key);
+}
+
+/// Assert that a bucket is empty.
+pub async fn assert_bucket_empty(ctx: &S3TestContext) {
+    let response = ctx.list_objects().await;
+    assert!(
+        response.contents().is_empty(),
+        "Bucket should be empty, found {} objects",
+        response.contents().len()
+    );
+}
+
+/// Assert that an error response has the expected error code.
+pub fn assert_error_code<T, E: std::fmt::Debug>(result: &Result<T, E>, expected_code: &str) {
+    match result {
+        Ok(_) => panic!("Expected error with code {}, but got success", expected_code),
+        Err(e) => {
+            let error_str = format!("{:?}", e);
+            assert!(
+                error_str.contains(expected_code),
+                "Expected error code {}, got: {}",
+                expected_code,
+                error_str
+            );
+        }
+    }
+}
