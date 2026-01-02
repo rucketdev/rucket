@@ -6,15 +6,17 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
+use chrono::Utc;
 use rucket_core::error::S3ErrorCode;
 use rucket_storage::StorageBackend;
 use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
+use crate::handlers::object::s3_url_decode;
 use crate::xml::request::CompleteMultipartUpload;
 use crate::xml::response::{
-    to_xml, CompleteMultipartUploadResponse, InitiateMultipartUploadResponse,
+    to_xml, CompleteMultipartUploadResponse, CopyPartResult, InitiateMultipartUploadResponse,
     ListMultipartUploadsResponse, ListPartsResponse, MultipartUploadEntry, PartEntry,
 };
 
@@ -157,6 +159,75 @@ pub async fn upload_part(
     let etag = state.storage.upload_part(&bucket, &key, &upload_id, part_number, body).await?;
 
     Ok((StatusCode::OK, [("ETag", etag.to_string())]))
+}
+
+/// `PUT /{bucket}/{key}?partNumber=N&uploadId=ID` with `x-amz-copy-source` - Upload part copy.
+pub async fn upload_part_copy(
+    State(state): State<AppState>,
+    Path((bucket, key)): Path<(String, String)>,
+    Query(query): Query<MultipartQuery>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let upload_id = query
+        .upload_id
+        .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
+
+    let part_number = query.part_number.ok_or_else(|| {
+        ApiError::new(S3ErrorCode::InvalidRequest, "Missing partNumber parameter")
+    })?;
+
+    // Parse x-amz-copy-source header
+    let copy_source =
+        headers.get("x-amz-copy-source").and_then(|v| v.to_str().ok()).ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Missing x-amz-copy-source header")
+        })?;
+
+    // Parse source: /bucket/key or bucket/key
+    let source = copy_source.trim_start_matches('/');
+    let (src_bucket, src_key) = source.split_once('/').ok_or_else(|| {
+        ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source format")
+    })?;
+
+    // URL-decode the source key
+    let src_key = s3_url_decode(src_key);
+
+    // Check for x-amz-copy-source-range header
+    let copy_range = headers.get("x-amz-copy-source-range").and_then(|v| v.to_str().ok());
+
+    // Get the source data (full object or range)
+    let data = if let Some(range_header) = copy_range {
+        // Parse range: bytes=start-end
+        let range_spec = range_header.strip_prefix("bytes=").ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source-range format")
+        })?;
+        let (start_str, end_str) = range_spec.split_once('-').ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source-range format")
+        })?;
+        let start: u64 = start_str
+            .parse()
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRequest, "Invalid range start"))?;
+        let end: u64 = end_str
+            .parse()
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRequest, "Invalid range end"))?;
+        let (_, data) = state.storage.get_object_range(src_bucket, &src_key, start, end).await?;
+        data
+    } else {
+        // Get full object
+        let (_, data) = state.storage.get_object(src_bucket, &src_key).await?;
+        data
+    };
+
+    // Upload the part
+    let etag = state.storage.upload_part(&bucket, &key, &upload_id, part_number, data).await?;
+
+    // Return CopyPartResult XML
+    let response = CopyPartResult::new(etag.to_string(), Utc::now());
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
 }
 
 /// `POST /{bucket}/{key}?uploadId=ID` - Complete multipart upload.

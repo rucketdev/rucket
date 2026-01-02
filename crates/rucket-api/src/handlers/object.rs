@@ -74,7 +74,7 @@ fn s3_url_encode_prefix(s: &str) -> String {
 }
 
 /// URL-decode a string. Returns the original string if decoding fails.
-fn s3_url_decode(s: &str) -> String {
+pub fn s3_url_decode(s: &str) -> String {
     percent_decode_str(s).decode_utf8().map(|s| s.to_string()).unwrap_or_else(|_| s.to_string())
 }
 

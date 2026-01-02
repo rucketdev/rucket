@@ -427,6 +427,20 @@ async fn handle_object_put(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // Check for ?partNumber&uploadId with x-amz-copy-source (upload part copy)
+    if query.part_number.is_some()
+        && query.upload_id.is_some()
+        && headers.contains_key("x-amz-copy-source")
+    {
+        let mp_query = multipart::MultipartQuery {
+            upload_id: query.upload_id,
+            part_number: query.part_number,
+        };
+        return multipart::upload_part_copy(state, path, Query(mp_query), headers)
+            .await
+            .into_response();
+    }
+
     // Check for x-amz-copy-source (copy object)
     if headers.contains_key("x-amz-copy-source") {
         return object::copy_object(state, path, headers).await.into_response();

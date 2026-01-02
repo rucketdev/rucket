@@ -361,6 +361,26 @@ impl CopyObjectResponse {
     }
 }
 
+/// `CopyPartResult` response for upload part copy.
+#[derive(Debug, Serialize)]
+#[serde(rename = "CopyPartResult")]
+pub struct CopyPartResult {
+    /// ETag of the copied part.
+    #[serde(rename = "ETag")]
+    pub etag: String,
+    /// Last modified timestamp.
+    #[serde(rename = "LastModified")]
+    pub last_modified: String,
+}
+
+impl CopyPartResult {
+    /// Create a new copy part result.
+    #[must_use]
+    pub fn new(etag: String, last_modified: DateTime<Utc>) -> Self {
+        Self { etag, last_modified: format_s3_timestamp(&last_modified) }
+    }
+}
+
 /// `DeleteResult` response for multi-object delete.
 #[derive(Debug, Serialize)]
 #[serde(rename = "DeleteResult")]
