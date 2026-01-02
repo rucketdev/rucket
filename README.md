@@ -11,19 +11,23 @@ S3-compatible object storage server written in Rust.
 
 ## Features
 
-- S3 API compatibility (PUT, GET, DELETE, LIST, multipart uploads, versioning)
-- Single-node deployment
-- redb-backed metadata storage
-- AWS Signature V4 authentication
-- Streaming transfers
-- Range requests
+- **S3 API compatibility** - PUT, GET, DELETE, LIST, multipart uploads
+- **Object versioning** - Full versioning with delete markers
+- **Object tagging** - Tag objects and buckets
+- **Checksums** - CRC32, CRC32C, SHA-1, SHA-256 verification
+- **Conditional requests** - If-Match, If-None-Match, If-Modified-Since
+- **Range requests** - Byte-range retrieval
+- **CORS support** - Cross-origin resource sharing
+- **TLS/HTTPS** - Native TLS support
+- **Prometheus metrics** - Built-in metrics endpoint
+- **Crash recovery** - Write-ahead log with configurable durability
+- **AWS Signature V4** - Standard S3 authentication
 
 ## Installation
 
-**Binary releases** (recommended):
+**Binary releases**:
 ```bash
-# Download from GitHub releases
-curl -LO https://github.com/rucketdev/rucket/releases/latest/download/rucket-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/rucketdev/rucket/releases/latest/download/rucket-x86_64-unknown-linux-gnu.tar.gz
 tar -xzf rucket-*.tar.gz
 ./rucket serve
 ```
@@ -42,25 +46,10 @@ rucket serve
 ## Quick Start
 
 ```bash
-rucket serve --config rucket.toml
+rucket serve
 ```
 
-**Configuration** (`rucket.toml`):
-
-```toml
-[server]
-bind = "0.0.0.0:9000"
-
-[storage]
-data_dir = "/var/lib/rucket/data"
-
-[auth]
-access_key = "your-access-key"
-secret_key = "your-secret-key"
-```
-
-**Usage**:
-
+Use with AWS CLI:
 ```bash
 export AWS_ACCESS_KEY_ID=rucket
 export AWS_SECRET_ACCESS_KEY=rucket123
@@ -70,43 +59,52 @@ aws --endpoint-url http://localhost:9000 s3 cp file.txt s3://my-bucket/
 aws --endpoint-url http://localhost:9000 s3 ls s3://my-bucket/
 ```
 
+## Configuration
+
+Create `rucket.toml`:
+
+```toml
+[server]
+bind = "0.0.0.0:9000"
+# tls_cert = "/path/to/cert.pem"
+# tls_key = "/path/to/key.pem"
+
+[storage]
+data_dir = "/var/lib/rucket/data"
+# durability = "balanced"  # performance | balanced | durable
+
+[auth]
+access_key = "your-access-key"
+secret_key = "your-secret-key"
+
+[metrics]
+enabled = true
+port = 9001
+```
+
 ## S3 Compatibility
 
-| Category | Operations | Status |
-|----------|------------|--------|
-| Buckets | Create, Delete, Head, List | ✅ |
-| Objects | Put, Get, Delete, Head, Copy | ✅ |
-| Listing | ListObjectsV1/V2, ListVersions | ✅ |
-| Multipart | Create, Upload, Complete, Abort, List | ✅ |
-| Versioning | Put/Get versions, Delete markers | ✅ |
-| Metadata | User metadata, Content-Type, Cache-Control | ✅ |
-| Conditional | If-Match, If-None-Match, If-Modified-Since | ✅ |
-| Range | Byte range requests | ✅ |
+| Feature | Status |
+|---------|--------|
+| Bucket CRUD | ✅ |
+| Object CRUD | ✅ |
+| Multipart uploads | ✅ |
+| Object versioning | ✅ |
+| Object tagging | ✅ |
+| Bucket tagging | ✅ |
+| CORS | ✅ |
+| Checksums | ✅ |
+| Range requests | ✅ |
+| Conditional requests | ✅ |
+| Presigned URLs | ✅ |
+| Bucket policies | ⚠️ Stored, not enforced |
+| ACLs | ❌ |
+| Encryption (SSE) | ❌ |
+| Object Lock | ❌ |
+| Lifecycle rules | ❌ |
+| Replication | ❌ |
 
-See [Roadmap](docs/ROADMAP.md) for planned features.
-
-## Architecture
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   axum      │────▶│   Storage   │────▶│ Filesystem  │
-│  (HTTP)     │     │   Backend   │     │   + redb    │
-└─────────────┘     └─────────────┘     └─────────────┘
-```
-
-- **HTTP**: axum async runtime
-- **Storage**: Local filesystem, UUID-based object storage
-- **Metadata**: redb for transactional operations
-
-## Development
-
-```bash
-git clone https://github.com/rucketdev/rucket.git
-cd rucket
-make test        # Run tests
-make lint        # Format + clippy
-make coverage    # Generate coverage report
-```
+Test suite: 548/981 passing (55.8%). See [ROADMAP.md](docs/ROADMAP.md) for planned features.
 
 ## License
 
