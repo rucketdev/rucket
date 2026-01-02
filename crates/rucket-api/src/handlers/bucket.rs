@@ -352,6 +352,13 @@ pub async fn delete_bucket_cors(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Maximum number of tags allowed for a bucket.
+const MAX_BUCKET_TAGS: usize = 50;
+/// Maximum length of a tag key.
+const MAX_TAG_KEY_LENGTH: usize = 128;
+/// Maximum length of a tag value.
+const MAX_TAG_VALUE_LENGTH: usize = 256;
+
 /// `PUT /{bucket}?tagging` - Set bucket tagging.
 pub async fn set_bucket_tagging(
     State(state): State<AppState>,
@@ -365,6 +372,46 @@ pub async fn set_bucket_tagging(
             format!("Invalid tagging configuration XML: {e}"),
         )
     })?;
+
+    // Validate tag count
+    if tagging.tag_set.tags.len() > MAX_BUCKET_TAGS {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::InvalidTag,
+            format!(
+                "Object tags cannot be greater than {}. You have {} tags.",
+                MAX_BUCKET_TAGS,
+                tagging.tag_set.tags.len()
+            ),
+        ));
+    }
+
+    // Validate each tag
+    for tag in &tagging.tag_set.tags {
+        // Check for empty key
+        if tag.key.is_empty() {
+            return Err(ApiError::new(
+                rucket_core::error::S3ErrorCode::InvalidTag,
+                "Tag key cannot be empty",
+            ));
+        }
+        // Check key length
+        if tag.key.len() > MAX_TAG_KEY_LENGTH {
+            return Err(ApiError::new(
+                rucket_core::error::S3ErrorCode::InvalidTag,
+                format!("Tag key exceeds the maximum length of {} characters", MAX_TAG_KEY_LENGTH),
+            ));
+        }
+        // Check value length
+        if tag.value.len() > MAX_TAG_VALUE_LENGTH {
+            return Err(ApiError::new(
+                rucket_core::error::S3ErrorCode::InvalidTag,
+                format!(
+                    "Tag value exceeds the maximum length of {} characters",
+                    MAX_TAG_VALUE_LENGTH
+                ),
+            ));
+        }
+    }
 
     // Convert request type to domain type
     let tags = TagSet {

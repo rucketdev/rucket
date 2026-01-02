@@ -69,6 +69,8 @@ pub enum S3ErrorCode {
     InvalidBucketName,
     /// The XML you provided was not well-formed.
     MalformedXML,
+    /// The specified tag is not valid.
+    InvalidTag,
 }
 
 impl S3ErrorCode {
@@ -98,7 +100,8 @@ impl S3ErrorCode {
             | Self::ChecksumMismatch
             | Self::InvalidRequest
             | Self::InvalidBucketName
-            | Self::MalformedXML => 400,
+            | Self::MalformedXML
+            | Self::InvalidTag => 400,
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
@@ -149,6 +152,7 @@ impl S3ErrorCode {
             Self::PreconditionFailed => "PreconditionFailed",
             Self::InvalidBucketName => "InvalidBucketName",
             Self::MalformedXML => "MalformedXML",
+            Self::InvalidTag => "InvalidTag",
         }
     }
 }
