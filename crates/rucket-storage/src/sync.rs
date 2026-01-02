@@ -555,4 +555,86 @@ mod tests {
 
         manager.shutdown().await;
     }
+
+    // =========================================================================
+    // Coverage Tests for Convenience Methods and Getters
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_sync_manager_convenience_constructors() {
+        // Test never() constructor
+        let never_manager = SyncManager::never();
+        assert_eq!(never_manager.config().data, SyncStrategy::None);
+        assert!(!never_manager.record_write(1024));
+
+        // Test periodic() constructor
+        let periodic_manager = SyncManager::periodic();
+        assert_eq!(periodic_manager.config().data, SyncStrategy::Periodic);
+        periodic_manager.shutdown().await;
+
+        // Test always() constructor
+        let always_manager = SyncManager::always();
+        assert_eq!(always_manager.config().data, SyncStrategy::Always);
+        assert!(always_manager.record_write(1024));
+    }
+
+    #[tokio::test]
+    async fn test_sync_manager_config_getter() {
+        let config = SyncConfig {
+            data: SyncStrategy::Threshold,
+            bytes_threshold: 5000,
+            ops_threshold: 50,
+            max_idle_ms: 1000,
+            ..Default::default()
+        };
+        let manager = SyncManager::new(config.clone());
+
+        // Verify config getter returns correct values
+        assert_eq!(manager.config().data, SyncStrategy::Threshold);
+        assert_eq!(manager.config().bytes_threshold, 5000);
+        assert_eq!(manager.config().ops_threshold, 50);
+        assert_eq!(manager.config().max_idle_ms, 1000);
+
+        manager.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_sync_manager_get_counters() {
+        let config = SyncConfig { data: SyncStrategy::None, ..Default::default() };
+        let manager = SyncManager::new(config);
+
+        // Initial state
+        assert_eq!(manager.get_bytes_written(), 0);
+        assert_eq!(manager.get_ops_count(), 0);
+
+        // After writes
+        manager.record_write(100);
+        manager.record_write(200);
+        assert_eq!(manager.get_bytes_written(), 300);
+        assert_eq!(manager.get_ops_count(), 2);
+
+        // After reset
+        manager.reset_counters();
+        assert_eq!(manager.get_bytes_written(), 0);
+        assert_eq!(manager.get_ops_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_dir_sync_counter() {
+        test_stats::reset();
+
+        // dir_sync_count should start at 0
+        assert_eq!(test_stats::dir_sync_count(), 0);
+
+        // Manually record a dir sync to cover the function
+        test_stats::record_dir_sync();
+        assert_eq!(test_stats::dir_sync_count(), 1);
+
+        test_stats::record_dir_sync();
+        assert_eq!(test_stats::dir_sync_count(), 2);
+
+        // Reset should clear it
+        test_stats::reset();
+        assert_eq!(test_stats::dir_sync_count(), 0);
+    }
 }
