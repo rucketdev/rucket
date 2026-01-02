@@ -85,7 +85,10 @@ impl RecoveryManager {
 
         // Mark that recovery was needed (crash/unclean shutdown detected)
         stats.recovery_needed = true;
-        tracing::info!(count = incomplete.len(), "Found incomplete operations to recover (crash detected)");
+        tracing::info!(
+            count = incomplete.len(),
+            "Found incomplete operations to recover (crash detected)"
+        );
 
         // Process each incomplete operation
         for op in incomplete {

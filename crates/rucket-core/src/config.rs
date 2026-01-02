@@ -288,10 +288,9 @@ impl DurabilityPreset {
                 verify_checksums_on_read: false,
                 ..Default::default()
             },
-            Self::Balanced => SyncConfig {
-                verify_checksums_on_read: false,
-                ..SyncConfig::default()
-            },
+            Self::Balanced => {
+                SyncConfig { verify_checksums_on_read: false, ..SyncConfig::default() }
+            }
             Self::Durable => SyncConfig {
                 data: SyncStrategy::Always,
                 metadata: SyncStrategy::Always,

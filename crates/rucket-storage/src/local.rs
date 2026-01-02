@@ -10,7 +10,7 @@ use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{
     BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
 };
-use rucket_core::{RedbConfig, RecoveryMode, Result, SyncConfig, SyncStrategy, WalConfig};
+use rucket_core::{RecoveryMode, RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
@@ -21,7 +21,9 @@ use crate::backend::{
 use crate::metadata::{ListVersionsResult, MetadataBackend, RedbMetadataStore};
 use crate::streaming::compute_crc32c;
 use crate::sync::{write_and_hash_with_strategy, SyncManager};
-use crate::wal::{RecoveryManager, RecoveryStats, WalEntry, WalSyncMode, WalWriter, WalWriterConfig};
+use crate::wal::{
+    RecoveryManager, RecoveryStats, WalEntry, WalSyncMode, WalWriter, WalWriterConfig,
+};
 
 /// Sync a directory to ensure its entries (file names) are persisted.
 /// This is critical for durability after rename operations.
@@ -146,7 +148,9 @@ impl LocalStorage {
 
                     // Full recovery: scan orphans and verify checksums
                     if wal_config.recovery_mode == RecoveryMode::Full {
-                        tracing::info!("Running full recovery with orphan scan and checksum verification");
+                        tracing::info!(
+                            "Running full recovery with orphan scan and checksum verification"
+                        );
 
                         // Scan for orphaned files
                         let metadata_ref = Arc::clone(&metadata);
@@ -202,10 +206,7 @@ impl LocalStorage {
                             }
                         }
 
-                        tracing::info!(
-                            ?stats,
-                            "Full recovery complete"
-                        );
+                        tracing::info!(?stats, "Full recovery complete");
                     }
 
                     // Store the recovery stats for later inspection
@@ -415,9 +416,7 @@ impl LocalStorage {
     /// crash or unclean shutdown occurred before the previous session completed.
     #[must_use]
     pub fn recovery_was_needed(&self) -> bool {
-        self.last_recovery_stats
-            .as_ref()
-            .is_some_and(|s| s.recovery_needed)
+        self.last_recovery_stats.as_ref().is_some_and(|s| s.recovery_needed)
     }
 
     /// Get or create a lock for a specific (bucket, key) pair.
@@ -1597,9 +1596,8 @@ mod tests {
         let sync_config = SyncConfig::default();
         assert!(!sync_config.verify_checksums_on_read);
 
-        let storage = LocalStorage::new_in_memory_with_sync(data_dir, tmp_dir, sync_config)
-            .await
-            .unwrap();
+        let storage =
+            LocalStorage::new_in_memory_with_sync(data_dir, tmp_dir, sync_config).await.unwrap();
 
         // Create bucket and object
         storage.create_bucket("test-bucket").await.unwrap();
@@ -1629,12 +1627,10 @@ mod tests {
         let data_dir = temp_dir.path().join("data");
         let tmp_dir = temp_dir.path().join("tmp");
 
-        let mut sync_config = SyncConfig::default();
-        sync_config.verify_checksums_on_read = true;
+        let sync_config = SyncConfig { verify_checksums_on_read: true, ..Default::default() };
 
-        let storage = LocalStorage::new_in_memory_with_sync(data_dir, tmp_dir, sync_config)
-            .await
-            .unwrap();
+        let storage =
+            LocalStorage::new_in_memory_with_sync(data_dir, tmp_dir, sync_config).await.unwrap();
 
         // Create bucket and object
         storage.create_bucket("test-bucket").await.unwrap();
@@ -1779,10 +1775,7 @@ mod tests {
         );
 
         // Full mode can be set
-        let full_config = WalConfig {
-            recovery_mode: RecoveryMode::Full,
-            ..Default::default()
-        };
+        let full_config = WalConfig { recovery_mode: RecoveryMode::Full, ..Default::default() };
         assert_eq!(full_config.recovery_mode, RecoveryMode::Full);
     }
 
@@ -1793,9 +1786,7 @@ mod tests {
         let tmp_dir = temp_dir.path().join("tmp");
 
         // Create storage and add objects
-        let storage = LocalStorage::new(data_dir.clone(), tmp_dir)
-            .await
-            .unwrap();
+        let storage = LocalStorage::new(data_dir.clone(), tmp_dir).await.unwrap();
 
         storage.create_bucket("test-bucket").await.unwrap();
 
@@ -1810,9 +1801,8 @@ mod tests {
         }
 
         // Verify all checksums pass initially (use storage's metadata)
-        let (verified, mismatches) = LocalStorage::verify_all_checksums(&data_dir, &storage.metadata)
-            .await
-            .unwrap();
+        let (verified, mismatches) =
+            LocalStorage::verify_all_checksums(&data_dir, &storage.metadata).await.unwrap();
         assert_eq!(verified, 3, "Should verify 3 objects");
         assert_eq!(mismatches, 0, "Should have no mismatches initially");
 
@@ -1822,9 +1812,8 @@ mod tests {
         tokio::fs::write(&file_path, b"corrupted data!").await.unwrap();
 
         // Verify checksums - should detect the corruption
-        let (verified, mismatches) = LocalStorage::verify_all_checksums(&data_dir, &storage.metadata)
-            .await
-            .unwrap();
+        let (verified, mismatches) =
+            LocalStorage::verify_all_checksums(&data_dir, &storage.metadata).await.unwrap();
         assert_eq!(verified, 3, "Should still verify 3 objects");
         assert_eq!(mismatches, 1, "Should detect 1 checksum mismatch");
     }
@@ -1839,9 +1828,7 @@ mod tests {
         let wal_dir = data_dir.join("wal");
 
         // Create storage and add an object
-        let storage = LocalStorage::new(data_dir.clone(), tmp_dir)
-            .await
-            .unwrap();
+        let storage = LocalStorage::new(data_dir.clone(), tmp_dir).await.unwrap();
 
         storage.create_bucket("test-bucket").await.unwrap();
         let data = Bytes::from("legitimate data");
@@ -1876,9 +1863,8 @@ mod tests {
         assert_eq!(orphans.len(), 2, "Should detect 2 orphaned files");
 
         // Verify the orphan paths contain our orphan UUIDs
-        let orphan_paths: Vec<String> = orphans.iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
+        let orphan_paths: Vec<String> =
+            orphans.iter().map(|p| p.to_string_lossy().to_string()).collect();
         assert!(
             orphan_paths.iter().any(|p| p.contains(&orphan_uuid1.to_string())),
             "Should find orphan 1"
@@ -1922,7 +1908,13 @@ mod tests {
             let data = Bytes::from(format!("object data {i}"));
             let headers = ObjectHeaders::default();
             storage
-                .put_object("test-bucket", &format!("obj{i}"), data, headers.clone(), HashMap::new())
+                .put_object(
+                    "test-bucket",
+                    &format!("obj{i}"),
+                    data,
+                    headers.clone(),
+                    HashMap::new(),
+                )
                 .await
                 .unwrap();
         }
@@ -1940,9 +1932,7 @@ mod tests {
         // Create orphan files
         let bucket_dir = data_dir.join("test-bucket");
         let orphan_uuid = uuid::Uuid::new_v4();
-        tokio::fs::write(bucket_dir.join(format!("{orphan_uuid}.dat")), b"orphan")
-            .await
-            .unwrap();
+        tokio::fs::write(bucket_dir.join(format!("{orphan_uuid}.dat")), b"orphan").await.unwrap();
 
         // Phase 3: Reopen with Full recovery mode
         // This should scan for orphans and verify checksums
@@ -2026,8 +2016,7 @@ mod tests {
         // Create the orphaned file that the incomplete PUT was writing
         let bucket_dir = data_dir.join("test-bucket");
         std::fs::create_dir_all(&bucket_dir).unwrap();
-        std::fs::write(bucket_dir.join(format!("{uuid}.dat")), b"incomplete write")
-            .unwrap();
+        std::fs::write(bucket_dir.join(format!("{uuid}.dat")), b"incomplete write").unwrap();
 
         // Now open storage - it should detect the crash and recover
         let wal_config = WalConfig {
@@ -2048,10 +2037,7 @@ mod tests {
         .unwrap();
 
         // Verify crash was detected
-        assert!(
-            storage.recovery_was_needed(),
-            "Should detect that crash recovery was needed"
-        );
+        assert!(storage.recovery_was_needed(), "Should detect that crash recovery was needed");
 
         let stats = storage.last_recovery_stats().expect("should have recovery stats");
         assert!(stats.recovery_needed, "recovery_needed should be true");
@@ -2094,10 +2080,7 @@ mod tests {
         storage.create_bucket("test-bucket").await.unwrap();
         let data = Bytes::from("test data");
         let headers = ObjectHeaders::default();
-        storage
-            .put_object("test-bucket", "key1", data, headers, HashMap::new())
-            .await
-            .unwrap();
+        storage.put_object("test-bucket", "key1", data, headers, HashMap::new()).await.unwrap();
 
         // Drop storage (clean shutdown)
         drop(storage);
@@ -2114,10 +2097,7 @@ mod tests {
         .unwrap();
 
         // Should NOT need recovery (clean shutdown)
-        assert!(
-            !storage.recovery_was_needed(),
-            "Clean shutdown should not require recovery"
-        );
+        assert!(!storage.recovery_was_needed(), "Clean shutdown should not require recovery");
 
         let stats = storage.last_recovery_stats().expect("should have recovery stats");
         assert!(!stats.recovery_needed, "recovery_needed should be false");

@@ -13,7 +13,7 @@ pub mod error;
 pub mod types;
 
 pub use config::{
-    BatchConfig, CheckpointConfig, Config, DurabilityPreset, RedbConfig, RecoveryMode, SyncConfig,
+    BatchConfig, CheckpointConfig, Config, DurabilityPreset, RecoveryMode, RedbConfig, SyncConfig,
     SyncStrategy, WalConfig, WalSyncMode,
 };
 pub use error::{Error, Result};
