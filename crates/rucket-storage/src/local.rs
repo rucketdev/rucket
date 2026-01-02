@@ -8,7 +8,8 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{
-    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
+    BucketInfo, CorsConfiguration, ETag, MultipartUpload, ObjectMetadata, Part, TagSet,
+    VersioningStatus,
 };
 use rucket_core::{RecoveryMode, RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
@@ -547,6 +548,18 @@ impl StorageBackend for LocalStorage {
 
     async fn set_bucket_versioning(&self, name: &str, status: VersioningStatus) -> Result<()> {
         self.metadata.set_bucket_versioning(name, status).await
+    }
+
+    async fn get_bucket_cors(&self, name: &str) -> Result<Option<CorsConfiguration>> {
+        self.metadata.get_bucket_cors(name).await
+    }
+
+    async fn put_bucket_cors(&self, name: &str, config: CorsConfiguration) -> Result<()> {
+        self.metadata.put_bucket_cors(name, config).await
+    }
+
+    async fn delete_bucket_cors(&self, name: &str) -> Result<()> {
+        self.metadata.delete_bucket_cors(name).await
     }
 
     async fn put_object(

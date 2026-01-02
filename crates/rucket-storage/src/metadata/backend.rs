@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use rucket_core::types::{
-    BucketInfo, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
+    BucketInfo, CorsConfiguration, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
 };
 use rucket_core::Result;
 use uuid::Uuid;
@@ -99,6 +99,31 @@ pub trait MetadataBackend: Send + Sync + 'static {
     ///
     /// Returns an error if the bucket does not exist or the status cannot be set.
     async fn set_bucket_versioning(&self, name: &str, status: VersioningStatus) -> Result<()>;
+
+    // === Bucket CORS Operations ===
+
+    /// Get CORS configuration for a bucket.
+    ///
+    /// Returns `None` if no CORS configuration is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_bucket_cors(&self, name: &str) -> Result<Option<CorsConfiguration>>;
+
+    /// Set CORS configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_bucket_cors(&self, name: &str, config: CorsConfiguration) -> Result<()>;
+
+    /// Delete CORS configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_bucket_cors(&self, name: &str) -> Result<()>;
 
     // === Object Operations ===
 

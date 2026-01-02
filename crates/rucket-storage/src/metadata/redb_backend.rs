@@ -9,7 +9,8 @@ use chrono::{TimeZone, Utc};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{
-    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, Tag, TagSet, VersioningStatus,
+    BucketInfo, CorsConfiguration, CorsRule, ETag, MultipartUpload, ObjectMetadata, Part, Tag,
+    TagSet, VersioningStatus,
 };
 use rucket_core::{Result, SyncStrategy};
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,9 @@ const PARTS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("parts");
 
 /// Object tagging table: composite key "bucket\0key" or "bucket\0key\0version" -> StoredTagSet (bincode)
 const OBJECT_TAGGING: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("object_tagging");
+
+/// Bucket CORS configuration table: bucket_name -> StoredCorsConfiguration (bincode)
+const BUCKET_CORS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("bucket_cors");
 
 // === Stored Types (for bincode serialization) ===
 
@@ -246,6 +250,57 @@ impl StoredTagSet {
 
     fn to_tagset(&self) -> TagSet {
         TagSet::with_tags(self.tags.iter().map(|(k, v)| Tag::new(k, v)).collect())
+    }
+}
+
+/// Stored representation of a CORS rule.
+#[derive(Serialize, Deserialize)]
+struct StoredCorsRule {
+    allowed_origins: Vec<String>,
+    allowed_methods: Vec<String>,
+    allowed_headers: Vec<String>,
+    expose_headers: Vec<String>,
+    max_age_seconds: Option<u32>,
+    id: Option<String>,
+}
+
+impl StoredCorsRule {
+    fn from_rule(rule: &CorsRule) -> Self {
+        Self {
+            allowed_origins: rule.allowed_origins.clone(),
+            allowed_methods: rule.allowed_methods.clone(),
+            allowed_headers: rule.allowed_headers.clone(),
+            expose_headers: rule.expose_headers.clone(),
+            max_age_seconds: rule.max_age_seconds,
+            id: rule.id.clone(),
+        }
+    }
+
+    fn to_rule(&self) -> CorsRule {
+        CorsRule {
+            allowed_origins: self.allowed_origins.clone(),
+            allowed_methods: self.allowed_methods.clone(),
+            allowed_headers: self.allowed_headers.clone(),
+            expose_headers: self.expose_headers.clone(),
+            max_age_seconds: self.max_age_seconds,
+            id: self.id.clone(),
+        }
+    }
+}
+
+/// Stored representation of a CORS configuration.
+#[derive(Serialize, Deserialize)]
+struct StoredCorsConfiguration {
+    rules: Vec<StoredCorsRule>,
+}
+
+impl StoredCorsConfiguration {
+    fn from_config(config: &CorsConfiguration) -> Self {
+        Self { rules: config.rules.iter().map(StoredCorsRule::from_rule).collect() }
+    }
+
+    fn to_config(&self) -> CorsConfiguration {
+        CorsConfiguration { rules: self.rules.iter().map(StoredCorsRule::to_rule).collect() }
     }
 }
 
@@ -1753,6 +1808,105 @@ impl MetadataBackend for RedbMetadataStore {
                 let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
                 // Remove if exists, ignore if not
                 let _ = table.remove(tag_key.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    // === Bucket CORS Operations ===
+
+    async fn get_bucket_cors(&self, name: &str) -> Result<Option<CorsConfiguration>> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(BUCKET_CORS).map_err(db_err)?;
+
+            match table.get(bucket_name.as_str()).map_err(db_err)? {
+                Some(value) => {
+                    let stored: StoredCorsConfiguration = bincode::deserialize(value.value())
+                        .map_err(|e| {
+                            Error::Database(format!("Failed to deserialize CORS config: {e}"))
+                        })?;
+                    Ok(Some(stored.to_config()))
+                }
+                None => Ok(None),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_bucket_cors(&self, name: &str, config: CorsConfiguration) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_CORS).map_err(db_err)?;
+                let stored = StoredCorsConfiguration::from_config(&config);
+                let bytes = bincode::serialize(&stored).map_err(|e| {
+                    Error::Database(format!("Failed to serialize CORS config: {e}"))
+                })?;
+                table.insert(bucket_name.as_str(), bytes.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_bucket_cors(&self, name: &str) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_CORS).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
             }
 
             txn.commit().map_err(db_err)?;

@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use rucket_core::types::{
-    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
+    BucketInfo, CorsConfiguration, ETag, MultipartUpload, ObjectMetadata, Part, TagSet,
+    VersioningStatus,
 };
 use rucket_core::Result;
 
@@ -67,6 +68,17 @@ pub trait StorageBackend: Send + Sync {
 
     /// Set the versioning status for a bucket.
     async fn set_bucket_versioning(&self, name: &str, status: VersioningStatus) -> Result<()>;
+
+    // Bucket CORS operations
+
+    /// Get CORS configuration for a bucket.
+    async fn get_bucket_cors(&self, name: &str) -> Result<Option<CorsConfiguration>>;
+
+    /// Set CORS configuration for a bucket.
+    async fn put_bucket_cors(&self, name: &str, config: CorsConfiguration) -> Result<()>;
+
+    /// Delete CORS configuration for a bucket.
+    async fn delete_bucket_cors(&self, name: &str) -> Result<()>;
 
     // Object operations
 

@@ -7,12 +7,14 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use rucket_core::config::ApiCompatibilityMode;
-use rucket_core::types::VersioningStatus;
+use rucket_core::types::{CorsConfiguration, CorsRule, VersioningStatus};
 use rucket_storage::{LocalStorage, StorageBackend};
 
 use crate::error::ApiError;
-use crate::xml::request::VersioningConfiguration;
-use crate::xml::response::{to_xml, BucketEntry, Buckets, ListBucketsResponse, Owner};
+use crate::xml::request::{CorsConfigurationRequest, VersioningConfiguration};
+use crate::xml::response::{
+    to_xml, BucketEntry, Buckets, CorsConfigurationResponse, ListBucketsResponse, Owner,
+};
 
 /// Validates an S3 bucket name according to S3 naming rules.
 /// Returns an error message if invalid, None if valid.
@@ -274,7 +276,7 @@ pub async fn delete_bucket_policy(
 pub async fn set_bucket_cors(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
-    _body: Bytes,
+    body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.storage.head_bucket(&bucket).await? {
         return Err(ApiError::new(
@@ -283,7 +285,34 @@ pub async fn set_bucket_cors(
         )
         .with_resource(&bucket));
     }
-    // Stub: accept but don't store (CORS not fully implemented)
+
+    // Parse the CORS configuration XML
+    let config_req: CorsConfigurationRequest =
+        quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+            ApiError::new(
+                rucket_core::error::S3ErrorCode::MalformedXML,
+                format!("Invalid CORS configuration XML: {e}"),
+            )
+        })?;
+
+    // Convert request type to domain type
+    let config = CorsConfiguration {
+        rules: config_req
+            .rules
+            .into_iter()
+            .map(|r| CorsRule {
+                id: r.id,
+                allowed_origins: r.allowed_origins,
+                allowed_methods: r.allowed_methods,
+                allowed_headers: r.allowed_headers,
+                expose_headers: r.expose_headers,
+                max_age_seconds: r.max_age_seconds,
+            })
+            .collect(),
+    };
+
+    state.storage.put_bucket_cors(&bucket, config).await?;
+
     Ok(StatusCode::OK)
 }
 
@@ -292,19 +321,25 @@ pub async fn get_bucket_cors(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
 ) -> Result<Response, ApiError> {
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            rucket_core::error::S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
+    let config = state.storage.get_bucket_cors(&bucket).await?;
+
+    match config {
+        Some(cors) => {
+            let response = CorsConfigurationResponse::from(&cors);
+            let xml = to_xml(&response).map_err(|e| {
+                ApiError::new(
+                    rucket_core::error::S3ErrorCode::InternalError,
+                    format!("Failed to serialize response: {e}"),
+                )
+            })?;
+            Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+        }
+        None => Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchCORSConfiguration,
+            "The CORS configuration does not exist",
         )
-        .with_resource(&bucket));
+        .with_resource(&bucket)),
     }
-    // Return NoSuchCORSConfiguration error for now (no CORS configured)
-    Err(ApiError::new(
-        rucket_core::error::S3ErrorCode::NoSuchCORSConfiguration,
-        "The CORS configuration does not exist",
-    )
-    .with_resource(&bucket))
 }
 
 /// `DELETE /{bucket}?cors` - Delete bucket CORS configuration.
@@ -312,14 +347,7 @@ pub async fn delete_bucket_cors(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            rucket_core::error::S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
-    }
-    // Stub: accept but don't do anything (no CORS to delete)
+    state.storage.delete_bucket_cors(&bucket).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -556,4 +584,139 @@ pub async fn get_bucket_location(
     let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">default</LocationConstraint>"#;
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+}
+
+/// `OPTIONS /{bucket}` or `OPTIONS /{bucket}/{key}` - CORS preflight request.
+///
+/// Handles preflight requests for cross-origin resource sharing.
+pub async fn cors_preflight(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Result<Response, ApiError> {
+    // Get Origin header (required for CORS preflight)
+    let origin = match headers.get("origin") {
+        Some(o) => o.to_str().unwrap_or(""),
+        None => {
+            // No Origin header - just return empty 200 (not a CORS request)
+            return Ok(StatusCode::OK.into_response());
+        }
+    };
+
+    // Get the requested method and headers
+    let request_method =
+        headers.get("access-control-request-method").and_then(|v| v.to_str().ok()).unwrap_or("");
+
+    let request_headers =
+        headers.get("access-control-request-headers").and_then(|v| v.to_str().ok()).unwrap_or("");
+
+    // Get CORS config for this bucket
+    let cors_config = match state.storage.get_bucket_cors(&bucket).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            // No CORS config - return 403
+            return Err(ApiError::new(
+                rucket_core::error::S3ErrorCode::AccessDenied,
+                "CORSResponse: This CORS request is not allowed",
+            ));
+        }
+        Err(e) => {
+            // Bucket doesn't exist or error
+            return Err(ApiError::from(e));
+        }
+    };
+
+    // Find a matching CORS rule
+    for rule in &cors_config.rules {
+        // Check if origin matches
+        let origin_matches = rule.allowed_origins.iter().any(|allowed| {
+            allowed == "*" || allowed == origin || matches_wildcard(allowed, origin)
+        });
+
+        if !origin_matches {
+            continue;
+        }
+
+        // Check if method matches
+        let method_matches =
+            rule.allowed_methods.iter().any(|m| m.eq_ignore_ascii_case(request_method) || m == "*");
+
+        if !method_matches {
+            continue;
+        }
+
+        // Check if all requested headers are allowed
+        let headers_match = if request_headers.is_empty() {
+            true
+        } else {
+            let requested: Vec<&str> = request_headers.split(',').map(|s| s.trim()).collect();
+            requested.iter().all(|h| {
+                rule.allowed_headers
+                    .iter()
+                    .any(|allowed| allowed == "*" || allowed.eq_ignore_ascii_case(h))
+            })
+        };
+
+        if !headers_match {
+            continue;
+        }
+
+        // Found a matching rule - build response
+        let mut response_headers = vec![
+            ("Access-Control-Allow-Origin", origin.to_string()),
+            ("Access-Control-Allow-Methods", rule.allowed_methods.join(", ")),
+            ("Vary", "Origin".to_string()),
+        ];
+
+        if !rule.allowed_headers.is_empty() {
+            response_headers
+                .push(("Access-Control-Allow-Headers", rule.allowed_headers.join(", ")));
+        }
+
+        if !rule.expose_headers.is_empty() {
+            response_headers
+                .push(("Access-Control-Expose-Headers", rule.expose_headers.join(", ")));
+        }
+
+        if let Some(max_age) = rule.max_age_seconds {
+            response_headers.push(("Access-Control-Max-Age", max_age.to_string()));
+        }
+
+        // Build the response with headers
+        let mut builder = axum::http::Response::builder().status(StatusCode::OK);
+        for (key, value) in response_headers {
+            builder = builder.header(key, value);
+        }
+        return Ok(builder.body(axum::body::Body::empty()).unwrap().into_response());
+    }
+
+    // No matching rule found
+    Err(ApiError::new(
+        rucket_core::error::S3ErrorCode::AccessDenied,
+        "CORSResponse: This CORS request is not allowed",
+    ))
+}
+
+/// `OPTIONS /{bucket}/{key}` - CORS preflight request for object operations.
+///
+/// Handles preflight requests for cross-origin resource sharing on objects.
+pub async fn cors_preflight_object(
+    State(state): State<AppState>,
+    Path((bucket, _key)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
+) -> Result<Response, ApiError> {
+    // Delegate to bucket-level handler (CORS config is per-bucket)
+    cors_preflight(State(state), Path(bucket), headers).await
+}
+
+/// Check if a wildcard pattern matches a value.
+/// Supports single `*` anywhere in the pattern.
+fn matches_wildcard(pattern: &str, value: &str) -> bool {
+    if let Some(pos) = pattern.find('*') {
+        let prefix = &pattern[..pos];
+        let suffix = &pattern[pos + 1..];
+        value.starts_with(prefix) && value.ends_with(suffix) && value.len() >= pattern.len() - 1
+    } else {
+        pattern == value
+    }
 }
