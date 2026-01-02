@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rucketdev/rucket/actions/workflows/ci.yml/badge.svg)](https://github.com/rucketdev/rucket/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/rucketdev/rucket/graph/badge.svg)](https://codecov.io/gh/rucketdev/rucket)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 
 S3-compatible object storage server written in Rust.
 
@@ -110,4 +110,4 @@ make coverage    # Generate coverage report
 
 ## License
 
-Apache 2.0. See [LICENSE](LICENSE).
+AGPL-3.0. See [LICENSE](LICENSE).
