@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: 'Version bump type (use "current" for first release)'
         required: true
         type: choice
         options:
+          - current
           - patch
           - minor
           - major
@@ -41,6 +42,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Bump version
+        if: inputs.bump != 'current'
         run: cargo set-version --bump ${{ inputs.bump }}
 
       - name: Get new version
@@ -71,7 +73,7 @@ jobs:
           This PR was automatically created by the Prepare Release workflow.
 
           ### Changes
-          - Version bump: ${{ inputs.bump }}
+          - Version: ${{ inputs.bump == 'current' && 'current (no bump)' || inputs.bump }}
           - Updated CHANGELOG.md
 
           ### After merging
