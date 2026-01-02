@@ -21,11 +21,17 @@ use crate::xml::request::DeleteObjects;
 /// Query parameters for overriding response headers in GetObject.
 #[derive(Debug, Default)]
 pub struct ResponseHeaderOverrides {
+    /// Override Content-Type header.
     pub content_type: Option<String>,
+    /// Override Content-Disposition header.
     pub content_disposition: Option<String>,
+    /// Override Content-Encoding header.
     pub content_encoding: Option<String>,
+    /// Override Content-Language header.
     pub content_language: Option<String>,
+    /// Override Expires header.
     pub expires: Option<String>,
+    /// Override Cache-Control header.
     pub cache_control: Option<String>,
 }
 use crate::xml::response::{
@@ -42,21 +48,14 @@ fn format_http_date(dt: &DateTime<Utc>) -> String {
 /// Characters that should NOT be encoded in S3 URL encoding.
 /// Per S3 spec, unreserved characters are: A-Z, a-z, 0-9, -, _, ., ~
 /// Everything else (including +, /, =, etc.) should be percent-encoded.
-const S3_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'~');
+const S3_ENCODE_SET: &AsciiSet =
+    &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~');
 
 /// Characters that should NOT be encoded in S3 URL encoding for prefixes.
 /// Same as S3_ENCODE_SET but also preserves '/' since common prefixes
 /// contain the delimiter which should not be encoded.
-const S3_PREFIX_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'~')
-    .remove(b'/');
+const S3_PREFIX_ENCODE_SET: &AsciiSet =
+    &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~').remove(b'/');
 
 /// URL-encode a string using S3's encoding rules.
 ///
@@ -96,12 +95,10 @@ fn extract_user_metadata(headers: &HeaderMap) -> HashMap<String, String> {
             let value_str = value.to_str().map(String::from).unwrap_or_else(|_| {
                 let bytes = value.as_bytes();
                 // Try UTF-8 first (common with boto3 and modern clients)
-                std::str::from_utf8(bytes)
-                    .map(String::from)
-                    .unwrap_or_else(|_| {
-                        // Fall back to Latin-1 interpretation (each byte -> Unicode code point)
-                        bytes.iter().map(|&b| b as char).collect()
-                    })
+                std::str::from_utf8(bytes).map(String::from).unwrap_or_else(|_| {
+                    // Fall back to Latin-1 interpretation (each byte -> Unicode code point)
+                    bytes.iter().map(|&b| b as char).collect()
+                })
             });
             metadata.insert(key.to_string(), value_str);
         }
@@ -346,16 +343,11 @@ pub async fn put_object(
     // Extract HTTP headers
     // Strip "aws-chunked" from Content-Encoding as per S3 spec - it's a transfer encoding,
     // not a content encoding that should be stored with the object metadata.
-    let content_encoding = headers
-        .get("content-encoding")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|encoding| {
+    let content_encoding =
+        headers.get("content-encoding").and_then(|v| v.to_str().ok()).and_then(|encoding| {
             // Split by comma, filter out aws-chunked, rejoin
-            let filtered: Vec<&str> = encoding
-                .split(',')
-                .map(str::trim)
-                .filter(|&e| e != "aws-chunked")
-                .collect();
+            let filtered: Vec<&str> =
+                encoding.split(',').map(str::trim).filter(|&e| e != "aws-chunked").collect();
             if filtered.is_empty() {
                 None
             } else {
@@ -364,20 +356,18 @@ pub async fn put_object(
         });
 
     let object_headers = ObjectHeaders {
-        content_type: headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .map(String::from),
-        cache_control: headers
-            .get("cache-control")
-            .and_then(|v| v.to_str().ok())
-            .map(String::from),
+        content_type: headers.get("content-type").and_then(|v| v.to_str().ok()).map(String::from),
+        cache_control: headers.get("cache-control").and_then(|v| v.to_str().ok()).map(String::from),
         content_disposition: headers
             .get("content-disposition")
             .and_then(|v| v.to_str().ok())
             .map(String::from),
         content_encoding,
         expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
+        content_language: headers
+            .get("content-language")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
     };
 
     // Decode AWS chunked encoding if present
@@ -387,9 +377,8 @@ pub async fn put_object(
         state.storage.put_object(&bucket, &key, body, object_headers, user_metadata).await?;
 
     // Build response with headers
-    let mut response = Response::builder()
-        .status(StatusCode::OK)
-        .header("ETag", result.etag.as_str());
+    let mut response =
+        Response::builder().status(StatusCode::OK).header("ETag", result.etag.as_str());
 
     if let Some(ref version_id) = result.version_id {
         response = response.header("x-amz-version-id", version_id.as_str());
@@ -437,7 +426,10 @@ pub async fn get_object(
     if let Some(if_none_match) = headers.get("if-none-match").and_then(|v| v.to_str().ok()) {
         let etag = meta.etag.as_str();
         let etags: Vec<&str> = if_none_match.split(',').map(|s| s.trim()).collect();
-        if etags.iter().any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"')) {
+        if etags
+            .iter()
+            .any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"'))
+        {
             return Response::builder()
                 .status(StatusCode::NOT_MODIFIED)
                 .header("ETag", etag)
@@ -450,7 +442,10 @@ pub async fn get_object(
     if let Some(if_match) = headers.get("if-match").and_then(|v| v.to_str().ok()) {
         let etag = meta.etag.as_str();
         let etags: Vec<&str> = if_match.split(',').map(|s| s.trim()).collect();
-        if !etags.iter().any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"')) {
+        if !etags
+            .iter()
+            .any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"'))
+        {
             return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));
         }
     }
@@ -507,7 +502,7 @@ pub async fn get_object(
     if let Some(exp) = overrides.expires.as_ref().or(meta.expires.as_ref()) {
         response = response.header("Expires", exp.as_str());
     }
-    if let Some(cl) = overrides.content_language.as_ref() {
+    if let Some(cl) = overrides.content_language.as_ref().or(meta.content_language.as_ref()) {
         response = response.header("Content-Language", cl.as_str());
     }
 
@@ -515,10 +510,17 @@ pub async fn get_object(
     // boto3 sends UTF-8 in headers but expects Latin-1 back (per HTTP/1.1 spec).
     // Convert Unicode chars to Latin-1 bytes (U+0000-U+00FF -> 0x00-0xFF).
     for (key, value) in &meta.user_metadata {
-        let latin1_bytes: Vec<u8> = value.chars().filter_map(|c| {
-            let code = c as u32;
-            if code <= 0xFF { Some(code as u8) } else { None }
-        }).collect();
+        let latin1_bytes: Vec<u8> = value
+            .chars()
+            .filter_map(|c| {
+                let code = c as u32;
+                if code <= 0xFF {
+                    Some(code as u8)
+                } else {
+                    None
+                }
+            })
+            .collect();
         if let Ok(header_value) = HeaderValue::from_bytes(&latin1_bytes) {
             response = response.header(format!("x-amz-meta-{key}"), header_value);
         }
@@ -535,8 +537,25 @@ async fn get_object_range(
     key: &str,
     range_header: &str,
 ) -> Result<Response, ApiError> {
-    // Parse Range: bytes=start-end
-    let (start, end) = parse_range_header(range_header)?;
+    // Parse Range header
+    let range_spec = parse_range_header(range_header)?;
+
+    // For suffix ranges, we need to get the object size first
+    let (start, end) = match range_spec {
+        RangeSpec::FromTo(s, e) => (s, e),
+        RangeSpec::SuffixLength(suffix_len) => {
+            // Get object metadata to know the size
+            let meta = state.storage.head_object(bucket, key).await?;
+            let size = meta.size;
+            if suffix_len >= size {
+                // If suffix length >= size, return entire object
+                (0, size.saturating_sub(1))
+            } else {
+                // Last suffix_len bytes
+                (size - suffix_len, size - 1)
+            }
+        }
+    };
 
     let (meta, data) = state.storage.get_object_range(bucket, key, start, end).await?;
 
@@ -565,13 +584,25 @@ async fn get_object_range(
     if let Some(exp) = &meta.expires {
         response = response.header("Expires", exp.as_str());
     }
+    if let Some(cl) = &meta.content_language {
+        response = response.header("Content-Language", cl.as_str());
+    }
 
     response
         .body(Body::from(data))
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
-fn parse_range_header(header: &str) -> Result<(u64, u64), ApiError> {
+/// Represents a parsed HTTP Range specification.
+#[derive(Debug, PartialEq)]
+enum RangeSpec {
+    /// bytes=X-Y or bytes=X- (from X to Y or to end)
+    FromTo(u64, u64),
+    /// bytes=-Y (last Y bytes)
+    SuffixLength(u64),
+}
+
+fn parse_range_header(header: &str) -> Result<RangeSpec, ApiError> {
     let range = header
         .strip_prefix("bytes=")
         .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format"))?;
@@ -580,17 +611,26 @@ fn parse_range_header(header: &str) -> Result<(u64, u64), ApiError> {
         .split_once('-')
         .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRange, "Invalid Range header format"))?;
 
-    let start: u64 = start
-        .parse()
-        .map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range start"))?;
-
-    let end: u64 = if end.is_empty() {
-        u64::MAX
+    if start.is_empty() {
+        // Suffix range: bytes=-N (last N bytes)
+        let suffix_length: u64 = end
+            .parse()
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range suffix length"))?;
+        Ok(RangeSpec::SuffixLength(suffix_length))
     } else {
-        end.parse().map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range end"))?
-    };
+        let start: u64 = start
+            .parse()
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range start"))?;
 
-    Ok((start, end))
+        let end: u64 = if end.is_empty() {
+            u64::MAX
+        } else {
+            end.parse()
+                .map_err(|_| ApiError::new(S3ErrorCode::InvalidRange, "Invalid range end"))?
+        };
+
+        Ok(RangeSpec::FromTo(start, end))
+    }
 }
 
 /// `DELETE /{bucket}/{key}` - Delete object.
@@ -677,15 +717,25 @@ pub async fn head_object(
     if let Some(exp) = &meta.expires {
         response = response.header("Expires", exp.as_str());
     }
+    if let Some(cl) = &meta.content_language {
+        response = response.header("Content-Language", cl.as_str());
+    }
 
     // Add user metadata headers
     // boto3 sends UTF-8 in headers but expects Latin-1 back (per HTTP/1.1 spec).
     // Convert Unicode chars to Latin-1 bytes (U+0000-U+00FF -> 0x00-0xFF).
     for (key, value) in &meta.user_metadata {
-        let latin1_bytes: Vec<u8> = value.chars().filter_map(|c| {
-            let code = c as u32;
-            if code <= 0xFF { Some(code as u8) } else { None }
-        }).collect();
+        let latin1_bytes: Vec<u8> = value
+            .chars()
+            .filter_map(|c| {
+                let code = c as u32;
+                if code <= 0xFF {
+                    Some(code as u8)
+                } else {
+                    None
+                }
+            })
+            .collect();
         if let Ok(header_value) = HeaderValue::from_bytes(&latin1_bytes) {
             response = response.header(format!("x-amz-meta-{key}"), header_value);
         }
@@ -720,10 +770,8 @@ pub async fn copy_object(
     let src_key = s3_url_decode(src_key);
 
     // Check MetadataDirective - COPY (default) or REPLACE
-    let metadata_directive = headers
-        .get("x-amz-metadata-directive")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("COPY");
+    let metadata_directive =
+        headers.get("x-amz-metadata-directive").and_then(|v| v.to_str().ok()).unwrap_or("COPY");
 
     // Check for copy-to-self without metadata replacement
     // Per S3, copying an object to itself is only allowed with MetadataDirective=REPLACE
@@ -754,6 +802,10 @@ pub async fn copy_object(
                 .and_then(|v| v.to_str().ok())
                 .map(String::from),
             expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
+            content_language: headers
+                .get("content-language")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
         };
         let user_metadata = extract_user_metadata(&headers);
         (Some(object_headers), Some(user_metadata))
@@ -1094,7 +1146,8 @@ pub async fn delete_objects(
         match result {
             Ok(delete_result) => {
                 // Return the version ID from the result, or from the request, or "null"
-                let version_id = delete_result.version_id
+                let version_id = delete_result
+                    .version_id
                     .or_else(|| obj.version_id.clone())
                     .or_else(|| Some("null".to_string()));
                 deleted.push(DeletedObject { key: obj.key.clone(), version_id });
@@ -1125,15 +1178,83 @@ pub async fn delete_objects(
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
 }
 
+/// `GET /{bucket}/{key}?tagging` - Get object tagging.
+pub async fn get_object_tagging(
+    State(state): State<AppState>,
+    Path((bucket, key)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    // Check bucket exists
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    // Check object exists
+    state.storage.head_object(&bucket, &key).await?;
+
+    // Return empty tagging (stub implementation)
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet/></Tagging>"#;
+    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+}
+
+/// `PUT /{bucket}/{key}?tagging` - Set object tagging.
+pub async fn put_object_tagging(
+    State(state): State<AppState>,
+    Path((bucket, key)): Path<(String, String)>,
+    _body: Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    // Check bucket exists
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    // Check object exists
+    state.storage.head_object(&bucket, &key).await?;
+
+    // Stub: accept but don't store (tags not persisted)
+    Ok(StatusCode::OK)
+}
+
+/// `DELETE /{bucket}/{key}?tagging` - Delete object tagging.
+pub async fn delete_object_tagging(
+    State(state): State<AppState>,
+    Path((bucket, key)): Path<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Check bucket exists
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    // Check object exists
+    state.storage.head_object(&bucket, &key).await?;
+
+    // Stub: accept but don't do anything (tags not persisted)
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_range_header() {
-        assert_eq!(parse_range_header("bytes=0-499").unwrap(), (0, 499));
-        assert_eq!(parse_range_header("bytes=500-999").unwrap(), (500, 999));
-        assert_eq!(parse_range_header("bytes=0-").unwrap(), (0, u64::MAX));
+        assert_eq!(parse_range_header("bytes=0-499").unwrap(), RangeSpec::FromTo(0, 499));
+        assert_eq!(parse_range_header("bytes=500-999").unwrap(), RangeSpec::FromTo(500, 999));
+        assert_eq!(parse_range_header("bytes=0-").unwrap(), RangeSpec::FromTo(0, u64::MAX));
+        // Suffix range
+        assert_eq!(parse_range_header("bytes=-500").unwrap(), RangeSpec::SuffixLength(500));
     }
 
     #[test]

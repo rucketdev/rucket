@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_object_get_*
 //! - MinIO Mint: GetObject tests
 
-use crate::{random_bytes, S3TestContext};
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::{random_bytes, S3TestContext};
 
 /// Test basic object GET.
 /// Ceph: test_object_read
@@ -26,21 +27,11 @@ async fn test_object_get_simple() {
 async fn test_object_get_not_found() {
     let ctx = S3TestContext::new().await;
 
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("nonexistent.txt")
-        .send()
-        .await;
+    let result = ctx.client.get_object().bucket(&ctx.bucket).key("nonexistent.txt").send().await;
 
     assert!(result.is_err(), "Should return error for non-existent object");
     let error_str = format!("{:?}", result.unwrap_err());
-    assert!(
-        error_str.contains("NoSuchKey"),
-        "Should be NoSuchKey error, got: {}",
-        error_str
-    );
+    assert!(error_str.contains("NoSuchKey"), "Should be NoSuchKey error, got: {}", error_str);
 }
 
 /// Test GET from non-existent bucket returns error.
@@ -48,13 +39,7 @@ async fn test_object_get_not_found() {
 async fn test_object_get_nonexistent_bucket() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let result = ctx
-        .client
-        .get_object()
-        .bucket("nonexistent-bucket")
-        .key("test.txt")
-        .send()
-        .await;
+    let result = ctx.client.get_object().bucket("nonexistent-bucket").key("test.txt").send().await;
 
     assert!(result.is_err(), "Should return error for non-existent bucket");
 }
@@ -155,14 +140,8 @@ async fn test_object_get_if_match_success() {
     let put_response = ctx.put("test.txt", b"content").await;
     let etag = put_response.e_tag().unwrap().to_string();
 
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .if_match(&etag)
-        .send()
-        .await;
+    let result =
+        ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").if_match(&etag).send().await;
 
     assert!(result.is_ok(), "GET with matching If-Match should succeed");
 }
@@ -262,12 +241,7 @@ async fn test_object_get_concurrent() {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
         let handle = tokio::spawn(async move {
-            client
-                .get_object()
-                .bucket(&bucket)
-                .key("test.txt")
-                .send()
-                .await
+            client.get_object().bucket(&bucket).key("test.txt").send().await
         });
         handles.push(handle);
     }
@@ -315,10 +289,7 @@ async fn test_object_get_response_content_disposition() {
         .await
         .expect("Should get object");
 
-    assert_eq!(
-        response.content_disposition(),
-        Some("attachment; filename=\"download.txt\"")
-    );
+    assert_eq!(response.content_disposition(), Some("attachment; filename=\"download.txt\""));
 }
 
 /// Test GET with deep path key.

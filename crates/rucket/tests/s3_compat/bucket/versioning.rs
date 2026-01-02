@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_versioning_*
 //! - MinIO Mint: versioning tests
 
-use crate::S3TestContext;
 use aws_sdk_s3::types::{BucketVersioningStatus, VersioningConfiguration};
+
+use crate::S3TestContext;
 
 /// Test enabling versioning on a bucket.
 /// Ceph: test_versioning_bucket_create_versioned
@@ -17,9 +18,7 @@ async fn test_bucket_versioning_enable() {
         .put_bucket_versioning()
         .bucket(&ctx.bucket)
         .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Enabled)
-                .build(),
+            VersioningConfiguration::builder().status(BucketVersioningStatus::Enabled).build(),
         )
         .send()
         .await
@@ -51,9 +50,7 @@ async fn test_bucket_versioning_suspend() {
         .put_bucket_versioning()
         .bucket(&ctx.bucket)
         .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Enabled)
-                .build(),
+            VersioningConfiguration::builder().status(BucketVersioningStatus::Enabled).build(),
         )
         .send()
         .await
@@ -64,9 +61,7 @@ async fn test_bucket_versioning_suspend() {
         .put_bucket_versioning()
         .bucket(&ctx.bucket)
         .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Suspended)
-                .build(),
+            VersioningConfiguration::builder().status(BucketVersioningStatus::Suspended).build(),
         )
         .send()
         .await
@@ -102,10 +97,7 @@ async fn test_bucket_versioning_get_unversioned() {
         .expect("Should get versioning status");
 
     // Unversioned bucket returns None for status
-    assert!(
-        response.status().is_none(),
-        "Unversioned bucket should have no versioning status"
-    );
+    assert!(response.status().is_none(), "Unversioned bucket should have no versioning status");
 }
 
 /// Test re-enabling versioning after suspension.
@@ -119,9 +111,7 @@ async fn test_bucket_versioning_re_enable() {
         .put_bucket_versioning()
         .bucket(&ctx.bucket)
         .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Enabled)
-                .build(),
+            VersioningConfiguration::builder().status(BucketVersioningStatus::Enabled).build(),
         )
         .send()
         .await
@@ -132,9 +122,7 @@ async fn test_bucket_versioning_re_enable() {
         .put_bucket_versioning()
         .bucket(&ctx.bucket)
         .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Suspended)
-                .build(),
+            VersioningConfiguration::builder().status(BucketVersioningStatus::Suspended).build(),
         )
         .send()
         .await
@@ -145,9 +133,7 @@ async fn test_bucket_versioning_re_enable() {
         .put_bucket_versioning()
         .bucket(&ctx.bucket)
         .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Enabled)
-                .build(),
+            VersioningConfiguration::builder().status(BucketVersioningStatus::Enabled).build(),
         )
         .send()
         .await
@@ -173,12 +159,7 @@ async fn test_bucket_versioning_re_enable() {
 async fn test_bucket_versioning_nonexistent_bucket() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let result = ctx
-        .client
-        .get_bucket_versioning()
-        .bucket("nonexistent-bucket-xyz")
-        .send()
-        .await;
+    let result = ctx.client.get_bucket_versioning().bucket("nonexistent-bucket-xyz").send().await;
 
     assert!(result.is_err(), "Should fail on non-existent bucket");
 }
@@ -193,9 +174,7 @@ async fn test_bucket_versioning_empty_bucket() {
         .put_bucket_versioning()
         .bucket("")
         .versioning_configuration(
-            VersioningConfiguration::builder()
-                .status(BucketVersioningStatus::Enabled)
-                .build(),
+            VersioningConfiguration::builder().status(BucketVersioningStatus::Enabled).build(),
         )
         .send()
         .await;

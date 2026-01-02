@@ -23,12 +23,7 @@ async fn test_bucket_head_exists() {
 async fn test_bucket_head_not_found() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let result = ctx
-        .client
-        .head_bucket()
-        .bucket("nonexistent-bucket-xyz")
-        .send()
-        .await;
+    let result = ctx.client.head_bucket().bucket("nonexistent-bucket-xyz").send().await;
 
     assert!(result.is_err(), "HEAD on non-existent bucket should fail");
 }
@@ -51,20 +46,12 @@ async fn test_bucket_head_immediately_after_create() {
     let ctx = S3TestContext::without_bucket().await;
     let bucket = random_bucket_name();
 
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should create bucket");
+    ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 
     // HEAD immediately after creation
     let result = ctx.client.head_bucket().bucket(&bucket).send().await;
 
-    assert!(
-        result.is_ok(),
-        "HEAD should succeed immediately after creation"
-    );
+    assert!(result.is_ok(), "HEAD should succeed immediately after creation");
 }
 
 /// Test HEAD on bucket after deletion fails.
@@ -73,19 +60,9 @@ async fn test_bucket_head_after_delete() {
     let ctx = S3TestContext::without_bucket().await;
     let bucket = random_bucket_name();
 
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should create bucket");
+    ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 
-    ctx.client
-        .delete_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should delete bucket");
+    ctx.client.delete_bucket().bucket(&bucket).send().await.expect("Should delete bucket");
 
     let result = ctx.client.head_bucket().bucket(&bucket).send().await;
 

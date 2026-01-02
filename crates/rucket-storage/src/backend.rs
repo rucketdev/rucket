@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
-use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus};
+use rucket_core::types::{
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+};
 use rucket_core::Result;
 
 use crate::metadata::ListVersionsResult;
@@ -39,6 +41,8 @@ pub struct ObjectHeaders {
     pub content_encoding: Option<String>,
     /// Expires header.
     pub expires: Option<String>,
+    /// Content-Language header.
+    pub content_language: Option<String>,
 }
 
 /// Trait for object storage backends.

@@ -84,7 +84,7 @@ impl VersioningStatus {
 
     /// Parses a versioning status from a string.
     #[must_use]
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "Enabled" => Some(Self::Enabled),
             "Suspended" => Some(Self::Suspended),
@@ -149,6 +149,9 @@ pub struct ObjectMetadata {
     /// Expires header.
     #[serde(default)]
     pub expires: Option<String>,
+    /// Content-Language header.
+    #[serde(default)]
+    pub content_language: Option<String>,
     /// When the object was last modified.
     pub last_modified: DateTime<Utc>,
     /// Custom user metadata.
@@ -184,6 +187,7 @@ impl ObjectMetadata {
             content_disposition: None,
             content_encoding: None,
             expires: None,
+            content_language: None,
             last_modified: Utc::now(),
             user_metadata: std::collections::HashMap::new(),
             version_id: None,
@@ -206,6 +210,7 @@ impl ObjectMetadata {
             content_disposition: None,
             content_encoding: None,
             expires: None,
+            content_language: None,
             last_modified: Utc::now(),
             user_metadata: std::collections::HashMap::new(),
             version_id: Some(version_id.into()),
@@ -291,6 +296,31 @@ pub struct Part {
     pub size: u64,
     /// When the part was uploaded.
     pub last_modified: DateTime<Utc>,
+}
+
+/// CORS configuration rule for a bucket.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorsRule {
+    /// Allowed origins (e.g., "*" or specific domains).
+    pub allowed_origins: Vec<String>,
+    /// Allowed HTTP methods (e.g., GET, PUT, POST).
+    pub allowed_methods: Vec<String>,
+    /// Allowed headers.
+    pub allowed_headers: Vec<String>,
+    /// Headers exposed to the client.
+    pub expose_headers: Vec<String>,
+    /// Max age for preflight cache in seconds.
+    pub max_age_seconds: Option<u32>,
+    /// Optional unique ID for this rule.
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
+/// CORS configuration for a bucket.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CorsConfiguration {
+    /// List of CORS rules.
+    pub rules: Vec<CorsRule>,
 }
 
 #[cfg(test)]

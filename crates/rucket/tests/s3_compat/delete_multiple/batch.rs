@@ -1,7 +1,8 @@
 //! Batch delete tests.
 
-use crate::S3TestContext;
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
+
+use crate::S3TestContext;
 
 /// Test delete multiple objects.
 #[tokio::test]
@@ -46,12 +47,7 @@ async fn test_delete_objects_includes_nonexistent() {
 
     let delete = Delete::builder()
         .objects(ObjectIdentifier::builder().key("exists.txt").build().unwrap())
-        .objects(
-            ObjectIdentifier::builder()
-                .key("nonexistent.txt")
-                .build()
-                .unwrap(),
-        )
+        .objects(ObjectIdentifier::builder().key("nonexistent.txt").build().unwrap())
         .build()
         .unwrap();
 
@@ -118,11 +114,7 @@ async fn test_delete_objects_returns_keys() {
         .await
         .expect("Should delete");
 
-    let keys: Vec<&str> = response
-        .deleted()
-        .iter()
-        .filter_map(|d| d.key())
-        .collect();
+    let keys: Vec<&str> = response.deleted().iter().filter_map(|d| d.key()).collect();
 
     assert!(keys.contains(&"a.txt"));
     assert!(keys.contains(&"b.txt"));
@@ -140,20 +132,8 @@ async fn test_delete_objects_versioned() {
     let vid2 = v2.version_id().unwrap();
 
     let delete = Delete::builder()
-        .objects(
-            ObjectIdentifier::builder()
-                .key("file.txt")
-                .version_id(vid1)
-                .build()
-                .unwrap(),
-        )
-        .objects(
-            ObjectIdentifier::builder()
-                .key("file.txt")
-                .version_id(vid2)
-                .build()
-                .unwrap(),
-        )
+        .objects(ObjectIdentifier::builder().key("file.txt").version_id(vid1).build().unwrap())
+        .objects(ObjectIdentifier::builder().key("file.txt").version_id(vid2).build().unwrap())
         .build()
         .unwrap();
 
@@ -185,12 +165,8 @@ async fn test_delete_objects_many() {
 
     let mut builder = Delete::builder();
     for i in 0..count {
-        builder = builder.objects(
-            ObjectIdentifier::builder()
-                .key(format!("file{}.txt", i))
-                .build()
-                .unwrap(),
-        );
+        builder = builder
+            .objects(ObjectIdentifier::builder().key(format!("file{}.txt", i)).build().unwrap());
     }
 
     let response = ctx

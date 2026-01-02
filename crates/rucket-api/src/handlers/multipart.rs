@@ -183,6 +183,16 @@ pub async fn complete_multipart_upload(
     let parts: Vec<(u32, String)> =
         request.parts.into_iter().map(|p| (p.part_number, p.etag)).collect();
 
+    // Validate that parts are in ascending order by part number
+    for i in 1..parts.len() {
+        if parts[i].0 <= parts[i - 1].0 {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidPartOrder,
+                "The list of parts was not in ascending order. Parts must be ordered by part number.",
+            ));
+        }
+    }
+
     let etag = state.storage.complete_multipart_upload(&bucket, &key, &upload_id, &parts).await?;
 
     let response = CompleteMultipartUploadResponse {

@@ -13,20 +13,10 @@ async fn test_bucket_create_simple() {
     let ctx = S3TestContext::without_bucket().await;
     let bucket = random_bucket_name();
 
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should create bucket");
+    ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 
     // Verify bucket exists
-    ctx.client
-        .head_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(&bucket).send().await.expect("Bucket should exist");
 }
 
 /// Test creating a bucket with the minimum valid name length (3 chars).
@@ -43,12 +33,7 @@ async fn test_bucket_create_name_min_length() {
         .await
         .expect("Should create bucket with 3-char name");
 
-    ctx.client
-        .head_bucket()
-        .bucket(bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(bucket).send().await.expect("Bucket should exist");
 }
 
 /// Test creating a bucket with the maximum valid name length (63 chars).
@@ -66,12 +51,7 @@ async fn test_bucket_create_name_max_length() {
         .await
         .expect("Should create bucket with 63-char name");
 
-    ctx.client
-        .head_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(&bucket).send().await.expect("Bucket should exist");
 }
 
 /// Test that bucket names with dots are valid.
@@ -88,12 +68,7 @@ async fn test_bucket_create_name_with_dots() {
         .await
         .expect("Should create bucket with dots in name");
 
-    ctx.client
-        .head_bucket()
-        .bucket(bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(bucket).send().await.expect("Bucket should exist");
 }
 
 /// Test that bucket names with hyphens are valid.
@@ -110,12 +85,7 @@ async fn test_bucket_create_name_with_hyphens() {
         .await
         .expect("Should create bucket with hyphens in name");
 
-    ctx.client
-        .head_bucket()
-        .bucket(bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(bucket).send().await.expect("Bucket should exist");
 }
 
 /// Test that bucket names can start with a letter.
@@ -132,12 +102,7 @@ async fn test_bucket_create_name_starts_with_letter() {
         .await
         .expect("Should create bucket starting with letter");
 
-    ctx.client
-        .head_bucket()
-        .bucket(bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(bucket).send().await.expect("Bucket should exist");
 }
 
 /// Test that bucket names can start with a digit.
@@ -154,12 +119,7 @@ async fn test_bucket_create_name_starts_with_digit() {
         .await
         .expect("Should create bucket starting with digit");
 
-    ctx.client
-        .head_bucket()
-        .bucket(bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(bucket).send().await.expect("Bucket should exist");
 }
 
 /// Test creating the same bucket twice returns BucketAlreadyOwnedByYou.
@@ -170,12 +130,7 @@ async fn test_bucket_create_already_exists_same_owner() {
     let bucket = random_bucket_name();
 
     // Create bucket first time
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should create bucket");
+    ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 
     // Create same bucket again - should succeed (idempotent) or return BucketAlreadyOwnedByYou
     let result = ctx.client.create_bucket().bucket(&bucket).send().await;
@@ -302,29 +257,16 @@ async fn test_bucket_create_multiple() {
     let buckets: Vec<String> = (0..5).map(|_| random_bucket_name()).collect();
 
     for bucket in &buckets {
-        ctx.client
-            .create_bucket()
-            .bucket(bucket)
-            .send()
-            .await
-            .expect("Should create bucket");
+        ctx.client.create_bucket().bucket(bucket).send().await.expect("Should create bucket");
     }
 
     // Verify all buckets exist
     let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
-    let listed_names: Vec<&str> = response
-        .buckets()
-        .iter()
-        .filter_map(|b| b.name())
-        .collect();
+    let listed_names: Vec<&str> = response.buckets().iter().filter_map(|b| b.name()).collect();
 
     for bucket in &buckets {
-        assert!(
-            listed_names.contains(&bucket.as_str()),
-            "Bucket {} should be listed",
-            bucket
-        );
+        assert!(listed_names.contains(&bucket.as_str()), "Bucket {} should be listed", bucket);
     }
 }
 
@@ -342,10 +284,5 @@ async fn test_bucket_create_complex_valid_name() {
         .await
         .expect("Should create bucket with complex valid name");
 
-    ctx.client
-        .head_bucket()
-        .bucket(bucket)
-        .send()
-        .await
-        .expect("Bucket should exist");
+    ctx.client.head_bucket().bucket(bucket).send().await.expect("Bucket should exist");
 }

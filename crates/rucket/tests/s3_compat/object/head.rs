@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_object_head_*
 //! - MinIO Mint: HeadObject tests
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::S3TestContext;
 
 /// Test basic object HEAD.
 /// Ceph: test_object_head
@@ -27,13 +28,7 @@ async fn test_object_head_simple() {
 async fn test_object_head_not_found() {
     let ctx = S3TestContext::new().await;
 
-    let result = ctx
-        .client
-        .head_object()
-        .bucket(&ctx.bucket)
-        .key("nonexistent.txt")
-        .send()
-        .await;
+    let result = ctx.client.head_object().bucket(&ctx.bucket).key("nonexistent.txt").send().await;
 
     assert!(result.is_err(), "Should return error for non-existent object");
 }
@@ -178,14 +173,8 @@ async fn test_object_head_if_match_success() {
     let put_response = ctx.put("test.txt", b"content").await;
     let etag = put_response.e_tag().unwrap().to_string();
 
-    let result = ctx
-        .client
-        .head_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .if_match(&etag)
-        .send()
-        .await;
+    let result =
+        ctx.client.head_object().bucket(&ctx.bucket).key("test.txt").if_match(&etag).send().await;
 
     assert!(result.is_ok(), "HEAD with matching If-Match should succeed");
 }
@@ -249,12 +238,7 @@ async fn test_object_head_concurrent() {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
         let handle = tokio::spawn(async move {
-            client
-                .head_object()
-                .bucket(&bucket)
-                .key("test.txt")
-                .send()
-                .await
+            client.head_object().bucket(&bucket).key("test.txt").send().await
         });
         handles.push(handle);
     }

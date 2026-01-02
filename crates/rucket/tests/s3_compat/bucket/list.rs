@@ -12,12 +12,7 @@ use crate::{random_bucket_name, S3TestContext};
 async fn test_bucket_list_empty() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let response = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list buckets");
+    let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
     assert!(response.buckets().is_empty(), "Should have no buckets");
 }
@@ -28,20 +23,11 @@ async fn test_bucket_list_empty() {
 async fn test_bucket_list_one() {
     let ctx = S3TestContext::new().await;
 
-    let response = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list buckets");
+    let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
     let buckets = response.buckets();
     assert_eq!(buckets.len(), 1, "Should have exactly one bucket");
-    assert_eq!(
-        buckets[0].name(),
-        Some(ctx.bucket.as_str()),
-        "Bucket name should match"
-    );
+    assert_eq!(buckets[0].name(), Some(ctx.bucket.as_str()), "Bucket name should match");
 }
 
 /// Test listing multiple buckets.
@@ -53,35 +39,17 @@ async fn test_bucket_list_many() {
     let bucket_names: Vec<String> = (0..5).map(|_| random_bucket_name()).collect();
 
     for name in &bucket_names {
-        ctx.client
-            .create_bucket()
-            .bucket(name)
-            .send()
-            .await
-            .expect("Should create bucket");
+        ctx.client.create_bucket().bucket(name).send().await.expect("Should create bucket");
     }
 
-    let response = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list buckets");
+    let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
-    let listed: Vec<&str> = response
-        .buckets()
-        .iter()
-        .filter_map(|b| b.name())
-        .collect();
+    let listed: Vec<&str> = response.buckets().iter().filter_map(|b| b.name()).collect();
 
     assert_eq!(listed.len(), 5, "Should have 5 buckets");
 
     for name in &bucket_names {
-        assert!(
-            listed.contains(&name.as_str()),
-            "Bucket {} should be in list",
-            name
-        );
+        assert!(listed.contains(&name.as_str()), "Bucket {} should be in list", name);
     }
 }
 
@@ -94,26 +62,12 @@ async fn test_bucket_list_sorted() {
     // Create buckets in reverse order
     let names = vec!["zzz-bucket", "mmm-bucket", "aaa-bucket"];
     for name in &names {
-        ctx.client
-            .create_bucket()
-            .bucket(*name)
-            .send()
-            .await
-            .expect("Should create bucket");
+        ctx.client.create_bucket().bucket(*name).send().await.expect("Should create bucket");
     }
 
-    let response = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list buckets");
+    let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
-    let listed: Vec<&str> = response
-        .buckets()
-        .iter()
-        .filter_map(|b| b.name())
-        .collect();
+    let listed: Vec<&str> = response.buckets().iter().filter_map(|b| b.name()).collect();
 
     // Verify sorted order
     let mut sorted = listed.clone();
@@ -127,18 +81,10 @@ async fn test_bucket_list_sorted() {
 async fn test_bucket_list_has_creation_date() {
     let ctx = S3TestContext::new().await;
 
-    let response = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list buckets");
+    let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
     let bucket = response.buckets().first().expect("Should have a bucket");
-    assert!(
-        bucket.creation_date().is_some(),
-        "Bucket should have creation date"
-    );
+    assert!(bucket.creation_date().is_some(), "Bucket should have creation date");
 }
 
 /// Test listing buckets after one is deleted.
@@ -150,49 +96,19 @@ async fn test_bucket_list_after_delete() {
     let bucket1 = random_bucket_name();
     let bucket2 = random_bucket_name();
 
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket1)
-        .send()
-        .await
-        .expect("Should create bucket1");
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket2)
-        .send()
-        .await
-        .expect("Should create bucket2");
+    ctx.client.create_bucket().bucket(&bucket1).send().await.expect("Should create bucket1");
+    ctx.client.create_bucket().bucket(&bucket2).send().await.expect("Should create bucket2");
 
     // Delete first bucket
-    ctx.client
-        .delete_bucket()
-        .bucket(&bucket1)
-        .send()
-        .await
-        .expect("Should delete bucket1");
+    ctx.client.delete_bucket().bucket(&bucket1).send().await.expect("Should delete bucket1");
 
-    let response = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list buckets");
+    let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
-    let listed: Vec<&str> = response
-        .buckets()
-        .iter()
-        .filter_map(|b| b.name())
-        .collect();
+    let listed: Vec<&str> = response.buckets().iter().filter_map(|b| b.name()).collect();
 
     assert_eq!(listed.len(), 1, "Should have 1 bucket");
-    assert!(
-        listed.contains(&bucket2.as_str()),
-        "bucket2 should still exist"
-    );
-    assert!(
-        !listed.contains(&bucket1.as_str()),
-        "bucket1 should be gone"
-    );
+    assert!(listed.contains(&bucket2.as_str()), "bucket2 should still exist");
+    assert!(!listed.contains(&bucket1.as_str()), "bucket1 should be gone");
 }
 
 /// Test listing many buckets (stress test).
@@ -204,25 +120,10 @@ async fn test_bucket_list_many_buckets() {
     let bucket_names: Vec<String> = (0..count).map(|_| random_bucket_name()).collect();
 
     for name in &bucket_names {
-        ctx.client
-            .create_bucket()
-            .bucket(name)
-            .send()
-            .await
-            .expect("Should create bucket");
+        ctx.client.create_bucket().bucket(name).send().await.expect("Should create bucket");
     }
 
-    let response = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list buckets");
+    let response = ctx.client.list_buckets().send().await.expect("Should list buckets");
 
-    assert_eq!(
-        response.buckets().len(),
-        count,
-        "Should list all {} buckets",
-        count
-    );
+    assert_eq!(response.buckets().len(), count, "Should list all {} buckets", count);
 }

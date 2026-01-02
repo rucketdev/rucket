@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_object_copy_*
 //! - MinIO Mint: CopyObject tests
 
-use crate::{random_bucket_name, S3TestContext};
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::{random_bucket_name, S3TestContext};
 
 /// Test basic object copy within same bucket.
 /// Ceph: test_object_copy_same_bucket
@@ -325,10 +326,7 @@ async fn test_object_copy_metadata_replace() {
 
     let response = ctx.head("dest.txt").await;
     let metadata = response.metadata().unwrap();
-    assert!(
-        metadata.get("original").is_none(),
-        "Original metadata should not be present"
-    );
+    assert!(metadata.get("original").is_none(), "Original metadata should not be present");
     assert_eq!(metadata.get("replaced"), Some(&"newvalue".to_string()));
     assert_eq!(response.content_type(), Some("application/json"));
 }

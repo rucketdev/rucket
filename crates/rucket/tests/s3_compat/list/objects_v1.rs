@@ -16,13 +16,8 @@ async fn test_list_objects_v1_basic() {
     ctx.put("file2.txt", b"content").await;
     ctx.put("file3.txt", b"content").await;
 
-    let response = ctx
-        .client
-        .list_objects()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     let contents = response.contents();
     assert_eq!(contents.len(), 3);
@@ -34,13 +29,8 @@ async fn test_list_objects_v1_basic() {
 async fn test_list_objects_v1_empty() {
     let ctx = S3TestContext::new().await;
 
-    let response = ctx
-        .client
-        .list_objects()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     assert!(response.contents().is_empty());
 }
@@ -129,13 +119,8 @@ async fn test_list_objects_v1_sorted() {
     ctx.put("apple.txt", b"content").await;
     ctx.put("mango.txt", b"content").await;
 
-    let response = ctx
-        .client
-        .list_objects()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     let keys: Vec<&str> = response.contents().iter().filter_map(|o| o.key()).collect();
     assert_eq!(keys, vec!["apple.txt", "mango.txt", "zebra.txt"]);
@@ -148,13 +133,8 @@ async fn test_list_objects_v1_includes_size() {
 
     ctx.put("test.txt", b"12345").await;
 
-    let response = ctx
-        .client
-        .list_objects()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     let obj = &response.contents()[0];
     assert_eq!(obj.size(), Some(5));
@@ -167,13 +147,8 @@ async fn test_list_objects_v1_includes_etag() {
 
     ctx.put("test.txt", b"content").await;
 
-    let response = ctx
-        .client
-        .list_objects()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     let obj = &response.contents()[0];
     assert!(obj.e_tag().is_some());
@@ -186,13 +161,8 @@ async fn test_list_objects_v1_includes_last_modified() {
 
     ctx.put("test.txt", b"content").await;
 
-    let response = ctx
-        .client
-        .list_objects()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     let obj = &response.contents()[0];
     assert!(obj.last_modified().is_some());
@@ -247,12 +217,7 @@ async fn test_list_objects_v1_pagination() {
 async fn test_list_objects_v1_nonexistent_bucket() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let result = ctx
-        .client
-        .list_objects()
-        .bucket("nonexistent-bucket")
-        .send()
-        .await;
+    let result = ctx.client.list_objects().bucket("nonexistent-bucket").send().await;
 
     assert!(result.is_err());
 }

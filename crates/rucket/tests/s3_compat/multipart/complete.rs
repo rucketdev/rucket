@@ -1,8 +1,9 @@
 //! Multipart upload completion tests.
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
+
+use crate::S3TestContext;
 
 /// Test complete multipart with wrong part order fails.
 #[tokio::test]
@@ -47,18 +48,8 @@ async fn test_multipart_complete_wrong_order() {
 
     // Complete with wrong order (part 2 before part 1)
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(2)
-                .e_tag(part2.e_tag().unwrap())
-                .build(),
-        )
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(part1.e_tag().unwrap())
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(2).e_tag(part2.e_tag().unwrap()).build())
+        .parts(CompletedPart::builder().part_number(1).e_tag(part1.e_tag().unwrap()).build())
         .build();
 
     let result = ctx
@@ -105,12 +96,7 @@ async fn test_multipart_complete_invalid_etag() {
 
     // Complete with wrong ETag
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag("\"invalid-etag\"")
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(1).e_tag("\"invalid-etag\"").build())
         .build();
 
     let result = ctx
@@ -155,12 +141,7 @@ async fn test_multipart_complete_returns_etag() {
         .unwrap();
 
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(part.e_tag().unwrap())
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(1).e_tag(part.e_tag().unwrap()).build())
         .build();
 
     let response = ctx
@@ -211,18 +192,8 @@ async fn test_multipart_complete_missing_part() {
 
     // Complete with parts 1 and 2, but we never uploaded part 2
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(part1.e_tag().unwrap())
-                .build(),
-        )
-        .parts(
-            CompletedPart::builder()
-                .part_number(2)
-                .e_tag("\"some-etag\"")
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(1).e_tag(part1.e_tag().unwrap()).build())
+        .parts(CompletedPart::builder().part_number(2).e_tag("\"some-etag\"").build())
         .build();
 
     let result = ctx

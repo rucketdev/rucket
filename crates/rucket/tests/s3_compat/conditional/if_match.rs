@@ -1,7 +1,8 @@
 //! If-Match conditional tests.
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::S3TestContext;
 
 /// Test If-Match with matching ETag succeeds.
 #[tokio::test]
@@ -90,14 +91,8 @@ async fn test_if_match_get() {
     let put = ctx.put("test.txt", b"content").await;
     let etag = put.e_tag().unwrap();
 
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .if_match(etag)
-        .send()
-        .await;
+    let result =
+        ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").if_match(etag).send().await;
 
     assert!(result.is_ok());
 }
@@ -110,14 +105,8 @@ async fn test_if_match_head() {
     let put = ctx.put("test.txt", b"content").await;
     let etag = put.e_tag().unwrap();
 
-    let result = ctx
-        .client
-        .head_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .if_match(etag)
-        .send()
-        .await;
+    let result =
+        ctx.client.head_object().bucket(&ctx.bucket).key("test.txt").if_match(etag).send().await;
 
     assert!(result.is_ok());
 }

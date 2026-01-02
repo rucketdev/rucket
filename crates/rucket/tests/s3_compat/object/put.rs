@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_object_put_*
 //! - MinIO Mint: PutObject tests
 
-use crate::{random_bytes, S3TestContext};
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::{random_bytes, S3TestContext};
 
 /// Test basic object PUT.
 /// Ceph: test_object_write_to_nonexistent_bucket
@@ -194,10 +195,7 @@ async fn test_object_put_content_disposition() {
         .await
         .expect("Should head object");
 
-    assert_eq!(
-        response.content_disposition(),
-        Some("attachment; filename=\"download.txt\"")
-    );
+    assert_eq!(response.content_disposition(), Some("attachment; filename=\"download.txt\""));
 }
 
 /// Test PUT with content language.
@@ -416,13 +414,8 @@ async fn test_object_put_key_patterns() {
     }
 
     // Verify all exist
-    let response = ctx
-        .client
-        .list_objects_v2()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects_v2().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     assert_eq!(response.contents().len(), keys.len());
 }
@@ -443,26 +436,13 @@ async fn test_object_put_special_chars_in_key() {
 
     for key in &keys {
         let body = ByteStream::from_static(b"content");
-        let result = ctx
-            .client
-            .put_object()
-            .bucket(&ctx.bucket)
-            .key(*key)
-            .body(body)
-            .send()
-            .await;
+        let result = ctx.client.put_object().bucket(&ctx.bucket).key(*key).body(body).send().await;
 
         // These may or may not be valid depending on implementation
         // Just verify we can put them without crashing
         if result.is_ok() {
             // Verify we can get it back
-            let get_result = ctx
-                .client
-                .get_object()
-                .bucket(&ctx.bucket)
-                .key(*key)
-                .send()
-                .await;
+            let get_result = ctx.client.get_object().bucket(&ctx.bucket).key(*key).send().await;
             assert!(get_result.is_ok(), "Should get object with key: {}", key);
         }
     }
@@ -487,13 +467,8 @@ async fn test_object_put_many() {
             .expect("Should put object");
     }
 
-    let response = ctx
-        .client
-        .list_objects_v2()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects_v2().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     assert_eq!(response.contents().len(), count);
 }
@@ -510,13 +485,7 @@ async fn test_object_put_concurrent_different_keys() {
         let handle = tokio::spawn(async move {
             let key = format!("concurrent-{}.txt", i);
             let body = ByteStream::from(format!("content {}", i).into_bytes());
-            client
-                .put_object()
-                .bucket(&bucket)
-                .key(&key)
-                .body(body)
-                .send()
-                .await
+            client.put_object().bucket(&bucket).key(&key).body(body).send().await
         });
         handles.push(handle);
     }
@@ -526,13 +495,8 @@ async fn test_object_put_concurrent_different_keys() {
         assert!(result.is_ok(), "Concurrent PUT should succeed");
     }
 
-    let response = ctx
-        .client
-        .list_objects_v2()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list objects");
+    let response =
+        ctx.client.list_objects_v2().bucket(&ctx.bucket).send().await.expect("Should list objects");
 
     assert_eq!(response.contents().len(), 10);
 }
@@ -565,11 +529,7 @@ async fn test_object_put_same_content_same_etag() {
         .await
         .expect("Should put object");
 
-    assert_eq!(
-        response1.e_tag(),
-        response2.e_tag(),
-        "Same content should have same ETag"
-    );
+    assert_eq!(response1.e_tag(), response2.e_tag(), "Same content should have same ETag");
 }
 
 /// Test PUT with binary content.

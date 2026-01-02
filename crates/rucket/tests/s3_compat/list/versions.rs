@@ -120,11 +120,7 @@ async fn test_list_versions_key_marker() {
         .await
         .expect("Should list versions");
 
-    let keys: Vec<&str> = response
-        .versions()
-        .iter()
-        .filter_map(|v| v.key())
-        .collect();
+    let keys: Vec<&str> = response.versions().iter().filter_map(|v| v.key()).collect();
     assert_eq!(keys, vec!["b.txt", "c.txt"]);
 }
 
@@ -167,11 +163,7 @@ async fn test_list_versions_sorted() {
 
     let response = ctx.list_versions().await;
 
-    let keys: Vec<&str> = response
-        .versions()
-        .iter()
-        .filter_map(|v| v.key())
-        .collect();
+    let keys: Vec<&str> = response.versions().iter().filter_map(|v| v.key()).collect();
     assert_eq!(keys, vec!["a.txt", "b.txt", "c.txt"]);
 }
 

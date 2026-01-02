@@ -32,6 +32,8 @@ pub enum S3ErrorCode {
     NoSuchBucketPolicy,
     /// The lifecycle configuration does not exist.
     NoSuchLifecycleConfiguration,
+    /// The CORS configuration does not exist.
+    NoSuchCORSConfiguration,
     /// The Object Lock configuration does not exist.
     ObjectLockConfigurationNotFoundError,
     /// The server-side encryption configuration was not found.
@@ -78,6 +80,7 @@ impl S3ErrorCode {
             | Self::NoSuchVersion
             | Self::NoSuchBucketPolicy
             | Self::NoSuchLifecycleConfiguration
+            | Self::NoSuchCORSConfiguration
             | Self::ObjectLockConfigurationNotFoundError
             | Self::ServerSideEncryptionConfigurationNotFoundError => 404,
             Self::BucketAlreadyExists | Self::BucketNotEmpty => 409,
@@ -122,6 +125,7 @@ impl S3ErrorCode {
             Self::NoSuchVersion => "NoSuchVersion",
             Self::NoSuchBucketPolicy => "NoSuchBucketPolicy",
             Self::NoSuchLifecycleConfiguration => "NoSuchLifecycleConfiguration",
+            Self::NoSuchCORSConfiguration => "NoSuchCORSConfiguration",
             Self::ObjectLockConfigurationNotFoundError => "ObjectLockConfigurationNotFoundError",
             Self::ServerSideEncryptionConfigurationNotFoundError => {
                 "ServerSideEncryptionConfigurationNotFoundError"

@@ -243,12 +243,7 @@ async fn test_list_objects_v2_many() {
 async fn test_list_objects_v2_nonexistent_bucket() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let result = ctx
-        .client
-        .list_objects_v2()
-        .bucket("nonexistent-bucket")
-        .send()
-        .await;
+    let result = ctx.client.list_objects_v2().bucket("nonexistent-bucket").send().await;
 
     assert!(result.is_err());
 }

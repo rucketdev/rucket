@@ -1,7 +1,8 @@
 //! If-Modified-Since and If-Unmodified-Since tests.
 
-use crate::S3TestContext;
 use aws_smithy_types::DateTime;
+
+use crate::S3TestContext;
 
 /// Test If-Modified-Since with old date returns content.
 #[tokio::test]

@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_object_tagging_*
 //! - MinIO Mint: object tagging tests
 
-use crate::S3TestContext;
 use aws_sdk_s3::types::{Tag, Tagging};
+
+use crate::S3TestContext;
 
 /// Test putting and getting object tags.
 /// Ceph: test_put_object_tagging
@@ -17,13 +18,7 @@ async fn test_object_tagging_put_get() {
 
     let tagging = Tagging::builder()
         .tag_set(Tag::builder().key("env").value("test").build().unwrap())
-        .tag_set(
-            Tag::builder()
-                .key("project")
-                .value("rucket")
-                .build()
-                .unwrap(),
-        )
+        .tag_set(Tag::builder().key("project").value("rucket").build().unwrap())
         .build()
         .unwrap();
 
@@ -124,13 +119,8 @@ async fn test_object_tagging_get_empty() {
 async fn test_object_tagging_nonexistent_object() {
     let ctx = S3TestContext::new().await;
 
-    let result = ctx
-        .client
-        .get_object_tagging()
-        .bucket(&ctx.bucket)
-        .key("nonexistent.txt")
-        .send()
-        .await;
+    let result =
+        ctx.client.get_object_tagging().bucket(&ctx.bucket).key("nonexistent.txt").send().await;
 
     assert!(result.is_err(), "Should fail on non-existent object");
 }
@@ -146,11 +136,7 @@ async fn test_object_tagging_many_tags() {
     let mut tagging_builder = Tagging::builder();
     for i in 0..10 {
         tagging_builder = tagging_builder.tag_set(
-            Tag::builder()
-                .key(format!("key{}", i))
-                .value(format!("value{}", i))
-                .build()
-                .unwrap(),
+            Tag::builder().key(format!("key{}", i)).value(format!("value{}", i)).build().unwrap(),
         );
     }
     let tagging = tagging_builder.build().unwrap();
@@ -265,13 +251,7 @@ async fn test_object_tagging_max_value_length() {
     let long_value = "v".repeat(256);
 
     let tagging = Tagging::builder()
-        .tag_set(
-            Tag::builder()
-                .key("key")
-                .value(&long_value)
-                .build()
-                .unwrap(),
-        )
+        .tag_set(Tag::builder().key("key").value(&long_value).build().unwrap())
         .build()
         .unwrap();
 

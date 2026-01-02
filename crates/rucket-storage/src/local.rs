@@ -7,13 +7,17 @@ use std::sync::Arc;
 use bytes::Bytes;
 use dashmap::DashMap;
 use rucket_core::error::{Error, S3ErrorCode};
-use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus};
+use rucket_core::types::{
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+};
 use rucket_core::{RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-use crate::backend::{DeleteObjectResult, ListObjectsResult, ObjectHeaders, PutObjectResult, StorageBackend};
+use crate::backend::{
+    DeleteObjectResult, ListObjectsResult, ObjectHeaders, PutObjectResult, StorageBackend,
+};
 use crate::metadata::{ListVersionsResult, MetadataBackend, RedbMetadataStore};
 use crate::streaming::compute_crc32c;
 use crate::sync::{write_and_hash_with_strategy, SyncManager};
@@ -314,6 +318,16 @@ impl StorageBackend for LocalStorage {
     }
 
     async fn delete_bucket(&self, name: &str) -> Result<()> {
+        // Check if bucket is empty before deleting (S3 requires buckets to be empty)
+        let list_result = self.list_objects(name, None, None, None, 1).await?;
+        if !list_result.objects.is_empty() || !list_result.common_prefixes.is_empty() {
+            return Err(Error::S3 {
+                code: S3ErrorCode::BucketNotEmpty,
+                message: "The bucket you tried to delete is not empty".to_string(),
+                resource: Some(name.to_string()),
+            });
+        }
+
         self.metadata.delete_bucket(name).await?;
 
         // Remove the bucket directory
@@ -451,6 +465,7 @@ impl StorageBackend for LocalStorage {
         meta.content_disposition = headers.content_disposition;
         meta.content_encoding = headers.content_encoding;
         meta.expires = headers.expires;
+        meta.content_language = headers.content_language;
         self.metadata.put_object(bucket, meta).await?;
 
         // Step 5: Write commit to WAL (if enabled)
@@ -596,12 +611,13 @@ impl StorageBackend for LocalStorage {
 
         // Use new headers/metadata if provided (MetadataDirective=REPLACE),
         // otherwise preserve source object's headers/metadata (MetadataDirective=COPY)
-        let headers = new_headers.unwrap_or_else(|| ObjectHeaders {
-            content_type: src_meta.content_type,
-            cache_control: src_meta.cache_control,
-            content_disposition: src_meta.content_disposition,
-            content_encoding: src_meta.content_encoding,
-            expires: src_meta.expires,
+        let headers = new_headers.unwrap_or(ObjectHeaders {
+            content_type: src_meta.content_type.clone(),
+            cache_control: src_meta.cache_control.clone(),
+            content_disposition: src_meta.content_disposition.clone(),
+            content_encoding: src_meta.content_encoding.clone(),
+            expires: src_meta.expires.clone(),
+            content_language: src_meta.content_language.clone(),
         });
         let metadata = new_metadata.unwrap_or(src_meta.user_metadata);
 
@@ -629,7 +645,7 @@ impl StorageBackend for LocalStorage {
         // When using delimiter, multiple objects may collapse into a single common prefix.
         // To get max_keys unique items, we may need to fetch more objects from the DB.
         // We fetch in batches until we have enough unique items or run out of objects.
-        let use_delimiter = delimiter.map_or(false, |d| !d.is_empty());
+        let use_delimiter = delimiter.is_some_and(|d| !d.is_empty());
 
         if !use_delimiter {
             // No delimiter - simple case, just fetch max_keys objects
@@ -1033,7 +1049,14 @@ impl StorageBackend for LocalStorage {
         max_keys: u32,
     ) -> Result<ListVersionsResult> {
         self.metadata
-            .list_object_versions(bucket, prefix, delimiter, key_marker, version_id_marker, max_keys)
+            .list_object_versions(
+                bucket,
+                prefix,
+                delimiter,
+                key_marker,
+                version_id_marker,
+                max_keys,
+            )
             .await
     }
 }
@@ -1086,13 +1109,7 @@ mod tests {
         let headers =
             ObjectHeaders { content_type: Some("text/plain".to_string()), ..Default::default() };
         let result = storage
-            .put_object(
-                "test-bucket",
-                "hello.txt",
-                data.clone(),
-                headers,
-                HashMap::new(),
-            )
+            .put_object("test-bucket", "hello.txt", data.clone(), headers, HashMap::new())
             .await
             .unwrap();
 
@@ -1144,16 +1161,25 @@ mod tests {
         let data = Bytes::from("Hello, World!");
         let headers =
             ObjectHeaders { content_type: Some("text/plain".to_string()), ..Default::default() };
-        storage.put_object("bucket1", "source.txt", data.clone(), headers, HashMap::new()).await.unwrap();
+        storage
+            .put_object("bucket1", "source.txt", data.clone(), headers, HashMap::new())
+            .await
+            .unwrap();
 
         // Copy to same bucket
-        storage.copy_object("bucket1", "source.txt", "bucket1", "copy.txt", None, None).await.unwrap();
+        storage
+            .copy_object("bucket1", "source.txt", "bucket1", "copy.txt", None, None)
+            .await
+            .unwrap();
 
         let (_, copied) = storage.get_object("bucket1", "copy.txt").await.unwrap();
         assert_eq!(copied, data);
 
         // Copy to different bucket
-        storage.copy_object("bucket1", "source.txt", "bucket2", "dest.txt", None, None).await.unwrap();
+        storage
+            .copy_object("bucket1", "source.txt", "bucket2", "dest.txt", None, None)
+            .await
+            .unwrap();
 
         let (meta, copied) = storage.get_object("bucket2", "dest.txt").await.unwrap();
         assert_eq!(copied, data);
@@ -1180,7 +1206,13 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let data = Bytes::from(format!("data-from-writer-{i}"));
                 storage
-                    .put_object("test-bucket", "same-key", data, ObjectHeaders::default(), HashMap::new())
+                    .put_object(
+                        "test-bucket",
+                        "same-key",
+                        data,
+                        ObjectHeaders::default(),
+                        HashMap::new(),
+                    )
                     .await
                     .expect("put_object failed");
                 completed.fetch_add(1, Ordering::SeqCst);
@@ -1267,7 +1299,13 @@ mod tests {
         for i in 0..5 {
             let data = Bytes::from(format!("overwrite-{i}"));
             storage
-                .put_object("test-bucket", "test-key", data, ObjectHeaders::default(), HashMap::new())
+                .put_object(
+                    "test-bucket",
+                    "test-key",
+                    data,
+                    ObjectHeaders::default(),
+                    HashMap::new(),
+                )
                 .await
                 .unwrap();
         }

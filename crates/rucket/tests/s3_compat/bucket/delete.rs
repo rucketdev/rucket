@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_bucket_delete_*
 //! - MinIO Mint: bucket deletion tests
 
-use crate::{random_bucket_name, S3TestContext};
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::{random_bucket_name, S3TestContext};
 
 /// Test deleting an empty bucket.
 /// Ceph: test_bucket_delete_empty
@@ -14,19 +15,9 @@ async fn test_bucket_delete_empty() {
     let ctx = S3TestContext::without_bucket().await;
     let bucket = random_bucket_name();
 
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should create bucket");
+    ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 
-    ctx.client
-        .delete_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should delete empty bucket");
+    ctx.client.delete_bucket().bucket(&bucket).send().await.expect("Should delete empty bucket");
 
     // Verify bucket no longer exists
     let result = ctx.client.head_bucket().bucket(&bucket).send().await;
@@ -68,20 +59,11 @@ async fn test_bucket_delete_non_empty_fails() {
 async fn test_bucket_delete_nonexistent() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let result = ctx
-        .client
-        .delete_bucket()
-        .bucket("nonexistent-bucket-12345")
-        .send()
-        .await;
+    let result = ctx.client.delete_bucket().bucket("nonexistent-bucket-12345").send().await;
 
     assert!(result.is_err(), "Should not delete non-existent bucket");
     let error_str = format!("{:?}", result.unwrap_err());
-    assert!(
-        error_str.contains("NoSuchBucket"),
-        "Expected NoSuchBucket error, got: {}",
-        error_str
-    );
+    assert!(error_str.contains("NoSuchBucket"), "Expected NoSuchBucket error, got: {}", error_str);
 }
 
 /// Test that bucket can be deleted after removing all objects.
@@ -130,20 +112,10 @@ async fn test_bucket_delete_twice() {
     let ctx = S3TestContext::without_bucket().await;
     let bucket = random_bucket_name();
 
-    ctx.client
-        .create_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("Should create bucket");
+    ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 
     // First delete
-    ctx.client
-        .delete_bucket()
-        .bucket(&bucket)
-        .send()
-        .await
-        .expect("First delete should succeed");
+    ctx.client.delete_bucket().bucket(&bucket).send().await.expect("First delete should succeed");
 
     // Second delete should fail with NoSuchBucket
     let result = ctx.client.delete_bucket().bucket(&bucket).send().await;
@@ -159,18 +131,8 @@ async fn test_bucket_create_then_delete() {
     for _ in 0..3 {
         let bucket = random_bucket_name();
 
-        ctx.client
-            .create_bucket()
-            .bucket(&bucket)
-            .send()
-            .await
-            .expect("Should create bucket");
+        ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 
-        ctx.client
-            .delete_bucket()
-            .bucket(&bucket)
-            .send()
-            .await
-            .expect("Should delete bucket");
+        ctx.client.delete_bucket().bucket(&bucket).send().await.expect("Should delete bucket");
     }
 }

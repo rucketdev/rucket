@@ -41,7 +41,9 @@ fn validate_bucket_name(name: &str) -> Option<&'static str> {
     let mut prev_char = '\0';
     for c in name.chars() {
         if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' && c != '.' {
-            return Some("Bucket name can only contain lowercase letters, numbers, hyphens, and periods");
+            return Some(
+                "Bucket name can only contain lowercase letters, numbers, hyphens, and periods",
+            );
         }
 
         // No consecutive periods
@@ -82,11 +84,8 @@ pub async fn create_bucket(
 ) -> Result<impl IntoResponse, ApiError> {
     // Validate bucket name before creating
     if let Some(error_msg) = validate_bucket_name(&bucket) {
-        return Err(ApiError::new(
-            rucket_core::error::S3ErrorCode::InvalidBucketName,
-            error_msg,
-        )
-        .with_resource(&bucket));
+        return Err(ApiError::new(rucket_core::error::S3ErrorCode::InvalidBucketName, error_msg)
+            .with_resource(&bucket));
     }
 
     // Check if bucket already exists - S3 returns 200 OK for idempotent creates by same owner
@@ -166,8 +165,8 @@ pub async fn set_bucket_versioning(
     }
 
     // Parse the versioning configuration XML
-    let config: VersioningConfiguration = quick_xml::de::from_reader(body.as_ref())
-        .map_err(|e| {
+    let config: VersioningConfiguration =
+        quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
             ApiError::new(
                 rucket_core::error::S3ErrorCode::MalformedXML,
                 format!("Invalid versioning configuration XML: {e}"),
@@ -176,10 +175,12 @@ pub async fn set_bucket_versioning(
 
     // Set versioning status if provided
     if let Some(status_str) = config.status {
-        let status = VersioningStatus::from_str(&status_str).ok_or_else(|| {
+        let status = VersioningStatus::parse(&status_str).ok_or_else(|| {
             ApiError::new(
                 rucket_core::error::S3ErrorCode::MalformedXML,
-                format!("Invalid versioning status: {status_str}. Must be 'Enabled' or 'Suspended'"),
+                format!(
+                    "Invalid versioning status: {status_str}. Must be 'Enabled' or 'Suspended'"
+                ),
             )
         })?;
 
@@ -266,6 +267,59 @@ pub async fn delete_bucket_policy(
         )
         .with_resource(&bucket));
     }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `PUT /{bucket}?cors` - Set bucket CORS configuration.
+pub async fn set_bucket_cors(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+    _body: Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+    // Stub: accept but don't store (CORS not fully implemented)
+    Ok(StatusCode::OK)
+}
+
+/// `GET /{bucket}?cors` - Get bucket CORS configuration.
+pub async fn get_bucket_cors(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<Response, ApiError> {
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+    // Return NoSuchCORSConfiguration error for now (no CORS configured)
+    Err(ApiError::new(
+        rucket_core::error::S3ErrorCode::NoSuchCORSConfiguration,
+        "The CORS configuration does not exist",
+    )
+    .with_resource(&bucket))
+}
+
+/// `DELETE /{bucket}?cors` - Delete bucket CORS configuration.
+pub async fn delete_bucket_cors(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+    // Stub: accept but don't do anything (no CORS to delete)
     Ok(StatusCode::NO_CONTENT)
 }
 

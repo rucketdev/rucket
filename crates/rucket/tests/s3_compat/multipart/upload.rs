@@ -4,10 +4,10 @@
 //! - Ceph s3-tests: test_multipart_*
 //! - MinIO Mint: multipart upload tests
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::types::CompletedMultipartUpload;
-use aws_sdk_s3::types::CompletedPart;
+use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
+
+use crate::S3TestContext;
 
 /// Test basic multipart upload.
 #[tokio::test]
@@ -43,12 +43,7 @@ async fn test_multipart_upload_basic() {
 
     // Complete multipart upload
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(etag)
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(1).e_tag(etag).build())
         .build();
 
     ctx.client
@@ -106,9 +101,7 @@ async fn test_multipart_upload_multiple_parts() {
         );
     }
 
-    let completed = CompletedMultipartUpload::builder()
-        .set_parts(Some(completed_parts))
-        .build();
+    let completed = CompletedMultipartUpload::builder().set_parts(Some(completed_parts)).build();
 
     ctx.client
         .complete_multipart_upload()
@@ -175,10 +168,7 @@ async fn test_multipart_create_with_content_type() {
 
     let completed = CompletedMultipartUpload::builder()
         .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(part_response.e_tag().unwrap())
-                .build(),
+            CompletedPart::builder().part_number(1).e_tag(part_response.e_tag().unwrap()).build(),
         )
         .build();
 
@@ -227,10 +217,7 @@ async fn test_multipart_create_with_metadata() {
 
     let completed = CompletedMultipartUpload::builder()
         .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(part_response.e_tag().unwrap())
-                .build(),
+            CompletedPart::builder().part_number(1).e_tag(part_response.e_tag().unwrap()).build(),
         )
         .build();
 

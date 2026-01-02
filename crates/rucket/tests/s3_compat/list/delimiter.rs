@@ -115,11 +115,8 @@ async fn test_list_delimiter_deep_nesting() {
         .expect("Should list objects");
 
     assert!(response.contents().is_empty());
-    let prefixes: Vec<&str> = response
-        .common_prefixes()
-        .iter()
-        .filter_map(|p| p.prefix())
-        .collect();
+    let prefixes: Vec<&str> =
+        response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
     assert_eq!(prefixes, vec!["a/"]);
 
     // List at a/ level
@@ -134,11 +131,8 @@ async fn test_list_delimiter_deep_nesting() {
         .expect("Should list objects");
 
     assert_eq!(response.contents().len(), 1); // a/file.txt
-    let prefixes: Vec<&str> = response
-        .common_prefixes()
-        .iter()
-        .filter_map(|p| p.prefix())
-        .collect();
+    let prefixes: Vec<&str> =
+        response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
     assert_eq!(prefixes, vec!["a/b/"]);
 }
 
@@ -166,11 +160,8 @@ async fn test_list_delimiter_non_standard() {
     assert_eq!(contents[0].key(), Some("other.txt"));
 
     // dir- should be a common prefix
-    let prefixes: Vec<&str> = response
-        .common_prefixes()
-        .iter()
-        .filter_map(|p| p.prefix())
-        .collect();
+    let prefixes: Vec<&str> =
+        response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
     assert_eq!(prefixes, vec!["dir-"]);
 }
 
@@ -284,11 +275,8 @@ async fn test_list_delimiter_single_char_keys() {
 
     // "/" and "a" should be in contents or prefixes
     let contents: Vec<&str> = response.contents().iter().filter_map(|o| o.key()).collect();
-    let prefixes: Vec<&str> = response
-        .common_prefixes()
-        .iter()
-        .filter_map(|p| p.prefix())
-        .collect();
+    let prefixes: Vec<&str> =
+        response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
 
     // Verify we get expected results
     assert!(!contents.is_empty() || !prefixes.is_empty());

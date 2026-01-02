@@ -30,13 +30,7 @@ async fn test_versioning_delete_then_get() {
     ctx.put("test.txt", b"content").await;
     ctx.delete("test.txt").await;
 
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .send()
-        .await;
+    let result = ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").send().await;
 
     assert!(result.is_err());
 }
@@ -62,14 +56,8 @@ async fn test_versioning_delete_specific_version() {
         .expect("Should delete specific version");
 
     // That version should be gone
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .version_id(vid1)
-        .send()
-        .await;
+    let result =
+        ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").version_id(vid1).send().await;
 
     assert!(result.is_err());
 }

@@ -1,7 +1,8 @@
 //! Concurrent operation tests.
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::S3TestContext;
 
 /// Test concurrent writes to same key.
 #[tokio::test]
@@ -77,12 +78,7 @@ async fn test_concurrent_reads() {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
         let handle = tokio::spawn(async move {
-            client
-                .get_object()
-                .bucket(&bucket)
-                .key("test.txt")
-                .send()
-                .await
+            client.get_object().bucket(&bucket).key("test.txt").send().await
         });
         handles.push(handle);
     }
@@ -149,12 +145,7 @@ async fn test_concurrent_deletes() {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
         let handle = tokio::spawn(async move {
-            client
-                .delete_object()
-                .bucket(&bucket)
-                .key(format!("file{}.txt", i))
-                .send()
-                .await
+            client.delete_object().bucket(&bucket).key(format!("file{}.txt", i)).send().await
         });
         handles.push(handle);
     }
@@ -176,11 +167,7 @@ async fn test_concurrent_bucket_create() {
     for i in 0..5 {
         let client = ctx.client.clone();
         let handle = tokio::spawn(async move {
-            client
-                .create_bucket()
-                .bucket(format!("concurrent-bucket-{}", i))
-                .send()
-                .await
+            client.create_bucket().bucket(format!("concurrent-bucket-{}", i)).send().await
         });
         handles.push(handle);
     }
@@ -190,11 +177,6 @@ async fn test_concurrent_bucket_create() {
         assert!(result.is_ok());
     }
 
-    let list = ctx
-        .client
-        .list_buckets()
-        .send()
-        .await
-        .expect("Should list");
+    let list = ctx.client.list_buckets().send().await.expect("Should list");
     assert_eq!(list.buckets().len(), 5);
 }

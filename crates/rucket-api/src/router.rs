@@ -67,6 +67,8 @@ pub struct RequestQuery {
     versioning: Option<String>,
     /// Bucket policy.
     policy: Option<String>,
+    /// Bucket CORS configuration.
+    cors: Option<String>,
     /// Bucket tagging.
     tagging: Option<String>,
     /// Bucket lifecycle.
@@ -204,6 +206,10 @@ async fn handle_bucket_put(
     if query.policy.is_some() {
         return bucket::set_bucket_policy(state, path, body).await.into_response();
     }
+    // Check for ?cors (SetBucketCORS)
+    if query.cors.is_some() {
+        return bucket::set_bucket_cors(state, path, body).await.into_response();
+    }
     // Check for ?tagging (SetBucketTagging)
     if query.tagging.is_some() {
         return bucket::set_bucket_tagging(state, path, body).await.into_response();
@@ -237,6 +243,10 @@ async fn handle_bucket_delete(
     // Check for ?policy (DeleteBucketPolicy)
     if query.policy.is_some() {
         return bucket::delete_bucket_policy(state, path).await.into_response();
+    }
+    // Check for ?cors (DeleteBucketCORS)
+    if query.cors.is_some() {
+        return bucket::delete_bucket_cors(state, path).await.into_response();
     }
     // Check for ?tagging (DeleteBucketTagging)
     if query.tagging.is_some() {
@@ -304,6 +314,10 @@ async fn handle_bucket_get(
     if query.policy.is_some() {
         return bucket::get_bucket_policy(state, path).await.into_response();
     }
+    // Check for ?cors (GetBucketCORS)
+    if query.cors.is_some() {
+        return bucket::get_bucket_cors(state, path).await.into_response();
+    }
     // Check for ?tagging (GetBucketTagging)
     if query.tagging.is_some() {
         return bucket::get_bucket_tagging(state, path).await.into_response();
@@ -344,9 +358,7 @@ async fn handle_bucket_get(
             fetch_owner: query.fetch_owner,
             allow_unordered: query.allow_unordered,
         };
-        return object::list_object_versions(state, path, Query(list_query))
-            .await
-            .into_response();
+        return object::list_object_versions(state, path, Query(list_query)).await.into_response();
     }
 
     let list_query = object::ListObjectsQuery {
@@ -388,6 +400,11 @@ async fn handle_object_get(
         return multipart::list_parts(state, path, Query(mp_query)).await.into_response();
     }
 
+    // Check for ?tagging (GetObjectTagging)
+    if query.tagging.is_some() {
+        return object::get_object_tagging(state, path).await.into_response();
+    }
+
     // Build response header overrides
     let overrides = object::ResponseHeaderOverrides {
         content_type: query.response_content_type,
@@ -413,6 +430,11 @@ async fn handle_object_put(
     // Check for x-amz-copy-source (copy object)
     if headers.contains_key("x-amz-copy-source") {
         return object::copy_object(state, path, headers).await.into_response();
+    }
+
+    // Check for ?tagging (PutObjectTagging)
+    if query.tagging.is_some() {
+        return object::put_object_tagging(state, path, body).await.into_response();
     }
 
     // Check for ?partNumber&uploadId (upload part)
@@ -445,6 +467,11 @@ async fn handle_object_delete(
         return multipart::abort_multipart_upload(state, path, Query(mp_query))
             .await
             .into_response();
+    }
+
+    // Check for ?tagging (DeleteObjectTagging)
+    if query.tagging.is_some() {
+        return object::delete_object_tagging(state, path).await.into_response();
     }
 
     // Default: DeleteObject

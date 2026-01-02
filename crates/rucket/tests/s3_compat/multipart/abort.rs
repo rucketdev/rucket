@@ -1,7 +1,8 @@
 //! Multipart upload abort tests.
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::S3TestContext;
 
 /// Test abort multipart upload.
 #[tokio::test]

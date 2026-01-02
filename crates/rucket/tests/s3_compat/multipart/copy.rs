@@ -1,7 +1,8 @@
 //! Multipart copy tests.
 
-use crate::S3TestContext;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
+
+use crate::S3TestContext;
 
 /// Test upload part copy.
 #[tokio::test]
@@ -36,20 +37,11 @@ async fn test_multipart_upload_part_copy() {
         .await
         .expect("Should copy part");
 
-    let etag = copy_response
-        .copy_part_result()
-        .unwrap()
-        .e_tag()
-        .unwrap();
+    let etag = copy_response.copy_part_result().unwrap().e_tag().unwrap();
 
     // Complete
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(etag)
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(1).e_tag(etag).build())
         .build();
 
     ctx.client
@@ -100,19 +92,10 @@ async fn test_multipart_upload_part_copy_range() {
         .await
         .expect("Should copy part range");
 
-    let etag = copy_response
-        .copy_part_result()
-        .unwrap()
-        .e_tag()
-        .unwrap();
+    let etag = copy_response.copy_part_result().unwrap().e_tag().unwrap();
 
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(etag)
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(1).e_tag(etag).build())
         .build();
 
     ctx.client

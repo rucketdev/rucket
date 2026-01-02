@@ -4,8 +4,9 @@
 //! - Ceph s3-tests: test_object_metadata_*
 //! - MinIO Mint: object metadata tests
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::S3TestContext;
 
 /// Test putting object with user metadata.
 /// Ceph: test_object_set_get_metadata
@@ -26,10 +27,7 @@ async fn test_object_metadata_put_get() {
 
     let response = ctx.head("test.txt").await;
     let metadata = response.metadata().unwrap();
-    assert_eq!(
-        metadata.get("x-custom-key"),
-        Some(&"custom-value".to_string())
-    );
+    assert_eq!(metadata.get("x-custom-key"), Some(&"custom-value".to_string()));
 }
 
 /// Test putting object with multiple metadata entries.
@@ -111,10 +109,7 @@ async fn test_object_metadata_special_chars() {
 
     let response = ctx.head("test.txt").await;
     let metadata = response.metadata().unwrap();
-    assert_eq!(
-        metadata.get("key"),
-        Some(&"value with spaces".to_string())
-    );
+    assert_eq!(metadata.get("key"), Some(&"value with spaces".to_string()));
 }
 
 /// Test metadata with long value.

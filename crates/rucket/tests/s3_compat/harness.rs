@@ -90,9 +90,8 @@ impl S3TestContext {
         let data_dir = temp_dir.path().join("data");
         let tmp_dir = temp_dir.path().join("tmp");
 
-        let storage = LocalStorage::new_in_memory(data_dir, tmp_dir)
-            .await
-            .expect("Failed to create storage");
+        let storage =
+            LocalStorage::new_in_memory(data_dir, tmp_dir).await.expect("Failed to create storage");
 
         // 5 GiB max body size (S3 max single PUT)
         let app = create_router(
@@ -102,9 +101,7 @@ impl S3TestContext {
             false, // log_requests disabled for tests
         );
 
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("Failed to bind");
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
         let addr = listener.local_addr().expect("Failed to get local addr");
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -151,12 +148,7 @@ impl S3TestContext {
 
     /// Create a bucket (internal helper).
     async fn create_bucket_internal(&self, name: &str) {
-        self.client
-            .create_bucket()
-            .bucket(name)
-            .send()
-            .await
-            .expect("Failed to create bucket");
+        self.client.create_bucket().bucket(name).send().await.expect("Failed to create bucket");
     }
 
     /// Create a bucket.
@@ -166,12 +158,7 @@ impl S3TestContext {
 
     /// Delete a bucket.
     pub async fn delete_bucket(&self, name: &str) {
-        self.client
-            .delete_bucket()
-            .bucket(name)
-            .send()
-            .await
-            .expect("Failed to delete bucket");
+        self.client.delete_bucket().bucket(name).send().await.expect("Failed to delete bucket");
     }
 
     /// Put an object with the given key and data.
@@ -207,13 +194,7 @@ impl S3TestContext {
             .send()
             .await
             .expect("Failed to get object");
-        response
-            .body
-            .collect()
-            .await
-            .expect("Failed to read body")
-            .into_bytes()
-            .to_vec()
+        response.body.collect().await.expect("Failed to read body").into_bytes().to_vec()
     }
 
     /// Get an object (full response).
@@ -251,13 +232,7 @@ impl S3TestContext {
 
     /// Check if an object exists.
     pub async fn exists(&self, key: &str) -> bool {
-        self.client
-            .head_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await
-            .is_ok()
+        self.client.head_object().bucket(&self.bucket).key(key).send().await.is_ok()
     }
 
     /// Enable versioning on the default bucket.
@@ -271,9 +246,7 @@ impl S3TestContext {
             .put_bucket_versioning()
             .bucket(bucket)
             .versioning_configuration(
-                VersioningConfiguration::builder()
-                    .status(BucketVersioningStatus::Enabled)
-                    .build(),
+                VersioningConfiguration::builder().status(BucketVersioningStatus::Enabled).build(),
             )
             .send()
             .await
@@ -359,13 +332,7 @@ pub async fn assert_object_content(ctx: &S3TestContext, key: &str, expected: &[u
 
 /// Assert that an object does not exist (404).
 pub async fn assert_not_found(ctx: &S3TestContext, key: &str) {
-    let result = ctx
-        .client
-        .head_object()
-        .bucket(&ctx.bucket)
-        .key(key)
-        .send()
-        .await;
+    let result = ctx.client.head_object().bucket(&ctx.bucket).key(key).send().await;
     assert!(result.is_err(), "Object should not exist: {}", key);
 }
 

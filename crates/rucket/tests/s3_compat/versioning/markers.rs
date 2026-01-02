@@ -75,13 +75,7 @@ async fn test_versioning_head_delete_marker() {
     ctx.put("test.txt", b"content").await;
     ctx.delete("test.txt").await;
 
-    let result = ctx
-        .client
-        .head_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .send()
-        .await;
+    let result = ctx.client.head_object().bucket(&ctx.bucket).key("test.txt").send().await;
 
     assert!(result.is_err());
 }

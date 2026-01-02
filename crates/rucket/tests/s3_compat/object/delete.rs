@@ -27,13 +27,7 @@ async fn test_object_delete_nonexistent_idempotent() {
     let ctx = S3TestContext::new().await;
 
     // DELETE on non-existent object should succeed (idempotent)
-    let result = ctx
-        .client
-        .delete_object()
-        .bucket(&ctx.bucket)
-        .key("nonexistent.txt")
-        .send()
-        .await;
+    let result = ctx.client.delete_object().bucket(&ctx.bucket).key("nonexistent.txt").send().await;
 
     assert!(result.is_ok(), "DELETE on non-existent object should succeed");
 }
@@ -43,13 +37,8 @@ async fn test_object_delete_nonexistent_idempotent() {
 async fn test_object_delete_nonexistent_bucket() {
     let ctx = S3TestContext::without_bucket().await;
 
-    let result = ctx
-        .client
-        .delete_object()
-        .bucket("nonexistent-bucket")
-        .key("test.txt")
-        .send()
-        .await;
+    let result =
+        ctx.client.delete_object().bucket("nonexistent-bucket").key("test.txt").send().await;
 
     assert!(result.is_err(), "DELETE from non-existent bucket should fail");
 }
@@ -64,13 +53,7 @@ async fn test_object_delete_twice_idempotent() {
     ctx.delete("test.txt").await;
 
     // Second delete should also succeed
-    let result = ctx
-        .client
-        .delete_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .send()
-        .await;
+    let result = ctx.client.delete_object().bucket(&ctx.bucket).key("test.txt").send().await;
 
     assert!(result.is_ok(), "Second DELETE should succeed");
 }
@@ -83,13 +66,7 @@ async fn test_object_delete_then_get() {
     ctx.put("test.txt", b"content").await;
     ctx.delete("test.txt").await;
 
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .send()
-        .await;
+    let result = ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").send().await;
 
     assert!(result.is_err(), "GET after DELETE should return error");
 }
@@ -102,13 +79,7 @@ async fn test_object_delete_then_head() {
     ctx.put("test.txt", b"content").await;
     ctx.delete("test.txt").await;
 
-    let result = ctx
-        .client
-        .head_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .send()
-        .await;
+    let result = ctx.client.head_object().bucket(&ctx.bucket).key("test.txt").send().await;
 
     assert!(result.is_err(), "HEAD after DELETE should return error");
 }
@@ -124,11 +95,7 @@ async fn test_object_delete_removed_from_list() {
     ctx.delete("file1.txt").await;
 
     let response = ctx.list_objects().await;
-    let keys: Vec<&str> = response
-        .contents()
-        .iter()
-        .filter_map(|o| o.key())
-        .collect();
+    let keys: Vec<&str> = response.contents().iter().filter_map(|o| o.key()).collect();
 
     assert_eq!(keys.len(), 1);
     assert!(keys.contains(&"file2.txt"));
@@ -163,10 +130,7 @@ async fn test_object_delete_many() {
     }
 
     let response = ctx.list_objects().await;
-    assert!(
-        response.contents().is_empty(),
-        "All objects should be deleted"
-    );
+    assert!(response.contents().is_empty(), "All objects should be deleted");
 }
 
 /// Test concurrent DELETEs.
@@ -185,12 +149,7 @@ async fn test_object_delete_concurrent() {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
         let handle = tokio::spawn(async move {
-            client
-                .delete_object()
-                .bucket(&bucket)
-                .key(format!("file{}.txt", i))
-                .send()
-                .await
+            client.delete_object().bucket(&bucket).key(format!("file{}.txt", i)).send().await
         });
         handles.push(handle);
     }

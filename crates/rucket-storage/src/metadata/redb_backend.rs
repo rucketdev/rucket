@@ -8,7 +8,9 @@ use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use rucket_core::error::{Error, S3ErrorCode};
-use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus};
+use rucket_core::types::{
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+};
 use rucket_core::{Result, SyncStrategy};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -58,7 +60,10 @@ impl StoredBucketInfo {
                 .timestamp_millis_opt(self.created_at_millis)
                 .single()
                 .unwrap_or_else(Utc::now),
-            versioning_status: self.versioning_status.as_ref().and_then(|s| VersioningStatus::from_str(s)),
+            versioning_status: self
+                .versioning_status
+                .as_ref()
+                .and_then(|s| VersioningStatus::parse(s)),
         }
     }
 }
@@ -82,6 +87,8 @@ struct StoredObjectMetadata {
     content_encoding: Option<String>,
     #[serde(default)]
     expires: Option<String>,
+    #[serde(default)]
+    content_language: Option<String>,
     last_modified_millis: i64,
     user_metadata: Vec<(String, String)>,
     /// Version ID for this object (None = "null" for non-versioned buckets).
@@ -113,6 +120,7 @@ impl StoredObjectMetadata {
             content_disposition: meta.content_disposition.clone(),
             content_encoding: meta.content_encoding.clone(),
             expires: meta.expires.clone(),
+            content_language: meta.content_language.clone(),
             last_modified_millis: meta.last_modified.timestamp_millis(),
             user_metadata: meta.user_metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             version_id: meta.version_id.clone(),
@@ -133,6 +141,7 @@ impl StoredObjectMetadata {
             content_disposition: self.content_disposition.clone(),
             content_encoding: self.content_encoding.clone(),
             expires: self.expires.clone(),
+            content_language: self.content_language.clone(),
             last_modified: Utc
                 .timestamp_millis_opt(self.last_modified_millis)
                 .single()
@@ -375,7 +384,8 @@ impl MetadataBackend for RedbMetadataStore {
                     ));
                 }
 
-                let info = BucketInfo { name: name.clone(), created_at: now, versioning_status: None };
+                let info =
+                    BucketInfo { name: name.clone(), created_at: now, versioning_status: None };
                 let stored = StoredBucketInfo::from_bucket_info(&info);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
 
@@ -421,8 +431,7 @@ impl MetadataBackend for RedbMetadataStore {
                 // Auto-cleanup all objects when deleting a bucket
                 // This enables tools like mc, minio-js etc. that expect force-delete behavior
                 // Collect keys to delete first (to avoid borrow issues)
-                let range =
-                    objects_table.range(prefix.as_str()..end.as_str()).map_err(db_err)?;
+                let range = objects_table.range(prefix.as_str()..end.as_str()).map_err(db_err)?;
                 let keys_to_delete: Vec<String> = range
                     .filter_map(|entry| entry.ok().map(|(k, _)| k.value().to_string()))
                     .collect();
@@ -609,10 +618,8 @@ impl MetadataBackend for RedbMetadataStore {
                 let mut objects_table = txn.open_table(OBJECTS).map_err(db_err)?;
 
                 // Determine the version ID to use for the key
-                let version_id = meta
-                    .version_id
-                    .clone()
-                    .unwrap_or_else(|| Self::CURRENT_VERSION.to_string());
+                let version_id =
+                    meta.version_id.clone().unwrap_or_else(|| Self::CURRENT_VERSION.to_string());
 
                 // If bucket has versioning, mark old versions as not latest
                 if bucket_info.versioning_status.is_some() {
@@ -638,11 +645,14 @@ impl MetadataBackend for RedbMetadataStore {
                     // Update old versions
                     for (key, stored) in keys_to_update {
                         let serialized = bincode::serialize(&stored).map_err(db_err)?;
-                        objects_table.insert(key.as_str(), serialized.as_slice()).map_err(db_err)?;
+                        objects_table
+                            .insert(key.as_str(), serialized.as_slice())
+                            .map_err(db_err)?;
                     }
                 } else {
                     // Non-versioned bucket: delete old entry if exists
-                    let old_key = Self::object_version_key(&bucket, &meta.key, Self::CURRENT_VERSION);
+                    let old_key =
+                        Self::object_version_key(&bucket, &meta.key, Self::CURRENT_VERSION);
                     let _ = objects_table.remove(old_key.as_str());
                 }
 
@@ -739,8 +749,7 @@ impl MetadataBackend for RedbMetadataStore {
                 let mut keys_to_delete = Vec::new();
 
                 {
-                    let range =
-                        table.range(prefix.as_str()..end.as_str()).map_err(db_err)?;
+                    let range = table.range(prefix.as_str()..end.as_str()).map_err(db_err)?;
                     for entry in range {
                         let (key, value) = entry.map_err(db_err)?;
                         let stored: StoredObjectMetadata =
@@ -1237,26 +1246,25 @@ impl MetadataBackend for RedbMetadataStore {
                 // Get the specific version
                 let composite_key = Self::object_version_key(&bucket, &key_str, &version_id);
 
-                let (uuid, was_latest) =
-                    match table.get(composite_key.as_str()).map_err(db_err)? {
-                        Some(value) => {
-                            let stored: StoredObjectMetadata =
-                                bincode::deserialize(value.value()).map_err(db_err)?;
-                            let uuid = if stored.is_delete_marker {
-                                None
-                            } else {
-                                Some(Uuid::from_bytes(stored.uuid))
-                            };
-                            (uuid, stored.is_latest)
-                        }
-                        None => {
-                            return Err(Error::s3_with_resource(
-                                S3ErrorCode::NoSuchVersion,
-                                "The specified version does not exist",
-                                format!("{} (version: {})", key_str, version_id),
-                            ));
-                        }
-                    };
+                let (uuid, was_latest) = match table.get(composite_key.as_str()).map_err(db_err)? {
+                    Some(value) => {
+                        let stored: StoredObjectMetadata =
+                            bincode::deserialize(value.value()).map_err(db_err)?;
+                        let uuid = if stored.is_delete_marker {
+                            None
+                        } else {
+                            Some(Uuid::from_bytes(stored.uuid))
+                        };
+                        (uuid, stored.is_latest)
+                    }
+                    None => {
+                        return Err(Error::s3_with_resource(
+                            S3ErrorCode::NoSuchVersion,
+                            "The specified version does not exist",
+                            format!("{} (version: {})", key_str, version_id),
+                        ));
+                    }
+                };
 
                 // Remove this version
                 table.remove(composite_key.as_str()).map_err(db_err)?;
@@ -1269,8 +1277,7 @@ impl MetadataBackend for RedbMetadataStore {
                     // Find the newest remaining version (last in sort order)
                     let mut newest_key: Option<String> = None;
                     {
-                        let range =
-                            table.range(prefix.as_str()..end.as_str()).map_err(db_err)?;
+                        let range = table.range(prefix.as_str()..end.as_str()).map_err(db_err)?;
                         for entry in range {
                             let (key, _) = entry.map_err(db_err)?;
                             newest_key = Some(key.value().to_string());
@@ -1280,10 +1287,8 @@ impl MetadataBackend for RedbMetadataStore {
                     // Mark the newest as latest
                     if let Some(newest_key) = newest_key {
                         // Extract data first, then mutate
-                        let stored_data = table
-                            .get(newest_key.as_str())
-                            .map_err(db_err)?
-                            .map(|value| {
+                        let stored_data =
+                            table.get(newest_key.as_str()).map_err(db_err)?.map(|value| {
                                 bincode::deserialize::<StoredObjectMetadata>(value.value()).ok()
                             });
 
@@ -1459,8 +1464,7 @@ impl MetadataBackend for RedbMetadataStore {
                 // Handle delimiter
                 if let Some(ref d) = delimiter {
                     let prefix_str = prefix.as_deref().unwrap_or("");
-                    if obj_key.starts_with(prefix_str) {
-                        let suffix = &obj_key[prefix_str.len()..];
+                    if let Some(suffix) = obj_key.strip_prefix(prefix_str) {
                         if let Some(pos) = suffix.find(d.as_str()) {
                             let common_prefix =
                                 format!("{}{}", prefix_str, &suffix[..pos + d.len()]);
@@ -1492,12 +1496,10 @@ impl MetadataBackend for RedbMetadataStore {
             }
 
             let (next_key_marker, next_version_id_marker) = if is_truncated {
-                versions.last().map(|v| {
-                    (
-                        Some(v.metadata.key.clone()),
-                        v.metadata.version_id.clone(),
-                    )
-                }).unwrap_or((None, None))
+                versions
+                    .last()
+                    .map(|v| (Some(v.metadata.key.clone()), v.metadata.version_id.clone()))
+                    .unwrap_or((None, None))
             } else {
                 (None, None)
             };

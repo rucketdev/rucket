@@ -1,7 +1,8 @@
 //! If-None-Match conditional tests.
 
-use crate::S3TestContext;
 use aws_sdk_s3::primitives::ByteStream;
+
+use crate::S3TestContext;
 
 /// Test If-None-Match * allows new object.
 #[tokio::test]

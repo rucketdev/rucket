@@ -36,29 +36,29 @@ mod harness;
 pub use harness::*;
 
 // Test modules
+#[path = "s3_compat/access_control/mod.rs"]
+mod access_control;
+#[path = "s3_compat/atomic/mod.rs"]
+mod atomic;
 #[path = "s3_compat/bucket/mod.rs"]
 mod bucket;
-#[path = "s3_compat/object/mod.rs"]
-mod object;
+#[path = "s3_compat/conditional/mod.rs"]
+mod conditional;
+#[path = "s3_compat/delete_multiple/mod.rs"]
+mod delete_multiple;
+#[path = "s3_compat/encryption/mod.rs"]
+mod encryption;
 #[path = "s3_compat/list/mod.rs"]
 mod list;
 #[path = "s3_compat/multipart/mod.rs"]
 mod multipart;
-#[path = "s3_compat/versioning/mod.rs"]
-mod versioning;
-#[path = "s3_compat/conditional/mod.rs"]
-mod conditional;
-#[path = "s3_compat/range/mod.rs"]
-mod range;
-#[path = "s3_compat/presigned/mod.rs"]
-mod presigned;
-#[path = "s3_compat/delete_multiple/mod.rs"]
-mod delete_multiple;
-#[path = "s3_compat/atomic/mod.rs"]
-mod atomic;
-#[path = "s3_compat/encryption/mod.rs"]
-mod encryption;
-#[path = "s3_compat/access_control/mod.rs"]
-mod access_control;
+#[path = "s3_compat/object/mod.rs"]
+mod object;
 #[path = "s3_compat/post_object/mod.rs"]
 mod post_object;
+#[path = "s3_compat/presigned/mod.rs"]
+mod presigned;
+#[path = "s3_compat/range/mod.rs"]
+mod range;
+#[path = "s3_compat/versioning/mod.rs"]
+mod versioning;
