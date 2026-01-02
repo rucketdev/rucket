@@ -1,6 +1,7 @@
 //! Object operation tests.
 
 pub mod acl;
+pub mod attributes;
 pub mod copy;
 pub mod delete;
 pub mod get;
