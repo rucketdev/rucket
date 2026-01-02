@@ -1690,4 +1690,29 @@ mod tests {
         assert_eq!(page3.len(), 1);
         assert!(token3.is_none());
     }
+
+    #[tokio::test]
+    async fn test_uuid_exists_sync() {
+        let store = RedbMetadataStore::open_in_memory().unwrap();
+
+        store.create_bucket("test-bucket").await.unwrap();
+
+        let uuid = Uuid::new_v4();
+        let meta = ObjectMetadata::new("test-key", uuid, 1024, ETag::new("\"abc123\""));
+
+        // UUID should not exist before putting
+        assert!(!store.uuid_exists_sync("test-bucket", uuid));
+
+        // Put the object
+        store.put_object("test-bucket", meta).await.unwrap();
+
+        // UUID should exist now
+        assert!(store.uuid_exists_sync("test-bucket", uuid));
+
+        // Random UUID should not exist
+        assert!(!store.uuid_exists_sync("test-bucket", Uuid::new_v4()));
+
+        // UUID should not exist in non-existent bucket
+        assert!(!store.uuid_exists_sync("nonexistent-bucket", uuid));
+    }
 }
