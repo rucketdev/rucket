@@ -66,6 +66,36 @@ pub struct ObjectIdentifier {
     pub version_id: Option<String>,
 }
 
+/// `Tagging` request body for `PutObjectTagging`.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "Tagging")]
+pub struct Tagging {
+    /// The tag set.
+    #[serde(rename = "TagSet")]
+    pub tag_set: TagSetRequest,
+}
+
+/// Tag set in tagging request.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "TagSet")]
+pub struct TagSetRequest {
+    /// List of tags.
+    #[serde(rename = "Tag", default)]
+    pub tags: Vec<TagRequest>,
+}
+
+/// A single tag in the request.
+#[derive(Debug, Deserialize)]
+pub struct TagRequest {
+    /// Tag key.
+    #[serde(rename = "Key")]
+    pub key: String,
+
+    /// Tag value.
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
 #[cfg(test)]
 mod tests {
     use quick_xml::de::from_str;
@@ -110,5 +140,30 @@ mod tests {
         let parsed: DeleteObjects = from_str(xml).unwrap();
         assert!(parsed.quiet);
         assert_eq!(parsed.objects.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_tagging() {
+        let xml = r#"
+            <Tagging>
+                <TagSet>
+                    <Tag>
+                        <Key>env</Key>
+                        <Value>production</Value>
+                    </Tag>
+                    <Tag>
+                        <Key>project</Key>
+                        <Value>rucket</Value>
+                    </Tag>
+                </TagSet>
+            </Tagging>
+        "#;
+
+        let parsed: Tagging = from_str(xml).unwrap();
+        assert_eq!(parsed.tag_set.tags.len(), 2);
+        assert_eq!(parsed.tag_set.tags[0].key, "env");
+        assert_eq!(parsed.tag_set.tags[0].value, "production");
+        assert_eq!(parsed.tag_set.tags[1].key, "project");
+        assert_eq!(parsed.tag_set.tags[1].value, "rucket");
     }
 }

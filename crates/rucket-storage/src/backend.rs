@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use rucket_core::types::{
-    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
 };
 use rucket_core::Result;
 
@@ -205,6 +205,42 @@ pub trait StorageBackend: Send + Sync {
 
     /// List all in-progress multipart uploads for a bucket.
     async fn list_multipart_uploads(&self, bucket: &str) -> Result<Vec<MultipartUpload>>;
+
+    // Object tagging operations
+
+    /// Get tags for an object.
+    async fn get_object_tagging(&self, bucket: &str, key: &str) -> Result<TagSet>;
+
+    /// Set tags for an object.
+    async fn put_object_tagging(&self, bucket: &str, key: &str, tags: TagSet) -> Result<()>;
+
+    /// Delete tags for an object.
+    async fn delete_object_tagging(&self, bucket: &str, key: &str) -> Result<()>;
+
+    /// Get tags for a specific version of an object.
+    async fn get_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<TagSet>;
+
+    /// Set tags for a specific version of an object.
+    async fn put_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        tags: TagSet,
+    ) -> Result<()>;
+
+    /// Delete tags for a specific version of an object.
+    async fn delete_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<()>;
 }
 
 /// Result of listing objects.

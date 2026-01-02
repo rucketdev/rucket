@@ -34,10 +34,13 @@ pub struct ResponseHeaderOverrides {
     /// Override Cache-Control header.
     pub cache_control: Option<String>,
 }
+use rucket_core::types::{Tag, TagSet};
+
+use crate::xml::request::Tagging as TaggingRequest;
 use crate::xml::response::{
     to_xml, CommonPrefix, CopyObjectResponse, DeleteError, DeleteMarker, DeleteObjectsResponse,
     DeletedObject, ListObjectVersionsResponse, ListObjectsV1Response, ListObjectsV2Response,
-    ObjectEntry, ObjectVersion,
+    ObjectEntry, ObjectVersion, TagResponse, TagSetResponse, TaggingResponse,
 };
 
 /// Format a datetime for HTTP headers (RFC 7231 format).
@@ -1208,71 +1211,124 @@ pub async fn delete_objects(
 pub async fn get_object_tagging(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
+    Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
-    // Check bucket exists
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
+    // Get tags (this also verifies bucket and object exist)
+    let tag_set = if let Some(ref version_id) = query.version_id {
+        state.storage.get_object_tagging_version(&bucket, &key, version_id).await?
+    } else {
+        state.storage.get_object_tagging(&bucket, &key).await?
+    };
+
+    let response = TaggingResponse {
+        tag_set: TagSetResponse {
+            tags: tag_set
+                .tags
+                .into_iter()
+                .map(|t| TagResponse { key: t.key, value: t.value })
+                .collect(),
+        },
+    };
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    let mut response_builder =
+        Response::builder().status(StatusCode::OK).header("Content-Type", "application/xml");
+
+    // Add version ID header if provided
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
     }
 
-    // Check object exists
-    state.storage.head_object(&bucket, &key).await?;
-
-    // Return empty tagging (stub implementation)
-    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet/></Tagging>"#;
-    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+    response_builder
+        .body(Body::from(xml))
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `PUT /{bucket}/{key}?tagging` - Set object tagging.
 pub async fn put_object_tagging(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
-    _body: Bytes,
-) -> Result<impl IntoResponse, ApiError> {
-    // Check bucket exists
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
+    Query(query): Query<crate::router::RequestQuery>,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    // Parse the tagging XML
+    let tagging: TaggingRequest = quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+        ApiError::new(S3ErrorCode::MalformedXML, format!("Failed to parse tagging XML: {e}"))
+    })?;
+
+    // Convert to TagSet
+    let tag_set = TagSet::with_tags(
+        tagging.tag_set.tags.into_iter().map(|t| Tag::new(t.key, t.value)).collect(),
+    );
+
+    // Store tags (this also verifies bucket and object exist)
+    if let Some(ref version_id) = query.version_id {
+        state.storage.put_object_tagging_version(&bucket, &key, version_id, tag_set).await?;
+    } else {
+        state.storage.put_object_tagging(&bucket, &key, tag_set).await?;
     }
 
-    // Check object exists
-    state.storage.head_object(&bucket, &key).await?;
+    let mut response_builder = Response::builder().status(StatusCode::OK);
 
-    // Stub: accept but don't store (tags not persisted)
-    Ok(StatusCode::OK)
+    // Add version ID header if provided
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
+    }
+
+    response_builder
+        .body(Body::empty())
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `DELETE /{bucket}/{key}?tagging` - Delete object tagging.
 pub async fn delete_object_tagging(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
-) -> Result<impl IntoResponse, ApiError> {
-    // Check bucket exists
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
+    Query(query): Query<crate::router::RequestQuery>,
+) -> Result<Response, ApiError> {
+    // Delete tags (this also verifies bucket and object exist)
+    if let Some(ref version_id) = query.version_id {
+        state.storage.delete_object_tagging_version(&bucket, &key, version_id).await?;
+    } else {
+        state.storage.delete_object_tagging(&bucket, &key).await?;
     }
 
-    // Check object exists
-    state.storage.head_object(&bucket, &key).await?;
+    let mut response_builder = Response::builder().status(StatusCode::NO_CONTENT);
 
-    // Stub: accept but don't do anything (tags not persisted)
-    Ok(StatusCode::NO_CONTENT)
+    // Add version ID header if provided
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
+    }
+
+    response_builder
+        .body(Body::empty())
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use axum::extract::{Path, Query, State};
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use bytes::Bytes;
+    use rucket_core::config::ApiCompatibilityMode;
+    use rucket_storage::{LocalStorage, ObjectHeaders, StorageBackend};
+    use tempfile::TempDir;
+
     use super::*;
+    use crate::handlers::bucket::AppState;
+    use crate::router::RequestQuery;
+
+    /// Create a RequestQuery with a specific version_id.
+    fn query_with_version_id(version_id: String) -> RequestQuery {
+        // Use serde to create a RequestQuery with the version_id set
+        serde_json::from_str(&format!(r#"{{"versionId": "{}"}}"#, version_id)).unwrap()
+    }
 
     #[test]
     fn test_parse_range_header() {
@@ -1287,5 +1343,310 @@ mod tests {
     fn test_parse_range_header_invalid() {
         assert!(parse_range_header("invalid").is_err());
         assert!(parse_range_header("bytes=abc-def").is_err());
+    }
+
+    /// Create a test storage and app state.
+    async fn create_test_state() -> (AppState, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let data_dir = temp_dir.path().join("data");
+        let temp_storage_dir = temp_dir.path().join("temp");
+        let storage = LocalStorage::new(data_dir, temp_storage_dir).await.unwrap();
+        let state = AppState {
+            storage: Arc::new(storage),
+            compatibility_mode: ApiCompatibilityMode::S3Strict,
+        };
+        (state, temp_dir)
+    }
+
+    /// Create a test bucket and object.
+    async fn setup_bucket_and_object(state: &AppState) {
+        state.storage.create_bucket("test-bucket").await.unwrap();
+        state
+            .storage
+            .put_object(
+                "test-bucket",
+                "test-key.txt",
+                Bytes::from("test content"),
+                ObjectHeaders::default(),
+                std::collections::HashMap::new(),
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_object_tagging_empty() {
+        let (state, _temp_dir) = create_test_state().await;
+        setup_bucket_and_object(&state).await;
+
+        let result = get_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(RequestQuery::default()),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap().into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_put_and_get_object_tagging() {
+        let (state, _temp_dir) = create_test_state().await;
+        setup_bucket_and_object(&state).await;
+
+        // Put tagging
+        let tagging_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+            <Tagging>
+                <TagSet>
+                    <Tag>
+                        <Key>env</Key>
+                        <Value>test</Value>
+                    </Tag>
+                </TagSet>
+            </Tagging>"#;
+
+        let put_result = put_object_tagging(
+            State(state.clone()),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(RequestQuery::default()),
+            Bytes::from(tagging_xml),
+        )
+        .await;
+
+        assert!(put_result.is_ok());
+        let response = put_result.unwrap().into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Get tagging and verify
+        let get_result = get_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(RequestQuery::default()),
+        )
+        .await;
+
+        assert!(get_result.is_ok());
+        let response = get_result.unwrap().into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_delete_object_tagging() {
+        let (state, _temp_dir) = create_test_state().await;
+        setup_bucket_and_object(&state).await;
+
+        // First put some tags
+        let tagging_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+            <Tagging>
+                <TagSet>
+                    <Tag>
+                        <Key>env</Key>
+                        <Value>test</Value>
+                    </Tag>
+                </TagSet>
+            </Tagging>"#;
+
+        put_object_tagging(
+            State(state.clone()),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(RequestQuery::default()),
+            Bytes::from(tagging_xml),
+        )
+        .await
+        .unwrap();
+
+        // Delete tagging
+        let delete_result = delete_object_tagging(
+            State(state.clone()),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(RequestQuery::default()),
+        )
+        .await;
+
+        assert!(delete_result.is_ok());
+        let response = delete_result.unwrap().into_response();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        // Verify tags are deleted (should return empty tag set)
+        let get_result = get_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(RequestQuery::default()),
+        )
+        .await;
+
+        assert!(get_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_object_tagging_with_version_id() {
+        let (state, _temp_dir) = create_test_state().await;
+        setup_bucket_and_object(&state).await;
+
+        // Enable versioning
+        state
+            .storage
+            .set_bucket_versioning("test-bucket", rucket_core::types::VersioningStatus::Enabled)
+            .await
+            .unwrap();
+
+        // Upload a new version
+        let result = state
+            .storage
+            .put_object(
+                "test-bucket",
+                "test-key.txt",
+                Bytes::from("version 2 content"),
+                ObjectHeaders::default(),
+                std::collections::HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let version_id = result.version_id.unwrap();
+
+        // Get tagging with version ID
+        let get_result = get_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(query_with_version_id(version_id.clone())),
+        )
+        .await;
+
+        assert!(get_result.is_ok());
+        let response = get_result.unwrap().into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        // Verify version ID header is present
+        assert!(response.headers().get("x-amz-version-id").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_put_object_tagging_with_version_id() {
+        let (state, _temp_dir) = create_test_state().await;
+        setup_bucket_and_object(&state).await;
+
+        // Enable versioning
+        state
+            .storage
+            .set_bucket_versioning("test-bucket", rucket_core::types::VersioningStatus::Enabled)
+            .await
+            .unwrap();
+
+        // Upload a new version
+        let result = state
+            .storage
+            .put_object(
+                "test-bucket",
+                "test-key.txt",
+                Bytes::from("version 2 content"),
+                ObjectHeaders::default(),
+                std::collections::HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let version_id = result.version_id.unwrap();
+
+        // Put tagging with version ID
+        let tagging_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+            <Tagging>
+                <TagSet>
+                    <Tag>
+                        <Key>version</Key>
+                        <Value>2</Value>
+                    </Tag>
+                </TagSet>
+            </Tagging>"#;
+
+        let put_result = put_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(query_with_version_id(version_id.clone())),
+            Bytes::from(tagging_xml),
+        )
+        .await;
+
+        assert!(put_result.is_ok());
+        let response = put_result.unwrap().into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        // Verify version ID header is present
+        assert!(response.headers().get("x-amz-version-id").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_delete_object_tagging_with_version_id() {
+        let (state, _temp_dir) = create_test_state().await;
+        setup_bucket_and_object(&state).await;
+
+        // Enable versioning
+        state
+            .storage
+            .set_bucket_versioning("test-bucket", rucket_core::types::VersioningStatus::Enabled)
+            .await
+            .unwrap();
+
+        // Upload a new version
+        let result = state
+            .storage
+            .put_object(
+                "test-bucket",
+                "test-key.txt",
+                Bytes::from("version 2 content"),
+                ObjectHeaders::default(),
+                std::collections::HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let version_id = result.version_id.unwrap();
+
+        // Delete tagging with version ID
+        let delete_result = delete_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(query_with_version_id(version_id.clone())),
+        )
+        .await;
+
+        assert!(delete_result.is_ok());
+        let response = delete_result.unwrap().into_response();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        // Verify version ID header is present
+        assert!(response.headers().get("x-amz-version-id").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_put_object_tagging_malformed_xml() {
+        let (state, _temp_dir) = create_test_state().await;
+        setup_bucket_and_object(&state).await;
+
+        // Put malformed tagging XML
+        let put_result = put_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "test-key.txt".to_string())),
+            Query(RequestQuery::default()),
+            Bytes::from("not valid xml"),
+        )
+        .await;
+
+        assert!(put_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_object_tagging_nonexistent_object() {
+        let (state, _temp_dir) = create_test_state().await;
+        state.storage.create_bucket("test-bucket").await.unwrap();
+
+        // Try to get tags for non-existent object
+        let result = get_object_tagging(
+            State(state),
+            Path(("test-bucket".to_string(), "nonexistent.txt".to_string())),
+            Query(RequestQuery::default()),
+        )
+        .await;
+
+        assert!(result.is_err());
     }
 }

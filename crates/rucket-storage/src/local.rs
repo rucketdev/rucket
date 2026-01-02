@@ -8,7 +8,7 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{
-    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
 };
 use rucket_core::{RecoveryMode, RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
@@ -1302,6 +1302,48 @@ impl StorageBackend for LocalStorage {
             )
             .await
     }
+
+    // === Object Tagging Operations ===
+
+    async fn get_object_tagging(&self, bucket: &str, key: &str) -> Result<TagSet> {
+        self.metadata.get_object_tagging(bucket, key).await
+    }
+
+    async fn put_object_tagging(&self, bucket: &str, key: &str, tags: TagSet) -> Result<()> {
+        self.metadata.put_object_tagging(bucket, key, tags).await
+    }
+
+    async fn delete_object_tagging(&self, bucket: &str, key: &str) -> Result<()> {
+        self.metadata.delete_object_tagging(bucket, key).await
+    }
+
+    async fn get_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<TagSet> {
+        self.metadata.get_object_tagging_version(bucket, key, version_id).await
+    }
+
+    async fn put_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        tags: TagSet,
+    ) -> Result<()> {
+        self.metadata.put_object_tagging_version(bucket, key, version_id, tags).await
+    }
+
+    async fn delete_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<()> {
+        self.metadata.delete_object_tagging_version(bucket, key, version_id).await
+    }
 }
 
 #[cfg(test)]
@@ -2212,5 +2254,94 @@ mod tests {
             final_syncs > initial_syncs,
             "Threshold mode should trigger sync when threshold exceeded: got {final_syncs} (was {initial_syncs})"
         );
+    }
+
+    #[tokio::test]
+    async fn test_object_tagging_put_get_delete() {
+        use rucket_core::types::{Tag, TagSet};
+
+        let (storage, _temp) = create_test_storage().await;
+        storage.create_bucket("test-bucket").await.unwrap();
+
+        // Create an object first
+        let data = Bytes::from("test data");
+        storage
+            .put_object("test-bucket", "test-key", data, ObjectHeaders::default(), HashMap::new())
+            .await
+            .unwrap();
+
+        // Initially no tags
+        let tags = storage.get_object_tagging("test-bucket", "test-key").await.unwrap();
+        assert!(tags.is_empty());
+
+        // Put tags
+        let tag_set =
+            TagSet::with_tags(vec![Tag::new("env", "test"), Tag::new("project", "rucket")]);
+        storage.put_object_tagging("test-bucket", "test-key", tag_set).await.unwrap();
+
+        // Get tags
+        let retrieved = storage.get_object_tagging("test-bucket", "test-key").await.unwrap();
+        assert_eq!(retrieved.len(), 2);
+
+        // Delete tags
+        storage.delete_object_tagging("test-bucket", "test-key").await.unwrap();
+        let tags = storage.get_object_tagging("test-bucket", "test-key").await.unwrap();
+        assert!(tags.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_object_tagging_versioned() {
+        use rucket_core::types::{Tag, TagSet, VersioningStatus};
+
+        let (storage, _temp) = create_test_storage().await;
+        storage.create_bucket("test-bucket").await.unwrap();
+        storage.set_bucket_versioning("test-bucket", VersioningStatus::Enabled).await.unwrap();
+
+        // Create v1
+        let data = Bytes::from("version 1");
+        let meta1 = storage
+            .put_object("test-bucket", "test-key", data, ObjectHeaders::default(), HashMap::new())
+            .await
+            .unwrap();
+        let v1 = meta1.version_id.clone().unwrap();
+
+        // Create v2
+        let data = Bytes::from("version 2");
+        let meta2 = storage
+            .put_object("test-bucket", "test-key", data, ObjectHeaders::default(), HashMap::new())
+            .await
+            .unwrap();
+        let v2 = meta2.version_id.clone().unwrap();
+
+        // Tag v1
+        let tags_v1 = TagSet::with_tags(vec![Tag::new("version", "1")]);
+        storage.put_object_tagging_version("test-bucket", "test-key", &v1, tags_v1).await.unwrap();
+
+        // Tag v2
+        let tags_v2 = TagSet::with_tags(vec![Tag::new("version", "2")]);
+        storage.put_object_tagging_version("test-bucket", "test-key", &v2, tags_v2).await.unwrap();
+
+        // Get v1 tags
+        let retrieved_v1 =
+            storage.get_object_tagging_version("test-bucket", "test-key", &v1).await.unwrap();
+        assert_eq!(retrieved_v1.len(), 1);
+        assert_eq!(retrieved_v1.tags[0].value, "1");
+
+        // Get v2 tags
+        let retrieved_v2 =
+            storage.get_object_tagging_version("test-bucket", "test-key", &v2).await.unwrap();
+        assert_eq!(retrieved_v2.len(), 1);
+        assert_eq!(retrieved_v2.tags[0].value, "2");
+
+        // Delete v1 tags
+        storage.delete_object_tagging_version("test-bucket", "test-key", &v1).await.unwrap();
+        let tags =
+            storage.get_object_tagging_version("test-bucket", "test-key", &v1).await.unwrap();
+        assert!(tags.is_empty());
+
+        // v2 tags should still exist
+        let tags =
+            storage.get_object_tagging_version("test-bucket", "test-key", &v2).await.unwrap();
+        assert_eq!(tags.len(), 1);
     }
 }

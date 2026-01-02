@@ -406,7 +406,9 @@ async fn handle_object_get(
 
     // Check for ?tagging (GetObjectTagging)
     if query.tagging.is_some() {
-        return object::get_object_tagging(state, path).await.into_response();
+        let tagging_query =
+            RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
+        return object::get_object_tagging(state, path, Query(tagging_query)).await.into_response();
     }
 
     // Build response header overrides
@@ -452,7 +454,11 @@ async fn handle_object_put(
 
     // Check for ?tagging (PutObjectTagging)
     if query.tagging.is_some() {
-        return object::put_object_tagging(state, path, body).await.into_response();
+        let tagging_query =
+            RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
+        return object::put_object_tagging(state, path, Query(tagging_query), body)
+            .await
+            .into_response();
     }
 
     // Check for ?partNumber&uploadId (upload part)
@@ -489,7 +495,11 @@ async fn handle_object_delete(
 
     // Check for ?tagging (DeleteObjectTagging)
     if query.tagging.is_some() {
-        return object::delete_object_tagging(state, path).await.into_response();
+        let tagging_query =
+            RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
+        return object::delete_object_tagging(state, path, Query(tagging_query))
+            .await
+            .into_response();
     }
 
     // Default: DeleteObject
