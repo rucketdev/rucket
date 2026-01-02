@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rucket_core::{SyncConfig, SyncStrategy};
 use tokio::fs::File;
@@ -17,6 +17,11 @@ pub struct SyncManager {
     config: SyncConfig,
     bytes_written: AtomicU64,
     ops_count: AtomicU32,
+    /// Timestamp of last write in milliseconds since manager creation.
+    /// Used for idle detection in Threshold mode.
+    last_write_time_ms: AtomicU64,
+    /// Instant when manager was created, used as epoch for last_write_time_ms.
+    start_time: Instant,
     pending_files: tokio::sync::Mutex<Vec<std::path::PathBuf>>,
     notify: Arc<Notify>,
     shutdown: Arc<Notify>,
@@ -26,10 +31,13 @@ impl SyncManager {
     /// Create a new sync manager with the given configuration.
     #[must_use]
     pub fn new(config: SyncConfig) -> Arc<Self> {
+        let start_time = Instant::now();
         let manager = Arc::new(Self {
             config,
             bytes_written: AtomicU64::new(0),
             ops_count: AtomicU32::new(0),
+            last_write_time_ms: AtomicU64::new(0),
+            start_time,
             pending_files: tokio::sync::Mutex::new(Vec::new()),
             notify: Arc::new(Notify::new()),
             shutdown: Arc::new(Notify::new()),
@@ -40,6 +48,14 @@ impl SyncManager {
             let manager_clone = Arc::clone(&manager);
             tokio::spawn(async move {
                 manager_clone.periodic_sync_task().await;
+            });
+        }
+
+        // Start idle timeout task for threshold mode
+        if manager.config.data == SyncStrategy::Threshold {
+            let manager_clone = Arc::clone(&manager);
+            tokio::spawn(async move {
+                manager_clone.threshold_idle_task().await;
             });
         }
 
@@ -94,6 +110,10 @@ impl SyncManager {
         let total_bytes = self.bytes_written.fetch_add(bytes, Ordering::SeqCst) + bytes;
         let ops = self.ops_count.fetch_add(1, Ordering::SeqCst) + 1;
 
+        // Update last write time for idle detection
+        let now_ms = self.start_time.elapsed().as_millis() as u64;
+        self.last_write_time_ms.store(now_ms, Ordering::SeqCst);
+
         match self.config.data {
             SyncStrategy::Always => true,
             SyncStrategy::None => false,
@@ -108,6 +128,8 @@ impl SyncManager {
                 }
             }
             SyncStrategy::Threshold => {
+                // Notify the idle task that a write occurred
+                self.notify.notify_one();
                 total_bytes >= self.config.bytes_threshold || ops >= self.config.ops_threshold
             }
         }
@@ -162,6 +184,40 @@ impl SyncManager {
                 }
                 _ = self.notify.notified() => {
                     // Just continue, will sync on next interval
+                }
+                _ = self.shutdown.notified() => {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Background task for threshold mode idle detection.
+    /// Flushes dirty data if no writes occur within max_idle_ms.
+    async fn threshold_idle_task(&self) {
+        let check_interval = Duration::from_millis(self.config.max_idle_ms / 2);
+        let max_idle = self.config.max_idle_ms;
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(check_interval) => {
+                    // Check if we've been idle long enough
+                    let last_write = self.last_write_time_ms.load(Ordering::SeqCst);
+                    let now_ms = self.start_time.elapsed().as_millis() as u64;
+                    let pending_count = self.pending_files.lock().await.len();
+
+                    // If we have pending files and have been idle for max_idle_ms, sync
+                    if pending_count > 0 && last_write > 0 && (now_ms - last_write) >= max_idle {
+                        tracing::debug!(
+                            idle_ms = now_ms - last_write,
+                            pending_files = pending_count,
+                            "Threshold idle timeout reached, syncing"
+                        );
+                        let _ = self.sync_pending().await;
+                    }
+                }
+                _ = self.notify.notified() => {
+                    // Write occurred, continue checking
                 }
                 _ = self.shutdown.notified() => {
                     break;

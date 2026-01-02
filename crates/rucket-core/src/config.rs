@@ -340,7 +340,7 @@ pub enum SyncStrategy {
 pub struct SyncConfig {
     /// Sync strategy for object data files.
     pub data: SyncStrategy,
-    /// Sync strategy for metadata (SQLite database).
+    /// Sync strategy for metadata (redb database).
     pub metadata: SyncStrategy,
     /// Interval in milliseconds for periodic sync strategy.
     /// Only used when strategy is `Periodic`.
@@ -351,6 +351,11 @@ pub struct SyncConfig {
     /// Operations threshold for threshold-based sync.
     /// Sync after this many write operations complete.
     pub ops_threshold: u32,
+    /// Maximum idle time in milliseconds for threshold-based sync.
+    /// If no writes occur within this window, dirty data is flushed.
+    /// Prevents data from staying dirty forever if activity stops.
+    /// Only used when strategy is `Threshold`.
+    pub max_idle_ms: u64,
     /// Minimum file size in bytes to use direct I/O (O_DIRECT).
     /// Set to 0 to disable. Only effective on Linux.
     /// Direct I/O bypasses the page cache for large sequential writes.
@@ -421,6 +426,7 @@ impl Default for SyncConfig {
             interval_ms: 1000,                 // 1 second
             bytes_threshold: 10 * 1024 * 1024, // 10 MB
             ops_threshold: 100,
+            max_idle_ms: 5000,     // 5 seconds
             direct_io_min_size: 0, // Disabled by default
             batch: BatchConfig::default(),
             verify_checksums_on_read: false, // Only enabled in Durable preset
