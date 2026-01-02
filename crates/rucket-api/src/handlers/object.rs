@@ -1247,6 +1247,13 @@ pub async fn get_object_tagging(
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
+/// Maximum number of tags allowed for an object.
+const MAX_OBJECT_TAGS: usize = 10;
+/// Maximum length of a tag key.
+const MAX_TAG_KEY_LENGTH: usize = 128;
+/// Maximum length of a tag value.
+const MAX_TAG_VALUE_LENGTH: usize = 256;
+
 /// `PUT /{bucket}/{key}?tagging` - Set object tagging.
 pub async fn put_object_tagging(
     State(state): State<AppState>,
@@ -1258,6 +1265,43 @@ pub async fn put_object_tagging(
     let tagging: TaggingRequest = quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
         ApiError::new(S3ErrorCode::MalformedXML, format!("Failed to parse tagging XML: {e}"))
     })?;
+
+    // Validate tag count
+    if tagging.tag_set.tags.len() > MAX_OBJECT_TAGS {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidTag,
+            format!(
+                "Object tags cannot be greater than {}. You have {} tags.",
+                MAX_OBJECT_TAGS,
+                tagging.tag_set.tags.len()
+            ),
+        ));
+    }
+
+    // Validate each tag
+    for tag in &tagging.tag_set.tags {
+        // Check for empty key
+        if tag.key.is_empty() {
+            return Err(ApiError::new(S3ErrorCode::InvalidTag, "Tag key cannot be empty"));
+        }
+        // Check key length
+        if tag.key.len() > MAX_TAG_KEY_LENGTH {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidTag,
+                format!("Tag key exceeds the maximum length of {} characters", MAX_TAG_KEY_LENGTH),
+            ));
+        }
+        // Check value length
+        if tag.value.len() > MAX_TAG_VALUE_LENGTH {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidTag,
+                format!(
+                    "Tag value exceeds the maximum length of {} characters",
+                    MAX_TAG_VALUE_LENGTH
+                ),
+            ));
+        }
+    }
 
     // Convert to TagSet
     let tag_set = TagSet::with_tags(

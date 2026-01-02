@@ -185,7 +185,6 @@ async fn test_bucket_tagging_max_value_length() {
 /// Test putting tags with invalid key (too long).
 /// Ceph: test_bucket_tagging_invalid_key
 #[tokio::test]
-#[ignore = "Tag key length validation not implemented"]
 async fn test_bucket_tagging_key_too_long() {
     let ctx = S3TestContext::new().await;
 
@@ -205,7 +204,6 @@ async fn test_bucket_tagging_key_too_long() {
 /// Test putting tags with invalid value (too long).
 /// Ceph: test_bucket_tagging_invalid_value
 #[tokio::test]
-#[ignore = "Tag value length validation not implemented"]
 async fn test_bucket_tagging_value_too_long() {
     let ctx = S3TestContext::new().await;
 
@@ -394,7 +392,6 @@ async fn test_bucket_tagging_max_50() {
 /// Test bucket tagging more than 50 tags fails.
 /// Ceph: test_bucket_tagging_over_50
 #[tokio::test]
-#[ignore = "Tag count validation not implemented"]
 async fn test_bucket_tagging_over_50_fails() {
     let ctx = S3TestContext::new().await;
 
