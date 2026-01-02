@@ -23,23 +23,23 @@ Core platform capabilities. Solid base for production use.
 | User metadata (x-amz-meta-*) | ✅ |
 | Batch delete operations | ✅ |
 | Copy object with metadata directive | ✅ |
+| TLS/HTTPS support | ✅ |
+| Presigned URLs | ✅ |
+| Object tagging persistence | ✅ |
+| CORS support | ✅ |
+| Bucket tagging persistence | ✅ |
 
 ### To Complete - Critical
 
 | Feature | Tests | Status |
 |---------|-------|--------|
-| TLS support with tests | ~10 | ⬜ |
 | High Availability (active/passive) | ~20 | ⬜ |
 | S3 compatibility test suite (Rust port) | 500+ | ⬜ |
-| Presigned URLs | 26 | ⬜ |
 
 ### To Complete - Quick Wins
 
 | Feature | Tests | Status |
 |---------|-------|--------|
-| CORS support | 17 | ⬜ |
-| Object tagging persistence | 9 | ⬜ |
-| Bucket tagging persistence | 6 | ⬜ |
 | Tag validation (length, count) | 6 | ⬜ |
 | GetObjectAttributes | 10 | ⬜ |
 | Checksum validation (CRC32, SHA) | 13 | ⬜ |

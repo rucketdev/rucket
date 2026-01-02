@@ -11,7 +11,6 @@ use crate::S3TestContext;
 /// Test putting and getting bucket tags.
 /// Ceph: test_set_bucket_tagging
 #[tokio::test]
-#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_put_get() {
     let ctx = S3TestContext::new().await;
 
@@ -134,7 +133,6 @@ async fn test_bucket_tagging_max_key_length() {
 
 /// Test putting many tags.
 #[tokio::test]
-#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_many_tags() {
     let ctx = S3TestContext::new().await;
 
@@ -249,7 +247,6 @@ async fn test_bucket_tagging_nonexistent_bucket() {
 /// Test bucket tagging replaces existing tags.
 /// Ceph: test_bucket_tagging_replace
 #[tokio::test]
-#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_replace() {
     let ctx = S3TestContext::new().await;
 
@@ -291,7 +288,6 @@ async fn test_bucket_tagging_replace() {
 /// Test bucket tagging with unicode characters.
 /// Ceph: test_bucket_tagging_unicode
 #[tokio::test]
-#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_unicode() {
     let ctx = S3TestContext::new().await;
 
@@ -319,7 +315,6 @@ async fn test_bucket_tagging_unicode() {
 /// Test bucket tagging with special characters.
 /// Ceph: test_bucket_tagging_special_chars
 #[tokio::test]
-#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_special_chars() {
     let ctx = S3TestContext::new().await;
 
@@ -366,7 +361,6 @@ async fn test_bucket_tagging_empty_set() {
 /// Test bucket tagging maximum 50 tags.
 /// Ceph: test_bucket_tagging_max_50
 #[tokio::test]
-#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_max_50() {
     let ctx = S3TestContext::new().await;
 

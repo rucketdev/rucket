@@ -1369,6 +1369,18 @@ impl StorageBackend for LocalStorage {
     ) -> Result<()> {
         self.metadata.delete_object_tagging_version(bucket, key, version_id).await
     }
+
+    async fn get_bucket_tagging(&self, bucket: &str) -> Result<TagSet> {
+        self.metadata.get_bucket_tagging(bucket).await
+    }
+
+    async fn put_bucket_tagging(&self, bucket: &str, tags: TagSet) -> Result<()> {
+        self.metadata.put_bucket_tagging(bucket, tags).await
+    }
+
+    async fn delete_bucket_tagging(&self, bucket: &str) -> Result<()> {
+        self.metadata.delete_bucket_tagging(bucket).await
+    }
 }
 
 #[cfg(test)]

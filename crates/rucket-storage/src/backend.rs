@@ -253,6 +253,17 @@ pub trait StorageBackend: Send + Sync {
         key: &str,
         version_id: &str,
     ) -> Result<()>;
+
+    // Bucket tagging operations
+
+    /// Get tags for a bucket.
+    async fn get_bucket_tagging(&self, bucket: &str) -> Result<TagSet>;
+
+    /// Set tags for a bucket.
+    async fn put_bucket_tagging(&self, bucket: &str, tags: TagSet) -> Result<()>;
+
+    /// Delete tags for a bucket.
+    async fn delete_bucket_tagging(&self, bucket: &str) -> Result<()>;
 }
 
 /// Result of listing objects.
