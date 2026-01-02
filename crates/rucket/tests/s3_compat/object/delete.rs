@@ -175,3 +175,202 @@ async fn test_object_delete_then_put() {
     let data = ctx.get("test.txt").await;
     assert_eq!(data.as_slice(), b"Version 2");
 }
+
+// =============================================================================
+// Extended Delete Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test DELETE versioned object creates delete marker.
+/// Ceph: test_object_delete_versioned
+#[tokio::test]
+async fn test_object_delete_versioned_creates_marker() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let put = ctx.put("test.txt", b"content").await;
+    let version_id = put.version_id().unwrap();
+
+    // Delete without version ID creates delete marker
+    let delete_result =
+        ctx.client.delete_object().bucket(&ctx.bucket).key("test.txt").send().await.unwrap();
+
+    assert!(delete_result.delete_marker().unwrap_or(false), "Should create delete marker");
+    assert!(delete_result.version_id().is_some(), "Delete marker should have version ID");
+    assert_ne!(delete_result.version_id(), Some(version_id));
+
+    // Object should appear deleted
+    let result = ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").send().await;
+    assert!(result.is_err());
+}
+
+/// Test DELETE specific version.
+/// Ceph: test_object_delete_specific_version
+#[tokio::test]
+async fn test_object_delete_specific_version() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let v1 = ctx.put("test.txt", b"version1").await;
+    let v2 = ctx.put("test.txt", b"version2").await;
+
+    let vid1 = v1.version_id().unwrap();
+    let vid2 = v2.version_id().unwrap();
+
+    // Delete v1
+    ctx.client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(vid1)
+        .send()
+        .await
+        .expect("Should delete specific version");
+
+    // v2 should still exist and be current
+    let data = ctx.get("test.txt").await;
+    assert_eq!(data.as_slice(), b"version2");
+
+    // v1 should be gone
+    let result =
+        ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").version_id(vid1).send().await;
+    assert!(result.is_err());
+
+    // v2 should still be accessible by version ID
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(vid2)
+        .send()
+        .await
+        .expect("v2 should exist");
+
+    let body = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(body.as_ref(), b"version2");
+}
+
+/// Test DELETE delete marker removes it.
+/// Ceph: test_object_delete_delete_marker
+#[tokio::test]
+async fn test_object_delete_removes_delete_marker() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    ctx.put("test.txt", b"content").await;
+
+    // Create delete marker
+    let delete1 =
+        ctx.client.delete_object().bucket(&ctx.bucket).key("test.txt").send().await.unwrap();
+
+    let marker_id = delete1.version_id().unwrap();
+
+    // Delete the delete marker
+    ctx.client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(marker_id)
+        .send()
+        .await
+        .expect("Should delete delete marker");
+
+    // Original object should be accessible again
+    let data = ctx.get("test.txt").await;
+    assert_eq!(data.as_slice(), b"content");
+}
+
+/// Test DELETE with special characters in key.
+/// Ceph: test_object_delete_special_chars
+#[tokio::test]
+async fn test_object_delete_special_chars_key() {
+    let ctx = S3TestContext::new().await;
+
+    let keys = ["file with spaces.txt", "file+plus.txt", "path/to/deep/file.txt"];
+
+    for key in &keys {
+        ctx.put(key, b"content").await;
+        ctx.delete(key).await;
+        let exists = ctx.exists(key).await;
+        assert!(!exists, "Object {} should be deleted", key);
+    }
+}
+
+/// Test DELETE empty object.
+/// Ceph: test_object_delete_empty
+#[tokio::test]
+async fn test_object_delete_empty() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("empty.txt", b"").await;
+    ctx.delete("empty.txt").await;
+
+    let exists = ctx.exists("empty.txt").await;
+    assert!(!exists);
+}
+
+/// Test DELETE returns version ID on versioned bucket.
+/// Ceph: test_object_delete_returns_version_id
+#[tokio::test]
+async fn test_object_delete_returns_version_id() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    ctx.put("test.txt", b"content").await;
+
+    let delete_result =
+        ctx.client.delete_object().bucket(&ctx.bucket).key("test.txt").send().await.unwrap();
+
+    assert!(delete_result.version_id().is_some());
+}
+
+/// Test DELETE all versions.
+/// Ceph: test_object_delete_all_versions
+#[tokio::test]
+async fn test_object_delete_all_versions() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let v1 = ctx.put("test.txt", b"v1").await;
+    let v2 = ctx.put("test.txt", b"v2").await;
+    let v3 = ctx.put("test.txt", b"v3").await;
+
+    // Delete all versions
+    for vid in [v1.version_id().unwrap(), v2.version_id().unwrap(), v3.version_id().unwrap()] {
+        ctx.client
+            .delete_object()
+            .bucket(&ctx.bucket)
+            .key("test.txt")
+            .version_id(vid)
+            .send()
+            .await
+            .expect("Should delete version");
+    }
+
+    // No versions should exist
+    let versions = ctx.list_versions().await;
+    assert!(versions.versions().is_empty());
+}
+
+/// Test DELETE concurrent on versioned bucket.
+/// Ceph: test_object_delete_concurrent_versioned
+#[tokio::test]
+async fn test_object_delete_concurrent_versioned() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    // Create multiple versions
+    for i in 0..5 {
+        ctx.put("test.txt", format!("version{}", i).as_bytes()).await;
+    }
+
+    // Delete concurrently (creates delete markers)
+    let mut handles = Vec::new();
+    for _ in 0..5 {
+        let client = ctx.client.clone();
+        let bucket = ctx.bucket.clone();
+        let handle = tokio::spawn(async move {
+            client.delete_object().bucket(&bucket).key("test.txt").send().await
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let result = handle.await.unwrap();
+        assert!(result.is_ok());
+    }
+}

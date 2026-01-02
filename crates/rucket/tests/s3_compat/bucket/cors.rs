@@ -54,3 +54,103 @@ async fn test_bucket_cors_wildcard_origin() {
     let _ctx = S3TestContext::new().await;
     unimplemented!("CORS not implemented");
 }
+
+// =============================================================================
+// Extended CORS Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test CORS with specific origin.
+/// Ceph: test_cors_specific_origin
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_specific_origin() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS allowed methods.
+/// Ceph: test_cors_methods
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_allowed_methods() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS allowed headers.
+/// Ceph: test_cors_headers
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_allowed_headers() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS exposed headers.
+/// Ceph: test_cors_expose_headers
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_exposed_headers() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS max age.
+/// Ceph: test_cors_max_age
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_max_age() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS multiple rules.
+/// Ceph: test_cors_multiple_rules
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_multiple_rules() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS OPTIONS request.
+/// Ceph: test_cors_options
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_options() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS no matching rule.
+/// Ceph: test_cors_no_match
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_no_match() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS XML validation.
+/// Ceph: test_cors_xml
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_xml_validation() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS with presigned URL.
+/// Ceph: test_cors_presigned
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_presigned() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS on non-existent bucket.
+/// Ceph: test_cors_nonexistent
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_nonexistent() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test CORS Access-Control-Allow-Credentials.
+/// Ceph: test_cors_credentials
+#[tokio::test]
+#[ignore = "CORS not implemented"]
+async fn test_bucket_cors_credentials() {
+    let _ctx = S3TestContext::new().await;
+}

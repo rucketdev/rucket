@@ -62,3 +62,17 @@ mod presigned;
 mod range;
 #[path = "s3_compat/versioning/mod.rs"]
 mod versioning;
+
+// New test modules for comprehensive coverage
+#[path = "s3_compat/anonymous/mod.rs"]
+mod anonymous;
+#[path = "s3_compat/checksum/mod.rs"]
+mod checksum;
+#[path = "s3_compat/iam/mod.rs"]
+mod iam;
+#[path = "s3_compat/select/mod.rs"]
+mod select;
+#[path = "s3_compat/storage_class/mod.rs"]
+mod storage_class;
+#[path = "s3_compat/sts/mod.rs"]
+mod sts;

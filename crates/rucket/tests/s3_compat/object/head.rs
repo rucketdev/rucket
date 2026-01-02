@@ -248,3 +248,79 @@ async fn test_object_head_concurrent() {
         assert!(result.is_ok(), "Concurrent HEAD should succeed");
     }
 }
+
+// =============================================================================
+// Extended HEAD Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test HEAD on versioned bucket returns version id.
+/// Ceph: test_object_head_version_id
+#[tokio::test]
+async fn test_object_head_version_id() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let put = ctx.put("test.txt", b"content").await;
+    let version_id = put.version_id().unwrap();
+
+    let response = ctx.head("test.txt").await;
+    assert_eq!(response.version_id(), Some(version_id));
+}
+
+/// Test HEAD specific version.
+/// Ceph: test_object_head_specific_version
+#[tokio::test]
+async fn test_object_head_specific_version() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let v1 = ctx.put("test.txt", b"version1").await;
+    let v2 = ctx.put("test.txt", b"version2-longer").await;
+
+    let vid1 = v1.version_id().unwrap();
+    let vid2 = v2.version_id().unwrap();
+
+    // Head v1
+    let response = ctx
+        .client
+        .head_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(vid1)
+        .send()
+        .await
+        .expect("Should head v1");
+
+    assert_eq!(response.content_length(), Some(8)); // "version1"
+
+    // Head v2
+    let response = ctx
+        .client
+        .head_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(vid2)
+        .send()
+        .await
+        .expect("Should head v2");
+
+    assert_eq!(response.content_length(), Some(15)); // "version2-longer"
+}
+
+/// Test HEAD non-existent version returns error.
+/// Ceph: test_object_head_nonexistent_version
+#[tokio::test]
+async fn test_object_head_nonexistent_version() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    ctx.put("test.txt", b"content").await;
+
+    let result = ctx
+        .client
+        .head_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id("nonexistent-version-id")
+        .send()
+        .await;
+
+    assert!(result.is_err());
+}
