@@ -16,6 +16,9 @@ pub enum S3ErrorCode {
     BucketNotEmpty,
     /// The Content-MD5 you specified did not match what we received.
     BadDigest,
+    /// Data integrity check failed - stored checksum doesn't match computed checksum.
+    /// This indicates data corruption on disk.
+    ChecksumMismatch,
     /// The request signature we calculated does not match the signature you provided.
     SignatureDoesNotMatch,
     /// The AWS access key ID you provided does not exist in our records.
@@ -92,6 +95,7 @@ impl S3ErrorCode {
             | Self::InvalidKey
             | Self::InvalidArgument
             | Self::BadDigest
+            | Self::ChecksumMismatch
             | Self::InvalidRequest
             | Self::InvalidBucketName
             | Self::MalformedXML => 400,
@@ -117,6 +121,7 @@ impl S3ErrorCode {
             Self::BucketAlreadyExists => "BucketAlreadyExists",
             Self::BucketNotEmpty => "BucketNotEmpty",
             Self::BadDigest => "BadDigest",
+            Self::ChecksumMismatch => "ChecksumMismatch",
             Self::SignatureDoesNotMatch => "SignatureDoesNotMatch",
             Self::InvalidAccessKeyId => "InvalidAccessKeyId",
             Self::NoSuchBucket => "NoSuchBucket",

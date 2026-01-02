@@ -1522,6 +1522,53 @@ impl MetadataBackend for RedbMetadataStore {
         .await
         .map_err(db_err)?
     }
+
+    fn uuid_exists_sync(&self, bucket: &str, uuid: Uuid) -> bool {
+        // This is a blocking operation used during recovery
+        let read_txn = match self.db.begin_read() {
+            Ok(txn) => txn,
+            Err(_) => return false,
+        };
+
+        let table = match read_txn.open_table(OBJECTS) {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+
+        // Scan the bucket's objects to find if any has this UUID
+        // Using composite key: "bucket\0key" - we need to scan all keys in the bucket
+        let prefix = format!("{bucket}\0");
+        let range = table.range::<&str>(prefix.as_str()..);
+        let iter = match range {
+            Ok(i) => i,
+            Err(_) => return false,
+        };
+
+        for result in iter {
+            match result {
+                Ok((key, value)) => {
+                    // Check if still in the same bucket
+                    let key_str = key.value();
+                    if !key_str.starts_with(&prefix) {
+                        break;
+                    }
+
+                    // Deserialize and check UUID
+                    let stored: StoredObjectMetadata = match bincode::deserialize(value.value()) {
+                        Ok(m) => m,
+                        Err(_) => continue,
+                    };
+
+                    if stored.uuid == *uuid.as_bytes() {
+                        return true;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        false
+    }
 }
 
 #[cfg(test)]

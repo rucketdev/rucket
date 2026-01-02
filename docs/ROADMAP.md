@@ -71,6 +71,27 @@ Complex features for specific use cases. Target: 100% coverage.
 
 ---
 
+## Future / Experimental
+
+Long-term features for scale, performance, and enterprise deployment.
+
+### Cluster Mode
+
+| Phase | Feature | Description |
+|-------|---------|-------------|
+| 1 | High Availability (HA) | Active/passive replication for automatic failover |
+| 2 | Data Partitioning | Consistent hashing to distribute data across nodes |
+
+### Storage Performance
+
+| Feature | Description |
+|---------|-------------|
+| Direct NVMe access | Bypass filesystem for raw block devices |
+| io_uring support | Linux async I/O for improved throughput |
+| SPDK integration | Storage Performance Development Kit for ultra-low latency |
+
+---
+
 ## Complexity Guide
 
 | Level | Estimate | Description |

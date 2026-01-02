@@ -13,14 +13,23 @@ use super::reader::WalReader;
 /// Statistics from recovery process.
 #[derive(Debug, Default, Clone)]
 pub struct RecoveryStats {
+    /// Whether recovery was needed (incomplete WAL operations were found).
+    /// This indicates a crash or unclean shutdown occurred.
+    pub recovery_needed: bool,
     /// Number of WAL entries processed.
     pub entries_processed: usize,
     /// Number of incomplete PUT operations rolled back.
     pub puts_rolled_back: usize,
     /// Number of incomplete DELETE operations rolled back (file kept).
     pub deletes_rolled_back: usize,
+    /// Number of orphaned files found.
+    pub orphans_found: usize,
     /// Number of orphaned files cleaned up.
     pub orphans_cleaned: usize,
+    /// Number of objects scanned for integrity (full recovery).
+    pub objects_verified: usize,
+    /// Number of objects with checksum mismatches (data corruption).
+    pub checksum_mismatches: usize,
     /// Number of errors encountered (non-fatal).
     pub errors: usize,
 }
@@ -66,14 +75,20 @@ impl RecoveryManager {
 
         stats.entries_processed = reader.entries().len();
 
-        if reader.is_clean() {
+        // Find incomplete operations
+        let incomplete = reader.find_incomplete();
+
+        if incomplete.is_empty() {
             tracing::debug!(entries = stats.entries_processed, "WAL is clean, no recovery needed");
             return Ok(stats);
         }
 
-        // Find incomplete operations
-        let incomplete = reader.find_incomplete();
-        tracing::info!(count = incomplete.len(), "Found incomplete operations to recover");
+        // Mark that recovery was needed (crash/unclean shutdown detected)
+        stats.recovery_needed = true;
+        tracing::info!(
+            count = incomplete.len(),
+            "Found incomplete operations to recover (crash detected)"
+        );
 
         // Process each incomplete operation
         for op in incomplete {
