@@ -63,6 +63,8 @@ pub async fn write_and_hash_with_sync(
         SyncStrategy::Always => {
             // Use sync_data() (fdatasync) - faster than sync_all() as it skips metadata
             file.sync_data().await?;
+            #[cfg(test)]
+            crate::sync::test_stats::record_data_sync();
         }
         SyncStrategy::None | SyncStrategy::Periodic | SyncStrategy::Threshold => {
             // Flush buffer but don't fsync

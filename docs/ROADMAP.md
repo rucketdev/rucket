@@ -10,6 +10,7 @@ Low complexity, high value. Target: 54% coverage.
 
 | Feature | Tests | Status |
 |---------|-------|--------|
+| TLS support (HTTPS) | - | ⬜ |
 | CORS support | 17 | ⬜ |
 | Object tagging persistence | 9 | ⬜ |
 | Bucket tagging persistence | 6 | ⬜ |

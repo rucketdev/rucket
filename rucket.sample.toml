@@ -1,0 +1,245 @@
+# =============================================================================
+# Rucket Configuration File
+# =============================================================================
+# Copy this file to rucket.toml and adjust settings as needed.
+# All values shown are defaults unless noted otherwise.
+#
+# Quick Start:
+#   cp rucket.sample.toml rucket.toml
+#   rucket --config rucket.toml
+#
+# Environment variables can override config values:
+#   RUCKET_SERVER_BIND, RUCKET_AUTH_ACCESS_KEY, RUCKET_AUTH_SECRET_KEY, etc.
+
+# -----------------------------------------------------------------------------
+# Server Configuration
+# -----------------------------------------------------------------------------
+[server]
+# Address to bind the server to (IP:port)
+bind = "127.0.0.1:9000"
+
+# TLS configuration (optional - uncomment to enable HTTPS)
+# tls_cert = "/path/to/cert.pem"
+# tls_key = "/path/to/key.pem"
+
+# Maximum request body size in bytes
+# S3 supports up to 5GB for single PUT operations
+# Set to 0 for unlimited (not recommended)
+# Default: 5 GiB (5368709120)
+# max_body_size = 5368709120
+
+# -----------------------------------------------------------------------------
+# Storage Configuration
+# -----------------------------------------------------------------------------
+[storage]
+# Directory to store object data
+data_dir = "./data"
+
+# Directory for temporary files during uploads (optional)
+# Defaults to data_dir/.tmp if not specified
+# temp_dir = "./data/.tmp"
+
+# -----------------------------------------------------------------------------
+# Sync Configuration (Durability vs Performance)
+# -----------------------------------------------------------------------------
+# Controls when data is flushed to disk. Choose based on your needs:
+#
+# Strategies:
+#   "none"      - Never sync explicitly (fastest, may lose data on crash)
+#   "periodic"  - Sync based on time/bytes/ops thresholds (balanced)
+#   "threshold" - Sync only when thresholds reached (no time-based sync)
+#   "always"    - Sync after every write (slowest, maximum durability)
+#
+# For most users, the defaults provide a good balance.
+# For critical data, set data = "always" and verify_checksums_on_read = true.
+
+[storage.sync]
+# Sync strategy for object data files
+data = "periodic"
+
+# Sync strategy for metadata database
+metadata = "always"
+
+# Interval in milliseconds for periodic sync
+# Only used when data strategy is "periodic"
+# interval_ms = 1000
+
+# Bytes threshold - sync after this many bytes written
+# bytes_threshold = 10485760  # 10 MB
+
+# Operations threshold - sync after this many write operations
+# ops_threshold = 100
+
+# Maximum idle time in milliseconds for threshold-based sync
+# If no writes occur within this window, dirty data is flushed
+# Only used when data strategy is "threshold"
+# max_idle_ms = 5000  # 5 seconds
+
+# Minimum file size to use direct I/O (O_DIRECT on Linux)
+# Set to 0 to disable. Direct I/O bypasses page cache for large writes.
+# direct_io_min_size = 0
+
+# Verify CRC32C checksums on read operations
+# Enable for maximum data integrity (slower reads)
+# Default: false (only enabled in Durable preset)
+# verify_checksums_on_read = false
+
+# -----------------------------------------------------------------------------
+# Batch Configuration (Group Commit)
+# -----------------------------------------------------------------------------
+# Batching multiple writes with a single fsync improves throughput.
+# Disable for maximum durability (sync each write individually).
+
+[storage.sync.batch]
+# Enable batched writes (group commit)
+enabled = true
+
+# Maximum number of writes to batch before flushing
+# max_batch_size = 64
+
+# Maximum bytes to accumulate before flushing
+# max_batch_bytes = 16777216  # 16 MB
+
+# Maximum delay in milliseconds before flushing
+# max_batch_delay_ms = 10
+
+# -----------------------------------------------------------------------------
+# redb Database Configuration
+# -----------------------------------------------------------------------------
+# redb is the embedded database used for object metadata.
+# It provides ACID transactions with automatic crash recovery.
+
+[storage.redb]
+# In-memory cache size in bytes
+# Larger cache improves read performance for metadata operations
+# Default: 64 MiB
+# cache_size_bytes = 67108864
+
+# -----------------------------------------------------------------------------
+# Write-Ahead Log (WAL) Configuration
+# -----------------------------------------------------------------------------
+# WAL enables crash recovery by logging operations before execution.
+# Disable only for maximum performance when data loss is acceptable.
+
+[storage.wal]
+# Enable WAL for crash recovery
+enabled = true
+
+# Sync mode for WAL writes:
+#   "none"      - No explicit sync (fastest, may lose data)
+#   "fdatasync" - Sync data only, not metadata (default, good balance)
+#   "fsync"     - Full sync including metadata (slowest, safest)
+sync_mode = "fdatasync"
+
+# Recovery mode on startup:
+#   "light" - WAL-based recovery only (fast, default)
+#   "full"  - WAL + orphan scan + checksum verification (thorough)
+recovery_mode = "light"
+
+# -----------------------------------------------------------------------------
+# WAL Checkpoint Configuration
+# -----------------------------------------------------------------------------
+# Checkpointing compacts the WAL to reclaim disk space.
+
+[storage.wal.checkpoint]
+# Checkpoint after this many WAL entries
+# entries_threshold = 10000
+
+# Checkpoint after this many bytes written to WAL
+# bytes_threshold = 67108864  # 64 MB
+
+# Checkpoint interval in milliseconds
+# interval_ms = 60000  # 1 minute
+
+# -----------------------------------------------------------------------------
+# Authentication Configuration
+# -----------------------------------------------------------------------------
+# AWS-style access credentials for S3 API authentication.
+# IMPORTANT: Change these defaults in production!
+
+[auth]
+access_key = "rucket"
+secret_key = "rucket123"
+
+# -----------------------------------------------------------------------------
+# Bucket Configuration
+# -----------------------------------------------------------------------------
+[bucket]
+# Bucket naming rules:
+#   "strict"  - DNS-compatible names only (S3-compliant)
+#   "relaxed" - Allow more characters (default, more permissive)
+naming_rules = "relaxed"
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+
+# Log format: pretty (human-readable) or json
+format = "pretty"
+
+# Include HTTP request/response logging
+log_requests = true
+
+# -----------------------------------------------------------------------------
+# Metrics Configuration
+# -----------------------------------------------------------------------------
+# Prometheus-compatible metrics endpoint.
+
+[metrics]
+# Enable metrics collection and endpoint
+enabled = true
+
+# Port for the metrics endpoint (separate from main server)
+port = 9001
+
+# Bind address for metrics server
+bind = "0.0.0.0"
+
+# Include storage metrics (bucket counts, object counts, bytes)
+# These require periodic metadata scans
+include_storage_metrics = true
+
+# Interval in seconds for storage metrics refresh
+# storage_metrics_interval_secs = 60
+
+# -----------------------------------------------------------------------------
+# API Configuration
+# -----------------------------------------------------------------------------
+[api]
+# API compatibility mode:
+#   "s3-strict" - Strict S3 API only (maximum compatibility)
+#   "minio"     - S3 + MinIO extensions (health endpoints)
+#   "ceph"      - S3 + Ceph RGW extensions (versioning, etc.)
+compatibility_mode = "minio"
+
+
+# =============================================================================
+# Durability Presets (Alternative to Fine-Grained Config)
+# =============================================================================
+# Instead of configuring sync settings manually, you can use presets.
+# Set these in your application code or via environment variables.
+#
+# PRESETS:
+#
+# "performance" - Maximum speed, may lose recent writes on crash
+#   - No fsync (relies on OS ~30s flush)
+#   - No checksums verified on read
+#   - Aggressive write batching
+#   - Best for: Caching, temporary data, development
+#
+# "balanced" (default) - Bounded data loss window
+#   - fdatasync every 1s or 10MB or 100 ops
+#   - Checksums computed on write (not verified on read)
+#   - Moderate write batching
+#   - Best for: General purpose, most production workloads
+#
+# "durable" - Maximum durability, slower writes
+#   - fdatasync every write
+#   - Checksums verified on every read
+#   - Directory fsync after rename
+#   - No write batching
+#   - Best for: Critical data, financial records, compliance
+# =============================================================================

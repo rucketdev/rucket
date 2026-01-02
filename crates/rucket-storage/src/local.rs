@@ -29,7 +29,10 @@ use crate::wal::{
 /// This is critical for durability after rename operations.
 async fn sync_directory(path: &std::path::Path) -> std::io::Result<()> {
     let dir = fs::File::open(path).await?;
-    dir.sync_all().await
+    let result = dir.sync_all().await;
+    #[cfg(test)]
+    crate::sync::test_stats::record_dir_sync();
+    result
 }
 
 /// Per-key lock type for serializing concurrent writes.
@@ -607,6 +610,8 @@ impl StorageBackend for LocalStorage {
             // Sync the temp file BEFORE rename for durability
             let file = fs::File::open(&temp_path).await?;
             file.sync_all().await?;
+            #[cfg(test)]
+            crate::sync::test_stats::record_data_sync();
             // Reset counters since we just synced
             self.sync_manager.reset_counters();
         }
