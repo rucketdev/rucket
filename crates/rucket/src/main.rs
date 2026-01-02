@@ -95,6 +95,7 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
         config.server.max_body_size,
         config.api.compatibility_mode,
         config.logging.log_requests,
+        Some(&config.auth),
     );
 
     // Bind to address

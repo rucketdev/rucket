@@ -8,12 +8,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{middleware as axum_middleware, Router};
 use bytes::Bytes;
-use rucket_core::config::ApiCompatibilityMode;
+use rucket_core::config::{ApiCompatibilityMode, AuthConfig};
 use rucket_storage::LocalStorage;
 use serde::Deserialize;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
+use crate::auth::{auth_middleware, AuthState};
 use crate::handlers::bucket::{self, AppState};
 use crate::handlers::{minio, multipart, object};
 use crate::middleware::metrics_layer;
@@ -117,11 +118,13 @@ pub struct RequestQuery {
 /// * `max_body_size` - Maximum request body size in bytes (0 for unlimited)
 /// * `compatibility_mode` - API compatibility mode (s3-strict or minio)
 /// * `log_requests` - Whether to log HTTP requests
+/// * `auth_config` - Optional authentication config (None for anonymous access)
 pub fn create_router(
     storage: Arc<LocalStorage>,
     max_body_size: u64,
     compatibility_mode: ApiCompatibilityMode,
     log_requests: bool,
+    auth_config: Option<&AuthConfig>,
 ) -> Router {
     let state = AppState { storage, compatibility_mode };
 
@@ -163,6 +166,14 @@ pub fn create_router(
     }
 
     let router = router.with_state(state);
+
+    // Add auth middleware if config provided
+    let router = if let Some(auth) = auth_config {
+        let auth_state = AuthState::new(auth);
+        router.layer(axum_middleware::from_fn_with_state(auth_state, auth_middleware))
+    } else {
+        router
+    };
 
     // Add metrics middleware
     let router = router.layer(axum_middleware::from_fn(metrics_layer));

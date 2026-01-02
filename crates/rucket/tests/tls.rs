@@ -64,6 +64,7 @@ async fn start_tls_server(
         5 * 1024 * 1024 * 1024,
         ApiCompatibilityMode::Minio,
         false,
+        None, // anonymous access for tests
     );
 
     let rustls_config =
