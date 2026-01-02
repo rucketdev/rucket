@@ -585,3 +585,231 @@ async fn test_object_put_long_key() {
     let result = ctx.exists(&long_key).await;
     assert!(result, "Object with long key should exist");
 }
+
+// =============================================================================
+// Extended PUT Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test PUT with expires header.
+/// Ceph: test_object_put_expires
+#[tokio::test]
+async fn test_object_put_expires() {
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"content");
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .body(body)
+        .expires(aws_smithy_types::DateTime::from_secs(1700000000))
+        .send()
+        .await
+        .expect("Should put object with expires");
+
+    let response = ctx
+        .client
+        .head_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .send()
+        .await
+        .expect("Should head object");
+
+    assert!(response.expires().is_some());
+}
+
+/// Test PUT to versioned bucket returns version id.
+/// Ceph: test_object_put_versioned
+#[tokio::test]
+async fn test_object_put_versioned_returns_version_id() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let body = ByteStream::from_static(b"content");
+    let response = ctx
+        .client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .body(body)
+        .send()
+        .await
+        .expect("Should put object");
+
+    assert!(response.version_id().is_some(), "Should return version ID");
+}
+
+/// Test PUT multiple versions.
+/// Ceph: test_object_put_multiple_versions
+#[tokio::test]
+async fn test_object_put_multiple_versions() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let v1 = ctx.put("test.txt", b"version1").await;
+    let v2 = ctx.put("test.txt", b"version2").await;
+    let v3 = ctx.put("test.txt", b"version3").await;
+
+    // All should have different version IDs
+    let vid1 = v1.version_id().unwrap();
+    let vid2 = v2.version_id().unwrap();
+    let vid3 = v3.version_id().unwrap();
+
+    assert_ne!(vid1, vid2);
+    assert_ne!(vid2, vid3);
+    assert_ne!(vid1, vid3);
+}
+
+/// Test PUT with If-None-Match prevents overwrite.
+/// Ceph: test_object_put_if_none_match
+#[tokio::test]
+async fn test_object_put_if_none_match_prevents_overwrite() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("test.txt", b"original").await;
+
+    let body = ByteStream::from_static(b"new content");
+    let result = ctx
+        .client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .body(body)
+        .if_none_match("*")
+        .send()
+        .await;
+
+    assert!(result.is_err(), "Should fail with If-None-Match * when object exists");
+
+    // Original content should be preserved
+    let data = ctx.get("test.txt").await;
+    assert_eq!(data.as_slice(), b"original");
+}
+
+/// Test PUT with If-None-Match allows new object.
+/// Ceph: test_object_put_if_none_match_new
+#[tokio::test]
+async fn test_object_put_if_none_match_allows_new() {
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"new content");
+    let result = ctx
+        .client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("new-object.txt")
+        .body(body)
+        .if_none_match("*")
+        .send()
+        .await;
+
+    assert!(result.is_ok(), "Should succeed with If-None-Match * for new object");
+}
+
+/// Test PUT with website redirect location.
+/// Ceph: test_object_put_redirect
+#[tokio::test]
+#[ignore = "Website redirect not implemented"]
+async fn test_object_put_website_redirect() {
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"");
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("redirect.html")
+        .body(body)
+        .website_redirect_location("/target.html")
+        .send()
+        .await
+        .expect("Should put object with redirect");
+}
+
+/// Test PUT with storage class.
+/// Ceph: test_object_put_storage_class
+#[tokio::test]
+async fn test_object_put_storage_class() {
+    use aws_sdk_s3::types::StorageClass;
+
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"content");
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .body(body)
+        .storage_class(StorageClass::Standard)
+        .send()
+        .await
+        .expect("Should put object with storage class");
+
+    let response = ctx
+        .client
+        .head_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .send()
+        .await
+        .expect("Should head object");
+
+    // Storage class should be STANDARD or not specified (defaults to STANDARD)
+    if let Some(sc) = response.storage_class() {
+        assert_eq!(sc, &aws_sdk_s3::types::StorageClass::Standard);
+    }
+}
+
+/// Test PUT concurrent to same key.
+/// Ceph: test_object_put_concurrent_same_key
+#[tokio::test]
+async fn test_object_put_concurrent_same_key() {
+    let ctx = S3TestContext::new().await;
+
+    let mut handles = Vec::new();
+    for i in 0..10 {
+        let client = ctx.client.clone();
+        let bucket = ctx.bucket.clone();
+        let handle = tokio::spawn(async move {
+            let body = ByteStream::from(format!("content {}", i).into_bytes());
+            client.put_object().bucket(&bucket).key("same-key.txt").body(body).send().await
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let result = handle.await.unwrap();
+        assert!(result.is_ok(), "Concurrent PUT should succeed");
+    }
+
+    // One of the writes should win
+    let data = ctx.get("same-key.txt").await;
+    assert!(data.starts_with(b"content "));
+}
+
+/// Test PUT with tagging.
+/// Ceph: test_object_put_tagging
+#[tokio::test]
+async fn test_object_put_with_tagging() {
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"content");
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("tagged.txt")
+        .body(body)
+        .tagging("key1=value1&key2=value2")
+        .send()
+        .await
+        .expect("Should put object with tagging");
+
+    let response = ctx
+        .client
+        .get_object_tagging()
+        .bucket(&ctx.bucket)
+        .key("tagged.txt")
+        .send()
+        .await
+        .expect("Should get tagging");
+
+    assert_eq!(response.tag_set().len(), 2);
+}
