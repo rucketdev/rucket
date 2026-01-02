@@ -1,9 +1,9 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  pull_request:
+    types: [closed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -13,8 +13,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  setup:
+    name: Setup Release
+    if: github.event.pull_request.merged && contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from Cargo.toml
+        id: version
+        run: echo "version=$(grep '^version' Cargo.toml | head -1 | cut -d'\"' -f2)" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+          echo "Created tag v${{ steps.version.outputs.version }}"
+
   build:
     name: Build ${{ matrix.target }}
+    needs: [setup]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -71,17 +93,17 @@ jobs:
         if: "!contains(matrix.target, 'windows')"
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ../../../rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz rucket
+          tar -czvf ../../../rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz rucket
           cd ../../..
-          sha256sum rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz > rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+          sha256sum rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz > rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
 
       - name: Create archive (Windows)
         if: contains(matrix.target, 'windows')
         shell: pwsh
         run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/rucket.exe" -DestinationPath "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip"
-          $hash = (Get-FileHash "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  rucket-${{ github.ref_name }}-${{ matrix.target }}.zip" | Out-File -FilePath "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256" -Encoding ASCII
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rucket.exe" -DestinationPath "rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip"
+          $hash = (Get-FileHash "rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip" | Out-File -FilePath "rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip.sha256" -Encoding ASCII
 
       - name: Upload artifact (Unix)
         if: "!contains(matrix.target, 'windows')"
@@ -89,8 +111,8 @@ jobs:
         with:
           name: rucket-${{ matrix.target }}
           path: |
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz
+            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
 
       - name: Upload artifact (Windows)
         if: contains(matrix.target, 'windows')
@@ -98,11 +120,12 @@ jobs:
         with:
           name: rucket-${{ matrix.target }}
           path: |
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.zip
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256
+            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip
+            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip.sha256
 
   docker:
     name: Build Docker Image
+    needs: [setup]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -123,8 +146,7 @@ jobs:
       - name: Extract version for tags
         id: meta
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"  # Remove 'v' prefix
+          VERSION="${{ needs.setup.outputs.version }}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           MAJOR="${VERSION%%.*}"
           MINOR="${VERSION%.*}"
@@ -151,7 +173,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build, docker]
+    needs: [setup, build, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -186,6 +208,7 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.setup.outputs.version }}
           body: ${{ steps.changelog.outputs.content }}
           files: release/*
           fail_on_unmatched_files: true
