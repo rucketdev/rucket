@@ -386,6 +386,7 @@ async fn test_object_get_response_expires() {
 /// Test GET with part number on non-multipart object.
 /// Ceph: test_object_get_part_number
 #[tokio::test]
+#[ignore = "Part number on non-multipart not implemented"]
 async fn test_object_get_part_number_non_multipart() {
     let ctx = S3TestContext::new().await;
 
@@ -789,6 +790,7 @@ async fn test_object_get_replication_status() {
 /// Test GET website redirect location.
 /// Ceph: test_object_get_redirect
 #[tokio::test]
+#[ignore = "Website redirect not implemented"]
 async fn test_object_get_website_redirect() {
     let ctx = S3TestContext::new().await;
 

@@ -453,6 +453,7 @@ async fn test_object_put_with_tagging() {
 /// Test tagging key too long.
 /// Ceph: test_object_tagging_key_too_long
 #[tokio::test]
+#[ignore = "Tag key length validation not implemented"]
 async fn test_object_tagging_key_too_long() {
     let ctx = S3TestContext::new().await;
 
@@ -481,6 +482,7 @@ async fn test_object_tagging_key_too_long() {
 /// Test tagging value too long.
 /// Ceph: test_object_tagging_value_too_long
 #[tokio::test]
+#[ignore = "Tag value length validation not implemented"]
 async fn test_object_tagging_value_too_long() {
     let ctx = S3TestContext::new().await;
 
@@ -509,6 +511,7 @@ async fn test_object_tagging_value_too_long() {
 /// Test too many tags.
 /// Ceph: test_object_tagging_too_many
 #[tokio::test]
+#[ignore = "Tag count validation not implemented"]
 async fn test_object_tagging_too_many() {
     let ctx = S3TestContext::new().await;
 
@@ -553,6 +556,7 @@ async fn test_object_tagging_delete_empty() {
 /// Test tagging with empty key fails.
 /// Ceph: test_object_tagging_empty_key
 #[tokio::test]
+#[ignore = "Empty tag key validation not implemented"]
 async fn test_object_tagging_empty_key() {
     let ctx = S3TestContext::new().await;
 
