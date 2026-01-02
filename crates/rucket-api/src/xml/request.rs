@@ -96,6 +96,43 @@ pub struct TagRequest {
     pub value: String,
 }
 
+/// `CORSConfiguration` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "CORSConfiguration")]
+pub struct CorsConfigurationRequest {
+    /// CORS rules.
+    #[serde(rename = "CORSRule", default)]
+    pub rules: Vec<CorsRuleRequest>,
+}
+
+/// A CORS rule in the request.
+#[derive(Debug, Deserialize)]
+pub struct CorsRuleRequest {
+    /// Optional ID for this rule.
+    #[serde(rename = "ID")]
+    pub id: Option<String>,
+
+    /// Allowed origins (e.g., "*" or "http://example.com").
+    #[serde(rename = "AllowedOrigin", default)]
+    pub allowed_origins: Vec<String>,
+
+    /// Allowed HTTP methods (GET, PUT, POST, DELETE, HEAD).
+    #[serde(rename = "AllowedMethod", default)]
+    pub allowed_methods: Vec<String>,
+
+    /// Allowed headers in the request.
+    #[serde(rename = "AllowedHeader", default)]
+    pub allowed_headers: Vec<String>,
+
+    /// Headers exposed to the browser.
+    #[serde(rename = "ExposeHeader", default)]
+    pub expose_headers: Vec<String>,
+
+    /// Max age for preflight cache in seconds.
+    #[serde(rename = "MaxAgeSeconds")]
+    pub max_age_seconds: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use quick_xml::de::from_str;
@@ -165,5 +202,46 @@ mod tests {
         assert_eq!(parsed.tag_set.tags[0].value, "production");
         assert_eq!(parsed.tag_set.tags[1].key, "project");
         assert_eq!(parsed.tag_set.tags[1].value, "rucket");
+    }
+
+    #[test]
+    fn test_parse_cors_configuration() {
+        let xml = r#"
+            <CORSConfiguration>
+                <CORSRule>
+                    <ID>rule1</ID>
+                    <AllowedOrigin>*</AllowedOrigin>
+                    <AllowedMethod>GET</AllowedMethod>
+                    <AllowedMethod>PUT</AllowedMethod>
+                    <AllowedHeader>*</AllowedHeader>
+                    <ExposeHeader>x-amz-request-id</ExposeHeader>
+                    <MaxAgeSeconds>3000</MaxAgeSeconds>
+                </CORSRule>
+                <CORSRule>
+                    <AllowedOrigin>http://example.com</AllowedOrigin>
+                    <AllowedOrigin>http://www.example.com</AllowedOrigin>
+                    <AllowedMethod>POST</AllowedMethod>
+                </CORSRule>
+            </CORSConfiguration>
+        "#;
+
+        let parsed: CorsConfigurationRequest = from_str(xml).unwrap();
+        assert_eq!(parsed.rules.len(), 2);
+
+        // Check first rule
+        assert_eq!(parsed.rules[0].id, Some("rule1".to_string()));
+        assert_eq!(parsed.rules[0].allowed_origins, vec!["*"]);
+        assert_eq!(parsed.rules[0].allowed_methods, vec!["GET", "PUT"]);
+        assert_eq!(parsed.rules[0].allowed_headers, vec!["*"]);
+        assert_eq!(parsed.rules[0].expose_headers, vec!["x-amz-request-id"]);
+        assert_eq!(parsed.rules[0].max_age_seconds, Some(3000));
+
+        // Check second rule
+        assert_eq!(parsed.rules[1].id, None);
+        assert_eq!(
+            parsed.rules[1].allowed_origins,
+            vec!["http://example.com", "http://www.example.com"]
+        );
+        assert_eq!(parsed.rules[1].allowed_methods, vec!["POST"]);
     }
 }

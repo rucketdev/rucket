@@ -567,6 +567,62 @@ pub struct TagResponse {
     pub value: String,
 }
 
+/// `CORSConfiguration` response for `GetBucketCors`.
+#[derive(Debug, Serialize)]
+#[serde(rename = "CORSConfiguration")]
+pub struct CorsConfigurationResponse {
+    /// CORS rules.
+    #[serde(rename = "CORSRule", default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<CorsRuleResponse>,
+}
+
+/// A CORS rule in the response.
+#[derive(Debug, Serialize)]
+pub struct CorsRuleResponse {
+    /// Optional ID for this rule.
+    #[serde(rename = "ID", skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// Allowed origins.
+    #[serde(rename = "AllowedOrigin", default)]
+    pub allowed_origins: Vec<String>,
+
+    /// Allowed HTTP methods.
+    #[serde(rename = "AllowedMethod", default)]
+    pub allowed_methods: Vec<String>,
+
+    /// Allowed headers in the request.
+    #[serde(rename = "AllowedHeader", default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_headers: Vec<String>,
+
+    /// Headers exposed to the browser.
+    #[serde(rename = "ExposeHeader", default, skip_serializing_if = "Vec::is_empty")]
+    pub expose_headers: Vec<String>,
+
+    /// Max age for preflight cache in seconds.
+    #[serde(rename = "MaxAgeSeconds", skip_serializing_if = "Option::is_none")]
+    pub max_age_seconds: Option<u32>,
+}
+
+impl From<&rucket_core::types::CorsRule> for CorsRuleResponse {
+    fn from(rule: &rucket_core::types::CorsRule) -> Self {
+        Self {
+            id: rule.id.clone(),
+            allowed_origins: rule.allowed_origins.clone(),
+            allowed_methods: rule.allowed_methods.clone(),
+            allowed_headers: rule.allowed_headers.clone(),
+            expose_headers: rule.expose_headers.clone(),
+            max_age_seconds: rule.max_age_seconds,
+        }
+    }
+}
+
+impl From<&rucket_core::types::CorsConfiguration> for CorsConfigurationResponse {
+    fn from(config: &rucket_core::types::CorsConfiguration) -> Self {
+        Self { rules: config.rules.iter().map(CorsRuleResponse::from).collect() }
+    }
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors

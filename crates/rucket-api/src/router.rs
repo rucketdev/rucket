@@ -138,7 +138,8 @@ pub fn create_router(
                 .put(handle_bucket_put)
                 .delete(handle_bucket_delete)
                 .head(head_bucket)
-                .post(handle_bucket_post),
+                .post(handle_bucket_post)
+                .options(cors_preflight_bucket),
         )
         .route(
             "/{bucket}/",
@@ -146,7 +147,8 @@ pub fn create_router(
                 .put(handle_bucket_put)
                 .delete(handle_bucket_delete)
                 .head(head_bucket)
-                .post(handle_bucket_post),
+                .post(handle_bucket_post)
+                .options(cors_preflight_bucket),
         )
         // Object operations with complex routing
         .route(
@@ -155,7 +157,8 @@ pub fn create_router(
                 .put(handle_object_put)
                 .delete(handle_object_delete)
                 .head(head_object)
-                .post(handle_object_post),
+                .post(handle_object_post)
+                .options(cors_preflight_object),
         );
 
     // Add MinIO-specific routes if compatibility mode is Minio
@@ -547,4 +550,22 @@ async fn handle_object_post(
         "Unsupported POST request",
     )
     .into_response()
+}
+
+/// Handle OPTIONS requests to bucket (CORS preflight).
+async fn cors_preflight_bucket(
+    state: State<AppState>,
+    path: Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    bucket::cors_preflight(state, path, headers).await.into_response()
+}
+
+/// Handle OPTIONS requests to object (CORS preflight).
+async fn cors_preflight_object(
+    state: State<AppState>,
+    path: Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    bucket::cors_preflight_object(state, path, headers).await.into_response()
 }
