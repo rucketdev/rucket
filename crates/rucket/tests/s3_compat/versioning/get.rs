@@ -119,7 +119,6 @@ async fn test_versioning_get_old_after_overwrite() {
 /// Test GET version with range.
 /// Ceph: test_versioned_get_range
 #[tokio::test]
-#[ignore = "Range on versioned GET not fully implemented"]
 async fn test_versioning_get_version_with_range() {
     let ctx = S3TestContext::with_versioning().await;
 

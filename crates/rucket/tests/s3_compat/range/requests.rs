@@ -252,7 +252,6 @@ async fn test_range_multiple() {
 /// Test range request on versioned object.
 /// Ceph: test_range_versioned
 #[tokio::test]
-#[ignore = "Range on versioned object not fully implemented"]
 async fn test_range_versioned() {
     let ctx = S3TestContext::with_versioning().await;
 

@@ -402,7 +402,6 @@ async fn test_object_copy_if_none_match() {
 /// Test copy with If-None-Match matching ETag fails.
 /// Ceph: test_object_copy_if_none_match_fails
 #[tokio::test]
-#[ignore = "Copy If-None-Match not implemented"]
 async fn test_object_copy_if_none_match_fails() {
     let ctx = S3TestContext::new().await;
 
