@@ -1230,9 +1230,7 @@ pub async fn get_object_tagging(
         },
     };
 
-    let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
-    })?;
+    let xml = to_xml(&response).expect("TaggingResponse serializes to valid XML");
 
     let mut response_builder =
         Response::builder().status(StatusCode::OK).header("Content-Type", "application/xml");
@@ -1242,9 +1240,7 @@ pub async fn get_object_tagging(
         response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
     }
 
-    response_builder
-        .body(Body::from(xml))
-        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+    Ok(response_builder.body(Body::from(xml)).expect("valid response"))
 }
 
 /// `PUT /{bucket}/{key}?tagging` - Set object tagging.
@@ -1278,9 +1274,7 @@ pub async fn put_object_tagging(
         response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
     }
 
-    response_builder
-        .body(Body::empty())
-        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+    Ok(response_builder.body(Body::empty()).expect("valid response"))
 }
 
 /// `DELETE /{bucket}/{key}?tagging` - Delete object tagging.
@@ -1303,9 +1297,7 @@ pub async fn delete_object_tagging(
         response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
     }
 
-    response_builder
-        .body(Body::empty())
-        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+    Ok(response_builder.body(Body::empty()).expect("valid response"))
 }
 
 #[cfg(test)]
