@@ -49,9 +49,7 @@ Horizontal scaling and I/O optimization.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| HA cross-site replication | Async replication across data centers | ⬜ |
 | io_uring support | Linux async I/O for improved throughput | ⬜ |
-| Data partitioning | Consistent hashing to distribute data across nodes | ⬜ |
 
 ---
 
@@ -120,27 +118,7 @@ Long-term features requiring specialized hardware or significant architecture ch
 |---------|-------------|
 | Direct NVMe access | Bypass filesystem for raw block devices |
 | SPDK integration | Storage Performance Development Kit for ultra-low latency |
-
----
-
-## Architectural Decisions Needed
-
-- [ ] **Policy engine**: JSON policy evaluation approach
-- [ ] **Key management**: Built-in vs external KMS
-- [ ] **Background jobs**: Lifecycle rule execution model
-- [ ] **Events**: Internal bus vs external queue integration
-- [ ] **Multi-tenancy**: Account isolation model
-
----
-
-## Complexity Guide
-
-| Level | Estimate | Description |
-|-------|----------|-------------|
-| Low | < 1 day | Isolated changes |
-| Medium | 1-3 days | Multiple files, new modules |
-| High | 3-7 days | New subsystem |
-| Very High | 1-2 weeks | Major architecture |
+| Data partitioning | Horizontal scaling through key-based sharding |
 
 ---
 
