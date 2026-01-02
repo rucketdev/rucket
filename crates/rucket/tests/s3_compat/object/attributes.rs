@@ -11,7 +11,6 @@ use crate::S3TestContext;
 /// Test basic GetObjectAttributes call.
 /// MinIO: testGetObjectAttributesBasic
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_basic() {
     let ctx = S3TestContext::new().await;
     let key = "test-object.txt";
@@ -37,7 +36,6 @@ async fn test_get_object_attributes_basic() {
 /// Test GetObjectAttributes returns ETag.
 /// MinIO: testGetObjectAttributesETag
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_etag() {
     let ctx = S3TestContext::new().await;
     let key = "test-etag.txt";
@@ -61,7 +59,6 @@ async fn test_get_object_attributes_etag() {
 /// Test GetObjectAttributes returns ObjectSize.
 /// MinIO: testGetObjectAttributesSize
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_size() {
     let ctx = S3TestContext::new().await;
     let key = "test-size.txt";
@@ -89,7 +86,6 @@ async fn test_get_object_attributes_size() {
 /// Test GetObjectAttributes returns StorageClass.
 /// MinIO: testGetObjectAttributesStorageClass
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_storage_class() {
     let ctx = S3TestContext::new().await;
     let key = "test-storage-class.txt";
@@ -113,7 +109,6 @@ async fn test_get_object_attributes_storage_class() {
 /// Test GetObjectAttributes on non-existent object.
 /// MinIO: testGetObjectAttributesNonExistent
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_non_existent() {
     let ctx = S3TestContext::new().await;
 
@@ -132,7 +127,6 @@ async fn test_get_object_attributes_non_existent() {
 /// Test GetObjectAttributes with multiple attributes.
 /// MinIO: testGetObjectAttributesCombined
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_combined() {
     let ctx = S3TestContext::new().await;
     let key = "test-combined.txt";
@@ -160,7 +154,6 @@ async fn test_get_object_attributes_combined() {
 /// Test GetObjectAttributes with checksum.
 /// MinIO: testGetObjectAttributesWithChecksum
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_checksum() {
     let ctx = S3TestContext::new().await;
     let key = "test-checksum.txt";
@@ -185,7 +178,6 @@ async fn test_get_object_attributes_checksum() {
 /// Test GetObjectAttributes on versioned object.
 /// MinIO: testGetObjectAttributesVersion
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_version() {
     let ctx = S3TestContext::with_versioning().await;
     let key = "versioned-object.txt";
@@ -194,7 +186,7 @@ async fn test_get_object_attributes_version() {
     let put1 = ctx.put(key, b"version 1").await;
     let version1 = put1.version_id().expect("Should have version ID");
 
-    // Create second version
+    // Create second version (18 bytes: "version 2 - longer")
     let put2 = ctx.put(key, b"version 2 - longer").await;
     let version2 = put2.version_id().expect("Should have version ID");
 
@@ -224,7 +216,7 @@ async fn test_get_object_attributes_version() {
         .await
         .expect("Should get attributes for version 2");
 
-    assert_eq!(response2.object_size(), Some(19), "Version 2 should be 19 bytes");
+    assert_eq!(response2.object_size(), Some(18), "Version 2 should be 18 bytes");
 }
 
 /// Test GetObjectAttributes for multipart uploaded object.

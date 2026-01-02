@@ -85,6 +85,8 @@ pub struct RequestQuery {
     versions: Option<String>,
     /// Bucket location.
     location: Option<String>,
+    /// GetObjectAttributes request.
+    attributes: Option<String>,
     /// Override response Content-Type.
     #[serde(rename = "response-content-type")]
     response_content_type: Option<String>,
@@ -423,6 +425,13 @@ async fn handle_object_get(
         let tagging_query =
             RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
         return object::get_object_tagging(state, path, Query(tagging_query)).await.into_response();
+    }
+
+    // Check for ?attributes (GetObjectAttributes)
+    if query.attributes.is_some() {
+        return object::get_object_attributes(state, path, Query(query), headers)
+            .await
+            .into_response();
     }
 
     // Build response header overrides
