@@ -413,4 +413,28 @@ mod tests {
         assert_eq!(meta.size, 1024);
         assert_eq!(meta.content_type, Some("text/plain".to_string()));
     }
+
+    #[test]
+    fn test_tag_new() {
+        let tag = Tag::new("env", "production");
+        assert_eq!(tag.key, "env");
+        assert_eq!(tag.value, "production");
+    }
+
+    #[test]
+    fn test_tagset_new() {
+        let tagset = TagSet::new();
+        assert!(tagset.is_empty());
+        assert_eq!(tagset.len(), 0);
+    }
+
+    #[test]
+    fn test_tagset_with_tags() {
+        let tagset =
+            TagSet::with_tags(vec![Tag::new("env", "test"), Tag::new("project", "rucket")]);
+        assert!(!tagset.is_empty());
+        assert_eq!(tagset.len(), 2);
+        assert_eq!(tagset.tags[0].key, "env");
+        assert_eq!(tagset.tags[1].key, "project");
+    }
 }

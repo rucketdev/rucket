@@ -141,4 +141,29 @@ mod tests {
         assert!(parsed.quiet);
         assert_eq!(parsed.objects.len(), 2);
     }
+
+    #[test]
+    fn test_parse_tagging() {
+        let xml = r#"
+            <Tagging>
+                <TagSet>
+                    <Tag>
+                        <Key>env</Key>
+                        <Value>production</Value>
+                    </Tag>
+                    <Tag>
+                        <Key>project</Key>
+                        <Value>rucket</Value>
+                    </Tag>
+                </TagSet>
+            </Tagging>
+        "#;
+
+        let parsed: Tagging = from_str(xml).unwrap();
+        assert_eq!(parsed.tag_set.tags.len(), 2);
+        assert_eq!(parsed.tag_set.tags[0].key, "env");
+        assert_eq!(parsed.tag_set.tags[0].value, "production");
+        assert_eq!(parsed.tag_set.tags[1].key, "project");
+        assert_eq!(parsed.tag_set.tags[1].value, "rucket");
+    }
 }

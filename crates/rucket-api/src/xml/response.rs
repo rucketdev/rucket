@@ -598,4 +598,23 @@ mod tests {
         assert!(xml.contains("<Name>test-bucket</Name>"));
         assert!(xml.contains("<DisplayName>rucket</DisplayName>"));
     }
+
+    #[test]
+    fn test_tagging_response_xml() {
+        let response = TaggingResponse {
+            tag_set: TagSetResponse {
+                tags: vec![
+                    TagResponse { key: "env".to_string(), value: "test".to_string() },
+                    TagResponse { key: "project".to_string(), value: "rucket".to_string() },
+                ],
+            },
+        };
+
+        let xml = to_xml(&response).unwrap();
+        assert!(xml.contains("<Tagging"));
+        assert!(xml.contains("<TagSet>"));
+        assert!(xml.contains("<Tag>"));
+        assert!(xml.contains("<Key>env</Key>"));
+        assert!(xml.contains("<Value>test</Value>"));
+    }
 }
