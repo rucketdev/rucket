@@ -1,8 +1,31 @@
 //! Configuration management for Rucket.
+//!
+//! Following 12-factor app principles, configuration can be loaded from:
+//! 1. Compiled-in defaults
+//! 2. TOML configuration file
+//! 3. Environment variables (override everything)
+//!
+//! # Environment Variables
+//!
+//! All configuration can be overridden via environment variables using the pattern:
+//! `RUCKET__<SECTION>__<FIELD>` (double underscore for nesting).
+//!
+//! Examples:
+//! - `RUCKET__SERVER__BIND=0.0.0.0:9000`
+//! - `RUCKET__STORAGE__DATA_DIR=/var/lib/rucket`
+//! - `RUCKET__AUTH__ACCESS_KEY=mykey`
+//! - `RUCKET__AUTH__SECRET_KEY=mysecret`
+//! - `RUCKET__LOGGING__LEVEL=debug`
+//! - `RUCKET__METRICS__ENABLED=false`
+//! - `RUCKET__API__COMPATIBILITY_MODE=ceph`
+//! - `RUCKET__STORAGE__SYNC__DATA=always`
+//! - `RUCKET__STORAGE__WAL__ENABLED=false`
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use figment::providers::{Env, Format, Serialized, Toml};
+use figment::Figment;
 use serde::{Deserialize, Serialize};
 
 /// Main configuration for Rucket server.
@@ -26,17 +49,59 @@ pub struct Config {
 }
 
 impl Config {
-    /// Load configuration from a TOML file.
+    /// Load configuration from optional TOML file with environment variable overrides.
+    ///
+    /// Configuration is loaded in this order (later sources override earlier):
+    /// 1. Compiled-in defaults
+    /// 2. TOML file (if path provided, or found at default locations)
+    /// 3. Environment variables with `RUCKET__` prefix
+    ///
+    /// # Environment Variable Naming
+    ///
+    /// Variables use uppercase with double underscore for nesting:
+    /// - `RUCKET__SERVER__BIND` → `server.bind`
+    /// - `RUCKET__STORAGE__DATA_DIR` → `storage.data_dir`
+    /// - `RUCKET__AUTH__ACCESS_KEY` → `auth.access_key`
+    /// - `RUCKET__STORAGE__SYNC__DATA` → `storage.sync.data`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be loaded or parsed.
+    pub fn load(path: Option<&Path>) -> crate::Result<Self> {
+        // Start with defaults
+        let mut figment = Figment::from(Serialized::defaults(Config::default()));
+
+        // Add TOML file if specified or found
+        if let Some(p) = path {
+            figment = figment.merge(Toml::file(p));
+        } else {
+            // Try default locations
+            for p in &["rucket.toml", "/etc/rucket/rucket.toml"] {
+                if Path::new(p).exists() {
+                    figment = figment.merge(Toml::file(p));
+                    break;
+                }
+            }
+        }
+
+        // Environment variables override everything
+        // Uses double underscore (__) for nesting: RUCKET__SERVER__BIND → server.bind
+        figment = figment.merge(Env::prefixed("RUCKET__").split("__"));
+
+        figment.extract().map_err(|e| crate::Error::Config(e.to_string()))
+    }
+
+    /// Load configuration from a TOML file (without environment variable overrides).
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be read or parsed.
-    pub fn from_file(path: &std::path::Path) -> crate::Result<Self> {
+    pub fn from_file(path: &Path) -> crate::Result<Self> {
         let content = std::fs::read_to_string(path).map_err(crate::Error::Io)?;
         toml::from_str(&content).map_err(|e| crate::Error::Config(e.to_string()))
     }
 
-    /// Load configuration from a TOML string.
+    /// Load configuration from a TOML string (without environment variable overrides).
     ///
     /// # Errors
     ///
@@ -713,5 +778,151 @@ compatibility_mode = "minio"
 "#;
         let config = Config::parse(toml).unwrap();
         assert_eq!(config.api.compatibility_mode, ApiCompatibilityMode::Minio);
+    }
+
+    mod env_override_tests {
+        use std::sync::Mutex;
+
+        use super::*;
+
+        // Use a mutex to prevent parallel env var tests from interfering
+        static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+        fn with_env_var<F, R>(key: &str, value: &str, f: F) -> R
+        where
+            F: FnOnce() -> R,
+        {
+            let _guard = ENV_MUTEX.lock().unwrap();
+            let original = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            let result = f();
+            match original {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+            result
+        }
+
+        fn with_env_vars<F, R>(vars: &[(&str, &str)], f: F) -> R
+        where
+            F: FnOnce() -> R,
+        {
+            let _guard = ENV_MUTEX.lock().unwrap();
+            let originals: Vec<_> = vars.iter().map(|(k, _)| (*k, std::env::var(k).ok())).collect();
+
+            for (key, value) in vars {
+                std::env::set_var(key, value);
+            }
+
+            let result = f();
+
+            for (key, original) in originals {
+                match original {
+                    Some(v) => std::env::set_var(key, v),
+                    None => std::env::remove_var(key),
+                }
+            }
+            result
+        }
+
+        #[test]
+        fn test_env_override_bind() {
+            with_env_var("RUCKET__SERVER__BIND", "0.0.0.0:8080", || {
+                let config = Config::load(None).unwrap();
+                assert_eq!(config.server.bind.to_string(), "0.0.0.0:8080");
+            });
+        }
+
+        #[test]
+        fn test_env_override_data_dir() {
+            with_env_var("RUCKET__STORAGE__DATA_DIR", "/custom/data", || {
+                let config = Config::load(None).unwrap();
+                assert_eq!(config.storage.data_dir, PathBuf::from("/custom/data"));
+            });
+        }
+
+        #[test]
+        fn test_env_override_access_key() {
+            with_env_var("RUCKET__AUTH__ACCESS_KEY", "myaccesskey", || {
+                let config = Config::load(None).unwrap();
+                assert_eq!(config.auth.access_key, "myaccesskey");
+            });
+        }
+
+        #[test]
+        fn test_env_override_secret_key() {
+            with_env_var("RUCKET__AUTH__SECRET_KEY", "mysecretkey", || {
+                let config = Config::load(None).unwrap();
+                assert_eq!(config.auth.secret_key, "mysecretkey");
+            });
+        }
+
+        #[test]
+        fn test_env_override_logging_level() {
+            with_env_var("RUCKET__LOGGING__LEVEL", "debug", || {
+                let config = Config::load(None).unwrap();
+                assert_eq!(config.logging.level, "debug");
+            });
+        }
+
+        #[test]
+        fn test_env_override_metrics_enabled() {
+            with_env_var("RUCKET__METRICS__ENABLED", "false", || {
+                let config = Config::load(None).unwrap();
+                assert!(!config.metrics.enabled);
+            });
+        }
+
+        #[test]
+        fn test_env_override_nested_sync_data() {
+            with_env_var("RUCKET__STORAGE__SYNC__DATA", "always", || {
+                let config = Config::load(None).unwrap();
+                assert_eq!(config.storage.sync.data, SyncStrategy::Always);
+            });
+        }
+
+        #[test]
+        fn test_env_override_nested_wal_enabled() {
+            with_env_var("RUCKET__STORAGE__WAL__ENABLED", "false", || {
+                let config = Config::load(None).unwrap();
+                assert!(!config.storage.wal.enabled);
+            });
+        }
+
+        #[test]
+        fn test_env_override_api_compatibility_mode() {
+            with_env_var("RUCKET__API__COMPATIBILITY_MODE", "ceph", || {
+                let config = Config::load(None).unwrap();
+                assert_eq!(config.api.compatibility_mode, ApiCompatibilityMode::Ceph);
+            });
+        }
+
+        #[test]
+        fn test_env_override_preserves_other_fields() {
+            with_env_var("RUCKET__AUTH__ACCESS_KEY", "newkey", || {
+                let config = Config::load(None).unwrap();
+                // Other fields should remain at defaults
+                assert_eq!(config.server.bind.port(), 9000);
+                assert_eq!(config.auth.secret_key, "rucket123");
+                assert_eq!(config.storage.data_dir, PathBuf::from("./data"));
+            });
+        }
+
+        #[test]
+        fn test_env_override_multiple_vars() {
+            with_env_vars(
+                &[
+                    ("RUCKET__SERVER__BIND", "0.0.0.0:8888"),
+                    ("RUCKET__AUTH__ACCESS_KEY", "envkey"),
+                    ("RUCKET__LOGGING__FORMAT", "json"),
+                ],
+                || {
+                    let config = Config::load(None).unwrap();
+                    assert_eq!(config.server.bind.to_string(), "0.0.0.0:8888");
+                    assert_eq!(config.auth.access_key, "envkey");
+                    assert_eq!(config.logging.format, LogFormat::Json);
+                },
+            );
+        }
     }
 }

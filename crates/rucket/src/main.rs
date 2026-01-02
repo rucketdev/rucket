@@ -160,28 +160,7 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
 }
 
 fn load_config(path: &Option<PathBuf>) -> Result<Config> {
-    match path {
-        Some(p) => {
-            let content = std::fs::read_to_string(p)
-                .with_context(|| format!("Failed to read config file: {}", p.display()))?;
-            toml::from_str(&content).context("Failed to parse config file")
-        }
-        None => {
-            // Try default locations
-            let default_paths =
-                [PathBuf::from("rucket.toml"), PathBuf::from("/etc/rucket/rucket.toml")];
-
-            for p in &default_paths {
-                if p.exists() {
-                    let content = std::fs::read_to_string(p)?;
-                    return toml::from_str(&content).context("Failed to parse config file");
-                }
-            }
-
-            // Use defaults
-            Ok(Config::default())
-        }
-    }
+    Config::load(path.as_deref()).context("Failed to load configuration")
 }
 
 fn init_logging(config: &Config) -> Result<()> {
