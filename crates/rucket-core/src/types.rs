@@ -398,28 +398,28 @@ impl Checksum {
                 if bytes.len() != 4 {
                     return Err("CRC32 must be 4 bytes");
                 }
-                let arr: [u8; 4] = bytes.try_into().unwrap();
+                let arr: [u8; 4] = bytes.try_into().expect("length validated above");
                 Ok(Self::Crc32(u32::from_be_bytes(arr)))
             }
             ChecksumAlgorithm::Crc32C => {
                 if bytes.len() != 4 {
                     return Err("CRC32C must be 4 bytes");
                 }
-                let arr: [u8; 4] = bytes.try_into().unwrap();
+                let arr: [u8; 4] = bytes.try_into().expect("length validated above");
                 Ok(Self::Crc32C(u32::from_be_bytes(arr)))
             }
             ChecksumAlgorithm::Sha1 => {
                 if bytes.len() != 20 {
                     return Err("SHA-1 must be 20 bytes");
                 }
-                let arr: [u8; 20] = bytes.try_into().unwrap();
+                let arr: [u8; 20] = bytes.try_into().expect("length validated above");
                 Ok(Self::Sha1(arr))
             }
             ChecksumAlgorithm::Sha256 => {
                 if bytes.len() != 32 {
                     return Err("SHA-256 must be 32 bytes");
                 }
-                let arr: [u8; 32] = bytes.try_into().unwrap();
+                let arr: [u8; 32] = bytes.try_into().expect("length validated above");
                 Ok(Self::Sha256(arr))
             }
         }

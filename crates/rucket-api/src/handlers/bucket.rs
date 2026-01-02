@@ -29,13 +29,15 @@ fn validate_bucket_name(name: &str) -> Option<&'static str> {
     }
 
     // Must start with lowercase letter or number
-    let first_char = name.chars().next().unwrap();
+    // Safety: length >= 3 validated above
+    let first_char = name.chars().next().expect("length >= 3 validated above");
     if !first_char.is_ascii_lowercase() && !first_char.is_ascii_digit() {
         return Some("Bucket name must start with a lowercase letter or number");
     }
 
     // Must end with lowercase letter or number
-    let last_char = name.chars().next_back().unwrap();
+    // Safety: length >= 3 validated above
+    let last_char = name.chars().next_back().expect("length >= 3 validated above");
     if !last_char.is_ascii_lowercase() && !last_char.is_ascii_digit() {
         return Some("Bucket name must end with a lowercase letter or number");
     }
