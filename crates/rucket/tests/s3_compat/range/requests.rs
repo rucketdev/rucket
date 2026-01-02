@@ -235,3 +235,196 @@ async fn test_range_large_file() {
     let body = response.body.collect().await.unwrap().into_bytes();
     assert_eq!(body.len(), 1000);
 }
+
+// =============================================================================
+// Extended Range Request Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test multiple ranges in a single request.
+/// Ceph: test_range_multiple
+#[tokio::test]
+#[ignore = "Multiple ranges not implemented"]
+async fn test_range_multiple() {
+    let _ctx = S3TestContext::new().await;
+    // Would return multipart/byteranges response
+}
+
+/// Test range request on versioned object.
+/// Ceph: test_range_versioned
+#[tokio::test]
+async fn test_range_versioned() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let put = ctx.put("test.txt", b"Hello, World!").await;
+    let vid = put.version_id().unwrap();
+
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(vid)
+        .range("bytes=0-4")
+        .send()
+        .await
+        .expect("Should get range from version");
+
+    let body = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(body.as_ref(), b"Hello");
+}
+
+/// Test range with If-Match.
+/// Ceph: test_range_if_match
+#[tokio::test]
+async fn test_range_if_match() {
+    let ctx = S3TestContext::new().await;
+
+    let put = ctx.put("test.txt", b"Hello, World!").await;
+    let etag = put.e_tag().unwrap();
+
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .range("bytes=0-4")
+        .if_match(etag)
+        .send()
+        .await
+        .expect("Should get range with If-Match");
+
+    let body = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(body.as_ref(), b"Hello");
+}
+
+/// Test range request preserves ETag.
+/// Ceph: test_range_preserves_etag
+#[tokio::test]
+async fn test_range_preserves_etag() {
+    let ctx = S3TestContext::new().await;
+
+    let put = ctx.put("test.txt", b"Hello, World!").await;
+    let put_etag = put.e_tag().unwrap();
+
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .range("bytes=0-4")
+        .send()
+        .await
+        .expect("Should get range");
+
+    let get_etag = response.e_tag().unwrap();
+    assert_eq!(put_etag, get_etag);
+}
+
+/// Test range on empty file.
+/// Ceph: test_range_empty_file
+#[tokio::test]
+async fn test_range_empty_file() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("empty.txt", b"").await;
+
+    let result = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("empty.txt")
+        .range("bytes=0-10")
+        .send()
+        .await;
+
+    // Empty file range should fail
+    assert!(result.is_err());
+}
+
+/// Test range start equals end.
+/// Ceph: test_range_start_equals_end
+#[tokio::test]
+async fn test_range_start_equals_end() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("test.txt", b"ABC").await;
+
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .range("bytes=1-1")
+        .send()
+        .await
+        .expect("Should get single byte");
+
+    let body = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(body.as_ref(), b"B");
+}
+
+/// Test range with zero offset.
+/// Ceph: test_range_zero_offset
+#[tokio::test]
+async fn test_range_zero_offset() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("test.txt", b"ABCDEF").await;
+
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .range("bytes=0-0")
+        .send()
+        .await
+        .expect("Should get first byte");
+
+    let body = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(body.as_ref(), b"A");
+}
+
+/// Test range last byte.
+/// Ceph: test_range_last_byte
+#[tokio::test]
+async fn test_range_suffix_one() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("test.txt", b"ABCDEF").await;
+
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .range("bytes=-1")
+        .send()
+        .await
+        .expect("Should get last byte");
+
+    let body = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(body.as_ref(), b"F");
+}
+
+/// Test range suffix larger than file.
+/// Ceph: test_range_suffix_large
+#[tokio::test]
+async fn test_range_suffix_larger_than_file() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("test.txt", b"ABC").await;
+
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .range("bytes=-100")
+        .send()
+        .await
+        .expect("Should get entire file");
+
+    let body = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(body.as_ref(), b"ABC");
+}
