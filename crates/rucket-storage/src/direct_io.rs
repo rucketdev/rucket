@@ -69,7 +69,7 @@ pub fn read_direct(path: &Path) -> std::io::Result<Vec<u8>> {
 
         // O_DIRECT requires aligned buffer and aligned read size
         let aligned_size = (size + 4095) & !4095;
-        let mut buffer = aligned_buffer(aligned_size);
+        let mut buffer = aligned_buffer(aligned_size)?;
         let mut file = open_direct(path)?;
         file.read_exact(&mut buffer[..size])?;
         buffer.truncate(size);
@@ -87,20 +87,23 @@ pub fn read_direct(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// Create an aligned buffer for O_DIRECT on Linux.
 #[cfg(target_os = "linux")]
-fn aligned_buffer(size: usize) -> Vec<u8> {
+fn aligned_buffer(size: usize) -> std::io::Result<Vec<u8>> {
     use std::alloc::{alloc_zeroed, Layout};
 
     if size == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     unsafe {
         let layout = Layout::from_size_align(size, 4096).expect("Invalid layout");
         let ptr = alloc_zeroed(layout);
         if ptr.is_null() {
-            panic!("Failed to allocate aligned buffer");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::OutOfMemory,
+                "Failed to allocate aligned buffer for direct I/O",
+            ));
         }
-        Vec::from_raw_parts(ptr, size, size)
+        Ok(Vec::from_raw_parts(ptr, size, size))
     }
 }
 
@@ -166,7 +169,7 @@ pub fn write_direct(path: &Path, data: &[u8]) -> std::io::Result<usize> {
 
         // Align size to 4096 bytes for O_DIRECT
         let aligned_size = (size + 4095) & !4095;
-        let mut buffer = aligned_buffer(aligned_size);
+        let mut buffer = aligned_buffer(aligned_size)?;
         buffer[..size].copy_from_slice(data);
 
         let mut file = create_direct(path)?;
