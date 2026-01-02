@@ -8,6 +8,9 @@ targets = [
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
+# Ignore unmaintained rustls-pemfile - it's a transitive dep from axum-server
+# and will be resolved when axum-server updates to use rustls-pki-types
+ignore = ["RUSTSEC-2025-0134"]
 
 [licenses]
 allow = [
@@ -19,6 +22,7 @@ allow = [
     "ISC",
     "OpenSSL",
     "Zlib",
+    "CDLA-Permissive-2.0",  # Used by webpki-roots for CA certificates
 ]
 confidence-threshold = 0.8
 
