@@ -1976,8 +1976,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_crash_detection_with_incomplete_wal() {
-        use crate::wal::{WalEntry, WalWriter, WalWriterConfig};
         use rucket_core::{RecoveryMode, WalConfig, WalSyncMode};
+
+        use crate::wal::{WalEntry, WalWriter, WalWriterConfig};
 
         let temp_dir = TempDir::new().unwrap();
         let data_dir = temp_dir.path().join("data");
