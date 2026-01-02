@@ -269,7 +269,8 @@ async fn test_multipart_list_uploads_delimiter() {
         .expect("Should list uploads");
 
     // Should have common prefixes
-    let prefixes: Vec<&str> = response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
+    let prefixes: Vec<&str> =
+        response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
     assert!(prefixes.contains(&"foo/bar/"));
 
     // Cleanup
@@ -326,7 +327,14 @@ async fn test_multipart_list_uploads_max_uploads() {
 
     // Cleanup
     for (key, upload_id) in upload_ids {
-        let _ = ctx.client.abort_multipart_upload().bucket(&ctx.bucket).key(&key).upload_id(&upload_id).send().await;
+        let _ = ctx
+            .client
+            .abort_multipart_upload()
+            .bucket(&ctx.bucket)
+            .key(&key)
+            .upload_id(&upload_id)
+            .send()
+            .await;
     }
 }
 
@@ -382,7 +390,14 @@ async fn test_multipart_list_uploads_pagination() {
 
     // Cleanup
     for (key, upload_id) in upload_ids {
-        let _ = ctx.client.abort_multipart_upload().bucket(&ctx.bucket).key(&key).upload_id(&upload_id).send().await;
+        let _ = ctx
+            .client
+            .abort_multipart_upload()
+            .bucket(&ctx.bucket)
+            .key(&key)
+            .upload_id(&upload_id)
+            .send()
+            .await;
     }
 }
 
@@ -432,7 +447,14 @@ async fn test_multipart_list_parts_pagination() {
     assert!(response.is_truncated().unwrap_or(false));
 
     // Cleanup
-    let _ = ctx.client.abort_multipart_upload().bucket(&ctx.bucket).key("test.txt").upload_id(upload_id).send().await;
+    let _ = ctx
+        .client
+        .abort_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .upload_id(upload_id)
+        .send()
+        .await;
 }
 
 /// Test list uploads returns upload info.
@@ -451,13 +473,8 @@ async fn test_multipart_list_uploads_info() {
         .unwrap();
     let upload_id = create.upload_id().unwrap().to_string();
 
-    let response = ctx
-        .client
-        .list_multipart_uploads()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list");
+    let response =
+        ctx.client.list_multipart_uploads().bucket(&ctx.bucket).send().await.expect("Should list");
 
     let upload = &response.uploads()[0];
     assert!(upload.key().is_some());
@@ -551,7 +568,14 @@ async fn test_multipart_list_parts_part_marker() {
     assert_eq!(response.parts()[0].part_number(), Some(3));
 
     // Cleanup
-    let _ = ctx.client.abort_multipart_upload().bucket(&ctx.bucket).key("test.txt").upload_id(upload_id).send().await;
+    let _ = ctx
+        .client
+        .abort_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .upload_id(upload_id)
+        .send()
+        .await;
 }
 
 /// Test list uploads returns bucket name.
@@ -570,18 +594,20 @@ async fn test_multipart_list_uploads_returns_bucket() {
         .unwrap();
     let upload_id = create.upload_id().unwrap().to_string();
 
-    let response = ctx
-        .client
-        .list_multipart_uploads()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list");
+    let response =
+        ctx.client.list_multipart_uploads().bucket(&ctx.bucket).send().await.expect("Should list");
 
     assert_eq!(response.bucket(), Some(ctx.bucket.as_str()));
 
     // Cleanup
-    let _ = ctx.client.abort_multipart_upload().bucket(&ctx.bucket).key("test.txt").upload_id(&upload_id).send().await;
+    let _ = ctx
+        .client
+        .abort_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .upload_id(&upload_id)
+        .send()
+        .await;
 }
 
 /// Test list parts returns upload ID.
@@ -624,5 +650,12 @@ async fn test_multipart_list_parts_returns_upload_id() {
     assert_eq!(response.upload_id(), Some(upload_id.as_str()));
 
     // Cleanup
-    let _ = ctx.client.abort_multipart_upload().bucket(&ctx.bucket).key("test.txt").upload_id(&upload_id).send().await;
+    let _ = ctx
+        .client
+        .abort_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .upload_id(&upload_id)
+        .send()
+        .await;
 }

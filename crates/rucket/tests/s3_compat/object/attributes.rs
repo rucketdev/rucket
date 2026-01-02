@@ -272,10 +272,7 @@ async fn test_get_object_attributes_multipart() {
         .multipart_upload(
             aws_sdk_s3::types::CompletedMultipartUpload::builder()
                 .parts(
-                    aws_sdk_s3::types::CompletedPart::builder()
-                        .part_number(1)
-                        .e_tag(etag)
-                        .build(),
+                    aws_sdk_s3::types::CompletedPart::builder().part_number(1).e_tag(etag).build(),
                 )
                 .build(),
         )

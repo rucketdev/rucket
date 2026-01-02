@@ -36,10 +36,7 @@ async fn test_bucket_replication_put_get() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .delete_marker_replication(
             DeleteMarkerReplication::builder()
@@ -89,10 +86,7 @@ async fn test_bucket_replication_delete() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .build()
         .unwrap();
@@ -137,10 +131,7 @@ async fn test_bucket_replication_prefix_filter() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().prefix("logs/").build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .build()
         .unwrap();
@@ -172,12 +163,7 @@ async fn test_bucket_replication_multiple_rules() {
         .status(ReplicationRuleStatus::Enabled)
         .priority(1)
         .filter(ReplicationRuleFilter::builder().prefix("logs/").build())
-        .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::dest-bucket-1")
-                .build()
-                .unwrap(),
-        )
+        .destination(Destination::builder().bucket("arn:aws:s3:::dest-bucket-1").build().unwrap())
         .build()
         .unwrap();
 
@@ -186,12 +172,7 @@ async fn test_bucket_replication_multiple_rules() {
         .status(ReplicationRuleStatus::Enabled)
         .priority(2)
         .filter(ReplicationRuleFilter::builder().prefix("data/").build())
-        .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::dest-bucket-2")
-                .build()
-                .unwrap(),
-        )
+        .destination(Destination::builder().bucket("arn:aws:s3:::dest-bucket-2").build().unwrap())
         .build()
         .unwrap();
 
@@ -235,10 +216,7 @@ async fn test_bucket_replication_disabled_rule() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .build()
         .unwrap();
@@ -271,10 +249,7 @@ async fn test_bucket_replication_requires_versioning() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .build()
         .unwrap();
@@ -309,10 +284,7 @@ async fn test_bucket_replication_delete_markers() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .delete_marker_replication(
             DeleteMarkerReplication::builder()
@@ -400,12 +372,7 @@ async fn test_bucket_replication_update() {
         .status(ReplicationRuleStatus::Enabled)
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
-        .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::dest-bucket-1")
-                .build()
-                .unwrap(),
-        )
+        .destination(Destination::builder().bucket("arn:aws:s3:::dest-bucket-1").build().unwrap())
         .build()
         .unwrap();
 
@@ -429,12 +396,7 @@ async fn test_bucket_replication_update() {
         .status(ReplicationRuleStatus::Enabled)
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
-        .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::dest-bucket-2")
-                .build()
-                .unwrap(),
-        )
+        .destination(Destination::builder().bucket("arn:aws:s3:::dest-bucket-2").build().unwrap())
         .build()
         .unwrap();
 
@@ -482,10 +444,7 @@ async fn test_bucket_replication_tag_filter() {
                 .build(),
         )
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .build()
         .unwrap();
@@ -519,10 +478,7 @@ async fn test_bucket_replication_invalid_config() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .build()
         .unwrap();
@@ -556,10 +512,7 @@ async fn test_bucket_replication_replica_modifications() {
         .priority(1)
         .filter(ReplicationRuleFilter::builder().build())
         .destination(
-            Destination::builder()
-                .bucket("arn:aws:s3:::destination-bucket")
-                .build()
-                .unwrap(),
+            Destination::builder().bucket("arn:aws:s3:::destination-bucket").build().unwrap(),
         )
         .build()
         .unwrap();

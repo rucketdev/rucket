@@ -392,14 +392,8 @@ async fn test_object_get_part_number_non_multipart() {
     ctx.put("test.txt", b"content").await;
 
     // Part number on non-multipart should error
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .part_number(1)
-        .send()
-        .await;
+    let result =
+        ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").part_number(1).send().await;
 
     // Non-multipart objects don't have parts
     assert!(result.is_err());

@@ -48,15 +48,13 @@ async fn test_select_csv_count() {
         .expression("SELECT COUNT(*) FROM s3object")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::Use)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::Use).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select from CSV");
@@ -99,15 +97,13 @@ async fn test_select_csv_where() {
         .expression("SELECT name FROM s3object WHERE CAST(value AS INT) > 150")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::Use)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::Use).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select with WHERE");
@@ -152,15 +148,13 @@ async fn test_select_csv_sum() {
         .expression("SELECT SUM(CAST(value AS INT)) FROM s3object")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::Use)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::Use).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select SUM");
@@ -204,15 +198,13 @@ async fn test_select_csv_min_max() {
         .expression("SELECT MIN(CAST(value AS INT)) FROM s3object")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::Use)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::Use).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select MIN");
@@ -255,15 +247,13 @@ async fn test_select_csv_avg() {
         .expression("SELECT AVG(CAST(value AS INT)) FROM s3object")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::Use)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::Use).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select AVG");
@@ -318,7 +308,9 @@ async fn test_select_csv_custom_delimiter() {
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select from TSV");
@@ -361,15 +353,13 @@ async fn test_select_csv_no_header() {
         .expression("SELECT _1, _2 FROM s3object WHERE CAST(_1 AS INT) = 2")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::None)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::None).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select with positional columns");
@@ -413,15 +403,13 @@ async fn test_select_csv_like() {
         .expression("SELECT name FROM s3object WHERE name LIKE '%li%'")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::Use)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::Use).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select with LIKE");
@@ -466,15 +454,13 @@ async fn test_select_csv_between() {
         .expression("SELECT name FROM s3object WHERE CAST(value AS INT) BETWEEN 150 AND 250")
         .input_serialization(
             InputSerialization::builder()
-                .csv(
-                    CsvInput::builder()
-                        .file_header_info(FileHeaderInfo::Use)
-                        .build(),
-                )
+                .csv(CsvInput::builder().file_header_info(FileHeaderInfo::Use).build())
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await
         .expect("Should select with BETWEEN");
@@ -513,7 +499,9 @@ async fn test_select_csv_nonexistent() {
                 .compression_type(CompressionType::None)
                 .build(),
         )
-        .output_serialization(OutputSerialization::builder().csv(CsvOutput::builder().build()).build())
+        .output_serialization(
+            OutputSerialization::builder().csv(CsvOutput::builder().build()).build(),
+        )
         .send()
         .await;
 

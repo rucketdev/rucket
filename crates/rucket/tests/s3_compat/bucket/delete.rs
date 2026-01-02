@@ -164,7 +164,12 @@ async fn test_bucket_delete_versioned_empty() {
         .expect("Should enable versioning");
 
     // Delete empty versioned bucket should succeed
-    ctx.client.delete_bucket().bucket(&bucket).send().await.expect("Should delete versioned empty bucket");
+    ctx.client
+        .delete_bucket()
+        .bucket(&bucket)
+        .send()
+        .await
+        .expect("Should delete versioned empty bucket");
 }
 
 /// Test delete bucket fails when versions exist.
@@ -207,7 +212,12 @@ async fn test_bucket_delete_with_lifecycle() {
 
     // Lifecycle configuration would be added here
     // Delete should still succeed for empty bucket
-    ctx.client.delete_bucket().bucket(&bucket).send().await.expect("Should delete bucket with lifecycle");
+    ctx.client
+        .delete_bucket()
+        .bucket(&bucket)
+        .send()
+        .await
+        .expect("Should delete bucket with lifecycle");
 }
 
 /// Test delete bucket concurrent requests.
@@ -224,7 +234,8 @@ async fn test_bucket_delete_concurrent() {
     for _ in 0..5 {
         let client = ctx.client.clone();
         let bucket_clone = bucket.clone();
-        let handle = tokio::spawn(async move { client.delete_bucket().bucket(&bucket_clone).send().await });
+        let handle =
+            tokio::spawn(async move { client.delete_bucket().bucket(&bucket_clone).send().await });
         handles.push(handle);
     }
 

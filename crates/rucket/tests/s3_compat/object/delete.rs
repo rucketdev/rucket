@@ -229,14 +229,8 @@ async fn test_object_delete_specific_version() {
     assert_eq!(data.as_slice(), b"version2");
 
     // v1 should be gone
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .version_id(vid1)
-        .send()
-        .await;
+    let result =
+        ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").version_id(vid1).send().await;
     assert!(result.is_err());
 
     // v2 should still be accessible by version ID

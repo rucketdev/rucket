@@ -464,7 +464,10 @@ async fn test_object_copy_to_versioned_bucket() {
         .await
         .expect("Should copy object");
 
-    assert!(copy_result.version_id().is_some(), "Copy to versioned bucket should return version ID");
+    assert!(
+        copy_result.version_id().is_some(),
+        "Copy to versioned bucket should return version ID"
+    );
 }
 
 /// Test copy preserves cache control.

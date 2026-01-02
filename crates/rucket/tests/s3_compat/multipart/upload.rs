@@ -492,10 +492,7 @@ async fn test_multipart_overwrite_part() {
     // Complete with the second ETag
     let completed = CompletedMultipartUpload::builder()
         .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag(second_response.e_tag().unwrap())
-                .build(),
+            CompletedPart::builder().part_number(1).e_tag(second_response.e_tag().unwrap()).build(),
         )
         .build();
 
@@ -684,12 +681,7 @@ async fn test_multipart_complete_wrong_etag() {
 
     // Complete with wrong ETag
     let completed = CompletedMultipartUpload::builder()
-        .parts(
-            CompletedPart::builder()
-                .part_number(1)
-                .e_tag("\"wrong-etag\"")
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(1).e_tag("\"wrong-etag\"").build())
         .build();
 
     let result = ctx
@@ -748,12 +740,7 @@ async fn test_multipart_complete_missing_part() {
     // Try to complete with part 2 that doesn't exist
     let completed = CompletedMultipartUpload::builder()
         .parts(CompletedPart::builder().part_number(1).e_tag(part1.e_tag().unwrap()).build())
-        .parts(
-            CompletedPart::builder()
-                .part_number(2)
-                .e_tag("\"nonexistent\"")
-                .build(),
-        )
+        .parts(CompletedPart::builder().part_number(2).e_tag("\"nonexistent\"").build())
         .build();
 
     let result = ctx
@@ -872,10 +859,7 @@ async fn test_multipart_with_content_disposition() {
         .expect("Should complete");
 
     let head = ctx.head("download.txt").await;
-    assert_eq!(
-        head.content_disposition(),
-        Some("attachment; filename=\"download.txt\"")
-    );
+    assert_eq!(head.content_disposition(), Some("attachment; filename=\"download.txt\""));
 }
 
 /// Test multipart upload with content encoding.

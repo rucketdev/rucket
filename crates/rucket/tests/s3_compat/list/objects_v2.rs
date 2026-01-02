@@ -470,13 +470,13 @@ async fn test_list_objects_v2_deep_nested() {
 
     ctx.put("a/b/c/d/e/file.txt", b"content").await;
 
-    for depth in 1..=5 {
-        let prefix = "a/".repeat(1).chars().take(depth * 2).collect::<String>();
+    let prefixes = ["a/", "a/b/", "a/b/c/", "a/b/c/d/", "a/b/c/d/e/"];
+    for prefix in prefixes {
         let response = ctx
             .client
             .list_objects_v2()
             .bucket(&ctx.bucket)
-            .prefix(&prefix)
+            .prefix(prefix)
             .send()
             .await
             .expect("Should list objects");
@@ -538,7 +538,8 @@ async fn test_list_objects_v2_concurrent() {
     for _ in 0..10 {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
-        let handle = tokio::spawn(async move { client.list_objects_v2().bucket(&bucket).send().await });
+        let handle =
+            tokio::spawn(async move { client.list_objects_v2().bucket(&bucket).send().await });
         handles.push(handle);
     }
 

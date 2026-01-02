@@ -66,9 +66,7 @@ async fn test_select_json_lines_count() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await
@@ -117,9 +115,7 @@ async fn test_select_json_field_access() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await
@@ -168,9 +164,7 @@ async fn test_select_json_where() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await
@@ -221,9 +215,7 @@ async fn test_select_json_document() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await
@@ -274,9 +266,7 @@ async fn test_select_json_sum() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await
@@ -329,9 +319,7 @@ async fn test_select_json_nested() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await
@@ -383,9 +371,7 @@ async fn test_select_json_invalid() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await;
@@ -394,12 +380,9 @@ async fn test_select_json_invalid() {
     // depending on implementation
     if let Ok(mut response) = result {
         let stream_result = response.payload.recv().await;
-        // Either no events or an error event expected
-        match stream_result {
-            Ok(Some(SelectObjectContentEventStream::Records(_))) => {
-                panic!("Should not get valid records from invalid JSON")
-            }
-            _ => {} // Error or end of stream is expected
+        // Either no events or an error event expected - getting valid records is a failure
+        if let Ok(Some(SelectObjectContentEventStream::Records(_))) = stream_result {
+            panic!("Should not get valid records from invalid JSON");
         }
     }
 }
@@ -437,9 +420,7 @@ async fn test_select_json_empty() {
                 .build(),
         )
         .output_serialization(
-            OutputSerialization::builder()
-                .json(JsonOutput::builder().build())
-                .build(),
+            OutputSerialization::builder().json(JsonOutput::builder().build()).build(),
         )
         .send()
         .await

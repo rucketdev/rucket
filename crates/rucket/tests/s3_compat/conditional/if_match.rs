@@ -125,13 +125,7 @@ async fn test_if_match_delete() {
 
     // DELETE with matching ETag should succeed
     // Note: AWS S3 doesn't support If-Match on DELETE, but some implementations do
-    let _ = ctx
-        .client
-        .delete_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .send()
-        .await;
+    let _ = ctx.client.delete_object().bucket(&ctx.bucket).key("test.txt").send().await;
 
     // Just verify the object was deleted
     let exists = ctx.exists("test.txt").await;

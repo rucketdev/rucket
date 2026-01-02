@@ -246,7 +246,8 @@ async fn test_list_objects_v1_delimiter() {
         .await
         .expect("Should list");
 
-    let prefixes: Vec<&str> = response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
+    let prefixes: Vec<&str> =
+        response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
     assert!(prefixes.contains(&"foo/"));
 
     let keys: Vec<&str> = response.contents().iter().filter_map(|o| o.key()).collect();
@@ -274,7 +275,8 @@ async fn test_list_objects_v1_prefix_delimiter() {
         .await
         .expect("Should list");
 
-    let prefixes: Vec<&str> = response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
+    let prefixes: Vec<&str> =
+        response.common_prefixes().iter().filter_map(|p| p.prefix()).collect();
     assert!(prefixes.contains(&"docs/api/"));
 
     let keys: Vec<&str> = response.contents().iter().filter_map(|o| o.key()).collect();
@@ -288,8 +290,7 @@ async fn test_list_objects_v1_prefix_delimiter() {
 async fn test_list_objects_v1_returns_bucket_name() {
     let ctx = S3TestContext::new().await;
 
-    let response =
-        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list");
+    let response = ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list");
 
     assert_eq!(response.name(), Some(ctx.bucket.as_str()));
 }
@@ -325,8 +326,7 @@ async fn test_list_objects_v1_many_objects() {
         ctx.put(&format!("file{:04}.txt", i), b"content").await;
     }
 
-    let response =
-        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list");
+    let response = ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list");
 
     assert_eq!(response.contents().len(), count);
 }
@@ -339,8 +339,7 @@ async fn test_list_objects_v1_includes_storage_class() {
 
     ctx.put("test.txt", b"content").await;
 
-    let response =
-        ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list");
+    let response = ctx.client.list_objects().bucket(&ctx.bucket).send().await.expect("Should list");
 
     let obj = &response.contents()[0];
     assert!(obj.storage_class().is_some());
@@ -360,7 +359,8 @@ async fn test_list_objects_v1_concurrent() {
     for _ in 0..10 {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
-        let handle = tokio::spawn(async move { client.list_objects().bucket(&bucket).send().await });
+        let handle =
+            tokio::spawn(async move { client.list_objects().bucket(&bucket).send().await });
         handles.push(handle);
     }
 
@@ -379,14 +379,8 @@ async fn test_list_objects_v1_empty_prefix() {
 
     ctx.put("file.txt", b"content").await;
 
-    let response = ctx
-        .client
-        .list_objects()
-        .bucket(&ctx.bucket)
-        .prefix("")
-        .send()
-        .await
-        .expect("Should list");
+    let response =
+        ctx.client.list_objects().bucket(&ctx.bucket).prefix("").send().await.expect("Should list");
 
     assert_eq!(response.contents().len(), 1);
 }

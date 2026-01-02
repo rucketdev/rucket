@@ -180,13 +180,8 @@ async fn test_multipart_abort_removes_from_list() {
     let upload_id = create.upload_id().unwrap();
 
     // Verify upload is in list
-    let list = ctx
-        .client
-        .list_multipart_uploads()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list");
+    let list =
+        ctx.client.list_multipart_uploads().bucket(&ctx.bucket).send().await.expect("Should list");
 
     assert!(!list.uploads().is_empty());
 
@@ -201,13 +196,8 @@ async fn test_multipart_abort_removes_from_list() {
         .expect("Should abort");
 
     // Should no longer be in list
-    let list = ctx
-        .client
-        .list_multipart_uploads()
-        .bucket(&ctx.bucket)
-        .send()
-        .await
-        .expect("Should list");
+    let list =
+        ctx.client.list_multipart_uploads().bucket(&ctx.bucket).send().await.expect("Should list");
 
     assert!(list.uploads().is_empty());
 }
@@ -257,7 +247,13 @@ async fn test_multipart_abort_concurrent() {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
         let handle = tokio::spawn(async move {
-            client.abort_multipart_upload().bucket(&bucket).key(&key).upload_id(&upload_id).send().await
+            client
+                .abort_multipart_upload()
+                .bucket(&bucket)
+                .key(&key)
+                .upload_id(&upload_id)
+                .send()
+                .await
         });
         handles.push(handle);
     }

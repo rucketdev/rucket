@@ -11,7 +11,7 @@ pub mod list;
 pub mod logging;
 pub mod notification;
 pub mod policy;
+pub mod replication;
 pub mod tagging;
 pub mod versioning;
 pub mod website;
-pub mod replication;

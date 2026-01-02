@@ -224,9 +224,8 @@ async fn test_concurrent_list_operations() {
     for _ in 0..10 {
         let client = ctx.client.clone();
         let bucket = ctx.bucket.clone();
-        let handle = tokio::spawn(async move {
-            client.list_objects_v2().bucket(&bucket).send().await
-        });
+        let handle =
+            tokio::spawn(async move { client.list_objects_v2().bucket(&bucket).send().await });
         handles.push(handle);
     }
 

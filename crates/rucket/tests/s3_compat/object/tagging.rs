@@ -402,7 +402,13 @@ async fn test_object_tagging_concurrent() {
                 .build()
                 .unwrap();
 
-            client.put_object_tagging().bucket(&bucket).key("test.txt").tagging(tagging).send().await
+            client
+                .put_object_tagging()
+                .bucket(&bucket)
+                .key("test.txt")
+                .tagging(tagging)
+                .send()
+                .await
         });
         handles.push(handle);
     }
@@ -538,13 +544,8 @@ async fn test_object_tagging_delete_empty() {
     ctx.put("test.txt", b"content").await;
 
     // Delete tagging on object with no tags should succeed
-    let result = ctx
-        .client
-        .delete_object_tagging()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .send()
-        .await;
+    let result =
+        ctx.client.delete_object_tagging().bucket(&ctx.bucket).key("test.txt").send().await;
 
     assert!(result.is_ok(), "Delete tagging on untagged object should succeed");
 }
@@ -646,8 +647,14 @@ async fn test_object_tagging_deep_path() {
         .await
         .expect("Should tag deep path object");
 
-    let response =
-        ctx.client.get_object_tagging().bucket(&ctx.bucket).key(key).send().await.expect("Should get tags");
+    let response = ctx
+        .client
+        .get_object_tagging()
+        .bucket(&ctx.bucket)
+        .key(key)
+        .send()
+        .await
+        .expect("Should get tags");
 
     assert_eq!(response.tag_set().len(), 1);
 }

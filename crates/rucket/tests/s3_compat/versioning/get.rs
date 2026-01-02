@@ -163,14 +163,8 @@ async fn test_versioning_get_deleted_version() {
         .expect("Should delete");
 
     // GET deleted version should fail
-    let result = ctx
-        .client
-        .get_object()
-        .bucket(&ctx.bucket)
-        .key("test.txt")
-        .version_id(vid1)
-        .send()
-        .await;
+    let result =
+        ctx.client.get_object().bucket(&ctx.bucket).key("test.txt").version_id(vid1).send().await;
 
     assert!(result.is_err());
 }
@@ -354,7 +348,13 @@ async fn test_versioning_get_version_after_delete_marker() {
     let vid1 = v1.version_id().unwrap();
 
     // Create delete marker
-    ctx.client.delete_object().bucket(&ctx.bucket).key("test.txt").send().await.expect("Should delete");
+    ctx.client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .send()
+        .await
+        .expect("Should delete");
 
     // v1 should still be accessible by version ID
     let response = ctx
@@ -381,7 +381,14 @@ async fn test_versioning_get_after_restore() {
     let _vid1 = v1.version_id().unwrap();
 
     // Create delete marker
-    let delete = ctx.client.delete_object().bucket(&ctx.bucket).key("test.txt").send().await.expect("Should delete");
+    let delete = ctx
+        .client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .send()
+        .await
+        .expect("Should delete");
     let delete_marker_id = delete.version_id().unwrap();
 
     // GET latest should fail (delete marker)

@@ -135,7 +135,10 @@ async fn test_bucket_head_versioned() {
 #[tokio::test]
 async fn test_bucket_head_with_dashes() {
     let ctx = S3TestContext::without_bucket().await;
-    let bucket = format!("test-bucket-with-dashes-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap());
+    let bucket = format!(
+        "test-bucket-with-dashes-{}",
+        uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+    );
 
     ctx.client.create_bucket().bucket(&bucket).send().await.expect("Should create bucket");
 

@@ -322,7 +322,9 @@ async fn test_bucket_tagging_special_chars() {
     let ctx = S3TestContext::new().await;
 
     let tagging = Tagging::builder()
-        .tag_set(Tag::builder().key("key-with-dash").value("value_with_underscore").build().unwrap())
+        .tag_set(
+            Tag::builder().key("key-with-dash").value("value_with_underscore").build().unwrap(),
+        )
         .tag_set(Tag::builder().key("key.with.dots").value("value:with:colons").build().unwrap())
         .build()
         .unwrap();
@@ -351,9 +353,9 @@ async fn test_bucket_tagging_empty_set() {
     if result.is_ok() {
         // If accepted, should clear tags
         let get_result = ctx.client.get_bucket_tagging().bucket(&ctx.bucket).send().await;
-        match get_result {
-            Ok(r) => assert!(r.tag_set().is_empty()),
-            Err(_) => {} // NoSuchTagSet is also acceptable
+        // NoSuchTagSet is also acceptable
+        if let Ok(r) = get_result {
+            assert!(r.tag_set().is_empty());
         }
     }
 }
@@ -369,7 +371,11 @@ async fn test_bucket_tagging_max_50() {
     let mut tagging_builder = Tagging::builder();
     for i in 0..50 {
         tagging_builder = tagging_builder.tag_set(
-            Tag::builder().key(format!("key{:02}", i)).value(format!("value{}", i)).build().unwrap(),
+            Tag::builder()
+                .key(format!("key{:02}", i))
+                .value(format!("value{}", i))
+                .build()
+                .unwrap(),
         );
     }
     let tagging = tagging_builder.build().unwrap();
@@ -398,7 +404,11 @@ async fn test_bucket_tagging_over_50_fails() {
     let mut tagging_builder = Tagging::builder();
     for i in 0..51 {
         tagging_builder = tagging_builder.tag_set(
-            Tag::builder().key(format!("key{:02}", i)).value(format!("value{}", i)).build().unwrap(),
+            Tag::builder()
+                .key(format!("key{:02}", i))
+                .value(format!("value{}", i))
+                .build()
+                .unwrap(),
         );
     }
     let tagging = tagging_builder.build().unwrap();
