@@ -14,7 +14,6 @@ use crate::S3TestContext;
 /// Test PutObject with CRC32C checksum algorithm.
 /// MinIO: testChecksumCRC32C
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_put_object_checksum_crc32c() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-crc32c.txt";
@@ -38,7 +37,6 @@ async fn test_put_object_checksum_crc32c() {
 /// Test PutObject with CRC32 checksum algorithm.
 /// MinIO: testChecksumCRC32
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_put_object_checksum_crc32() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-crc32.txt";
@@ -61,7 +59,6 @@ async fn test_put_object_checksum_crc32() {
 /// Test PutObject with SHA256 checksum algorithm.
 /// MinIO: testChecksumSHA256
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_put_object_checksum_sha256() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-sha256.txt";
@@ -84,7 +81,6 @@ async fn test_put_object_checksum_sha256() {
 /// Test PutObject with SHA1 checksum algorithm.
 /// MinIO: testChecksumSHA1
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_put_object_checksum_sha1() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-sha1.txt";
@@ -107,7 +103,6 @@ async fn test_put_object_checksum_sha1() {
 /// Test PutObject with invalid checksum value.
 /// MinIO: testChecksumInvalidValue
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_put_object_checksum_invalid() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-invalid.txt";
@@ -133,7 +128,6 @@ async fn test_put_object_checksum_invalid() {
 /// Test GetObject returns checksum when requested.
 /// MinIO: testGetObjectWithChecksum
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_get_object_checksum() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-get.txt";
@@ -268,7 +262,6 @@ async fn test_multipart_checksum_sha256() {
 /// Test copy object preserves checksum.
 /// MinIO: testCopyChecksumPreserve
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_copy_object_checksum_preserve() {
     let ctx = S3TestContext::new().await;
     let src_key = "checksum-source.txt";
@@ -314,7 +307,6 @@ async fn test_copy_object_checksum_preserve() {
 /// Test HeadObject returns checksum.
 /// MinIO: testHeadObjectChecksum
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_head_object_checksum() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-head.txt";
@@ -431,7 +423,6 @@ async fn test_list_parts_checksum() {
 /// Test all checksum algorithms are accepted.
 /// Ceph: test_checksum_algorithms
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_all_checksum_algorithms() {
     let ctx = S3TestContext::new().await;
     let content = b"Test all algorithms";

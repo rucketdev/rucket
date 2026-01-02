@@ -4,8 +4,10 @@ use std::path::Path;
 
 use crc32fast::Hasher as Crc32Hasher;
 use md5::{Digest, Md5};
-use rucket_core::types::ETag;
+use rucket_core::types::{Checksum, ChecksumAlgorithm, ETag};
 use rucket_core::{Result, SyncStrategy};
+use sha1::Sha1;
+use sha2::Sha256;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
@@ -99,6 +101,49 @@ pub fn compute_crc32c(data: &[u8]) -> u32 {
 #[must_use]
 pub fn verify_crc32c(data: &[u8], expected: u32) -> bool {
     compute_crc32c(data) == expected
+}
+
+/// Compute CRC32 checksum of data (IEEE polynomial).
+#[must_use]
+pub fn compute_crc32(data: &[u8]) -> u32 {
+    let mut hasher = Crc32Hasher::new();
+    hasher.update(data);
+    hasher.finalize()
+}
+
+/// Compute CRC32C checksum of data (Castagnoli polynomial).
+///
+/// Uses hardware acceleration (SSE4.2/ARM CRC) when available.
+#[must_use]
+pub fn compute_crc32c_castagnoli(data: &[u8]) -> u32 {
+    crc32c::crc32c(data)
+}
+
+/// Compute SHA-1 hash of data.
+#[must_use]
+pub fn compute_sha1(data: &[u8]) -> [u8; 20] {
+    let mut hasher = Sha1::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+/// Compute SHA-256 hash of data.
+#[must_use]
+pub fn compute_sha256(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+/// Compute a checksum for the given algorithm.
+#[must_use]
+pub fn compute_checksum(data: &[u8], algorithm: ChecksumAlgorithm) -> Checksum {
+    match algorithm {
+        ChecksumAlgorithm::Crc32 => Checksum::Crc32(compute_crc32(data)),
+        ChecksumAlgorithm::Crc32C => Checksum::Crc32C(compute_crc32c_castagnoli(data)),
+        ChecksumAlgorithm::Sha1 => Checksum::Sha1(compute_sha1(data)),
+        ChecksumAlgorithm::Sha256 => Checksum::Sha256(compute_sha256(data)),
+    }
 }
 
 /// Compute ETag for multipart upload from part ETags.
