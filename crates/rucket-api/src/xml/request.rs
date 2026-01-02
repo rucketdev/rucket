@@ -2,6 +2,15 @@
 
 use serde::Deserialize;
 
+/// `VersioningConfiguration` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "VersioningConfiguration")]
+pub struct VersioningConfiguration {
+    /// Versioning status: "Enabled" or "Suspended".
+    #[serde(rename = "Status")]
+    pub status: Option<String>,
+}
+
 /// `CreateBucketConfiguration` request body.
 #[derive(Debug, Deserialize)]
 #[serde(rename = "CreateBucketConfiguration")]

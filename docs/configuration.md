@@ -63,6 +63,23 @@ format = "pretty"
 | `level` | `info` | Log level: `trace`, `debug`, `info`, `warn`, `error` |
 | `format` | `pretty` | Output format: `json` or `pretty` |
 
+## API Section
+
+```toml
+[api]
+compatibility_mode = "minio"
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `compatibility_mode` | `minio` | API compatibility mode: `s3-strict`, `minio`, or `ceph` |
+
+### Compatibility Modes
+
+- **`s3-strict`**: Standard S3 API only. Maximum compatibility with AWS S3 clients.
+- **`minio`**: S3 API plus MinIO extensions (health endpoints at `/minio/health/*`).
+- **`ceph`**: S3 API with Ceph RGW compatibility. Enables full versioning support including `list_object_versions` and proper delete marker handling for compatibility with ceph/s3-tests.
+
 ## Environment Variables
 
 The `RUST_LOG` environment variable overrides the configured log level:

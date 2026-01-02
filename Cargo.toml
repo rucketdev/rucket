@@ -96,10 +96,12 @@ directories = "6.0"
 aws-sdk-s3 = "1"
 aws-config = "1"
 aws-credential-types = "1"
+aws-smithy-types = "1"
 tempfile = "3.14"
 tokio-test = "0.4"
 assert_cmd = "2.0"
 predicates = "3.1"
+rand = "0.8"
 
 # Benchmarking
 criterion = { version = "0.8", features = ["async_tokio"] }

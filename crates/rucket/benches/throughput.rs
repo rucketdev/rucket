@@ -2,12 +2,13 @@
 
 #![allow(missing_docs)]
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use rucket_core::{SyncConfig, SyncStrategy};
-use rucket_storage::{LocalStorage, StorageBackend};
+use rucket_storage::{LocalStorage, ObjectHeaders, StorageBackend};
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
@@ -87,7 +88,16 @@ fn bench_put_object(c: &mut Criterion) {
                 counter += 1;
                 rt.block_on(async {
                     storage
-                        .put_object("bench", &key, data.clone(), Some("application/octet-stream"))
+                        .put_object(
+                            "bench",
+                            &key,
+                            data.clone(),
+                            ObjectHeaders {
+                                content_type: Some("application/octet-stream".to_string()),
+                                ..Default::default()
+                            },
+                            HashMap::new(),
+                        )
                         .await
                         .expect("put_object failed");
                 });
@@ -115,7 +125,16 @@ fn bench_get_object(c: &mut Criterion) {
         rt.block_on(async {
             fixture
                 .storage
-                .put_object("bench", &key, data, Some("application/octet-stream"))
+                .put_object(
+                    "bench",
+                    &key,
+                    data,
+                    ObjectHeaders {
+                        content_type: Some("application/octet-stream".to_string()),
+                        ..Default::default()
+                    },
+                    HashMap::new(),
+                )
                 .await
                 .expect("Failed to put object");
         });
@@ -149,7 +168,16 @@ fn bench_get_object_range(c: &mut Criterion) {
     rt.block_on(async {
         fixture
             .storage
-            .put_object("bench", key, data, Some("application/octet-stream"))
+            .put_object(
+                "bench",
+                key,
+                data,
+                ObjectHeaders {
+                    content_type: Some("application/octet-stream".to_string()),
+                    ..Default::default()
+                },
+                HashMap::new(),
+            )
             .await
             .expect("Failed to put object");
     });
@@ -188,7 +216,16 @@ fn bench_head_object(c: &mut Criterion) {
     rt.block_on(async {
         fixture
             .storage
-            .put_object("bench", key, data, Some("application/octet-stream"))
+            .put_object(
+                "bench",
+                key,
+                data,
+                ObjectHeaders {
+                    content_type: Some("application/octet-stream".to_string()),
+                    ..Default::default()
+                },
+                HashMap::new(),
+            )
             .await
             .expect("Failed to put object");
     });
@@ -222,7 +259,13 @@ fn bench_delete_object(c: &mut Criterion) {
             rt.block_on(async {
                 // Create object
                 storage
-                    .put_object("bench", &key, data.clone(), None)
+                    .put_object(
+                        "bench",
+                        &key,
+                        data.clone(),
+                        ObjectHeaders::default(),
+                        HashMap::new(),
+                    )
                     .await
                     .expect("put_object failed");
 
@@ -245,7 +288,16 @@ fn bench_copy_object(c: &mut Criterion) {
     rt.block_on(async {
         fixture
             .storage
-            .put_object("bench", src_key, data, Some("application/octet-stream"))
+            .put_object(
+                "bench",
+                src_key,
+                data,
+                ObjectHeaders {
+                    content_type: Some("application/octet-stream".to_string()),
+                    ..Default::default()
+                },
+                HashMap::new(),
+            )
             .await
             .expect("Failed to put source object");
     });
@@ -263,7 +315,7 @@ fn bench_copy_object(c: &mut Criterion) {
 
             rt.block_on(async {
                 storage
-                    .copy_object("bench", src_key, "bench", &dst_key)
+                    .copy_object("bench", src_key, "bench", &dst_key, None, None)
                     .await
                     .expect("copy_object failed");
             });
@@ -289,7 +341,7 @@ fn bench_list_objects(c: &mut Criterion) {
             let key = format!("list-obj-{i:05}");
             fixture
                 .storage
-                .put_object("bench", &key, data.clone(), None)
+                .put_object("bench", &key, data.clone(), ObjectHeaders::default(), HashMap::new())
                 .await
                 .expect("Failed to put object");
         }
@@ -331,7 +383,13 @@ fn bench_list_objects_with_prefix(c: &mut Criterion) {
                 let key = format!("{prefix}obj-{i:03}");
                 fixture
                     .storage
-                    .put_object("bench", &key, data.clone(), None)
+                    .put_object(
+                        "bench",
+                        &key,
+                        data.clone(),
+                        ObjectHeaders::default(),
+                        HashMap::new(),
+                    )
                     .await
                     .expect("Failed to put object");
             }
@@ -386,7 +444,13 @@ fn bench_sync_strategies(c: &mut Criterion) {
                 counter += 1;
                 rt.block_on(async {
                     storage
-                        .put_object("bench", &key, data.clone(), None)
+                        .put_object(
+                            "bench",
+                            &key,
+                            data.clone(),
+                            ObjectHeaders::default(),
+                            HashMap::new(),
+                        )
                         .await
                         .expect("put_object failed");
                 });
@@ -440,7 +504,13 @@ fn bench_profile_matrix_put(c: &mut Criterion) {
                     counter += 1;
                     rt.block_on(async {
                         storage
-                            .put_object("bench", &key, data.clone(), None)
+                            .put_object(
+                                "bench",
+                                &key,
+                                data.clone(),
+                                ObjectHeaders::default(),
+                                HashMap::new(),
+                            )
                             .await
                             .expect("put_object failed");
                     });
@@ -472,7 +542,7 @@ fn bench_profile_matrix_get(c: &mut Criterion) {
             rt.block_on(async {
                 fixture
                     .storage
-                    .put_object("bench", &key, data, None)
+                    .put_object("bench", &key, data, ObjectHeaders::default(), HashMap::new())
                     .await
                     .expect("Failed to put object");
             });
