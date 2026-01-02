@@ -281,4 +281,10 @@ pub trait MetadataBackend: Send + Sync + 'static {
     ///
     /// Returns `NotImplemented` error (stub).
     async fn delete_parts(&self, upload_id: &str) -> Result<Vec<Uuid>>;
+
+    /// Check if a UUID exists in the metadata (synchronous version for callbacks).
+    ///
+    /// This is used during recovery to check if a data file has corresponding metadata.
+    /// Returns `false` if the check fails or the UUID doesn't exist.
+    fn uuid_exists_sync(&self, bucket: &str, uuid: Uuid) -> bool;
 }

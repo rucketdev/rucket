@@ -132,11 +132,10 @@ pub struct WalConfig {
     pub enabled: bool,
     /// Sync mode for WAL writes.
     pub sync_mode: WalSyncMode,
+    /// Recovery mode for startup crash recovery.
+    pub recovery_mode: RecoveryMode,
     /// Checkpoint configuration.
     pub checkpoint: CheckpointConfig,
-    /// Scan for orphaned files on startup.
-    /// This is slower but more thorough.
-    pub scan_orphans_on_startup: bool,
 }
 
 impl Default for WalConfig {
@@ -144,8 +143,8 @@ impl Default for WalConfig {
         Self {
             enabled: true,
             sync_mode: WalSyncMode::Fdatasync,
+            recovery_mode: RecoveryMode::Light,
             checkpoint: CheckpointConfig::default(),
-            scan_orphans_on_startup: false,
         }
     }
 }
@@ -175,6 +174,29 @@ pub enum WalSyncMode {
     Fdatasync,
     /// Use full fsync (slower, syncs all metadata).
     Fsync,
+}
+
+/// Recovery mode for startup crash recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RecoveryMode {
+    /// Light recovery: WAL-based recovery only (fast).
+    ///
+    /// Replays WAL to identify incomplete operations and rolls them back.
+    /// Does not scan filesystem or verify checksums.
+    #[default]
+    Light,
+
+    /// Full recovery: WAL + orphan scan + checksum verification (thorough).
+    ///
+    /// In addition to WAL recovery:
+    /// - Scans all data files for orphans (files without metadata)
+    /// - Verifies CRC32C checksums of all objects
+    /// - Reports corrupted files (does not delete them)
+    ///
+    /// This mode is slower but catches corruption that occurred outside
+    /// of normal operations (e.g., disk errors, manual file edits).
+    Full,
 }
 
 /// Checkpoint configuration for WAL.
@@ -263,13 +285,18 @@ impl DurabilityPreset {
                 metadata: SyncStrategy::Periodic,
                 interval_ms: 5000,
                 batch: BatchConfig::aggressive(),
+                verify_checksums_on_read: false,
                 ..Default::default()
             },
-            Self::Balanced => SyncConfig::default(),
+            Self::Balanced => SyncConfig {
+                verify_checksums_on_read: false,
+                ..SyncConfig::default()
+            },
             Self::Durable => SyncConfig {
                 data: SyncStrategy::Always,
                 metadata: SyncStrategy::Always,
                 batch: BatchConfig::disabled(),
+                verify_checksums_on_read: true, // Verify on read in Durable mode
                 ..Default::default()
             },
         }
@@ -332,6 +359,14 @@ pub struct SyncConfig {
     /// Batch configuration for group commit.
     /// Batching multiple writes with a single fsync improves throughput.
     pub batch: BatchConfig,
+    /// Verify CRC32C checksums on read operations.
+    ///
+    /// When enabled, reads will compute the CRC32C of the data and compare
+    /// it to the stored checksum. If they don't match, an error is returned.
+    ///
+    /// Default: `false` (only enabled in Durable preset).
+    /// Enable this for maximum data integrity at the cost of read performance.
+    pub verify_checksums_on_read: bool,
 }
 
 /// Configuration for batched write operations (group commit).
@@ -389,6 +424,7 @@ impl Default for SyncConfig {
             ops_threshold: 100,
             direct_io_min_size: 0, // Disabled by default
             batch: BatchConfig::default(),
+            verify_checksums_on_read: false, // Only enabled in Durable preset
         }
     }
 }
