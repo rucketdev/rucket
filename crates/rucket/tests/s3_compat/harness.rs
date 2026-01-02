@@ -19,7 +19,7 @@ use aws_sdk_s3::types::{BucketVersioningStatus, VersioningConfiguration};
 use aws_sdk_s3::Client;
 use rand::Rng;
 use rucket_api::create_router;
-use rucket_core::config::ApiCompatibilityMode;
+use rucket_core::config::{ApiCompatibilityMode, AuthConfig};
 use rucket_storage::LocalStorage;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -37,6 +37,8 @@ pub struct S3TestContext {
     pub bucket: String,
     /// The server address.
     pub addr: SocketAddr,
+    /// The auth config (if auth is enabled).
+    pub auth_config: Option<AuthConfig>,
     _server_handle: JoinHandle<()>,
     _shutdown_tx: oneshot::Sender<()>,
     _temp_dir: TempDir,
@@ -46,7 +48,17 @@ impl S3TestContext {
     /// Create a new test context with an auto-generated bucket.
     pub async fn new() -> Self {
         let bucket = random_bucket_name();
-        let mut ctx = Self::start_server().await;
+        let mut ctx = Self::start_server(None).await;
+        ctx.bucket = bucket.clone();
+        ctx.create_bucket_internal(&bucket).await;
+        ctx
+    }
+
+    /// Create a new test context with authentication enabled and an auto-generated bucket.
+    pub async fn new_with_auth() -> Self {
+        let auth = AuthConfig::default();
+        let bucket = random_bucket_name();
+        let mut ctx = Self::start_server(Some(auth)).await;
         ctx.bucket = bucket.clone();
         ctx.create_bucket_internal(&bucket).await;
         ctx
@@ -54,7 +66,7 @@ impl S3TestContext {
 
     /// Create a new test context with a specific bucket name.
     pub async fn with_bucket(name: &str) -> Self {
-        let mut ctx = Self::start_server().await;
+        let mut ctx = Self::start_server(None).await;
         ctx.bucket = name.to_string();
         ctx.create_bucket_internal(name).await;
         ctx
@@ -69,7 +81,7 @@ impl S3TestContext {
 
     /// Create a new test context with multiple buckets.
     pub async fn with_buckets(names: &[&str]) -> Self {
-        let mut ctx = Self::start_server().await;
+        let mut ctx = Self::start_server(None).await;
         if let Some(first) = names.first() {
             ctx.bucket = first.to_string();
         }
@@ -81,11 +93,11 @@ impl S3TestContext {
 
     /// Create a test context without creating any buckets.
     pub async fn without_bucket() -> Self {
-        Self::start_server().await
+        Self::start_server(None).await
     }
 
     /// Start the test server and return the context.
-    async fn start_server() -> Self {
+    async fn start_server(auth_config: Option<AuthConfig>) -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let data_dir = temp_dir.path().join("data");
         let tmp_dir = temp_dir.path().join("tmp");
@@ -99,6 +111,7 @@ impl S3TestContext {
             5 * 1024 * 1024 * 1024,
             ApiCompatibilityMode::Minio,
             false, // log_requests disabled for tests
+            auth_config.as_ref(),
         );
 
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
@@ -125,6 +138,7 @@ impl S3TestContext {
             endpoint,
             bucket: String::new(),
             addr,
+            auth_config,
             _server_handle: handle,
             _shutdown_tx: shutdown_tx,
             _temp_dir: temp_dir,

@@ -39,6 +39,7 @@ impl TestServer {
             5 * 1024 * 1024 * 1024,
             ApiCompatibilityMode::Minio,
             false, // log_requests disabled for tests
+            None,  // anonymous access for tests
         );
 
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
