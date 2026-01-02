@@ -23,6 +23,7 @@ allow = [
     "OpenSSL",
     "Zlib",
     "CDLA-Permissive-2.0",  # Used by webpki-roots for CA certificates
+    "AGPL-3.0-only",         # Rucket itself is AGPL-3.0
 ]
 confidence-threshold = 0.8
 
