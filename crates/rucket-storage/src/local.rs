@@ -2110,4 +2110,107 @@ mod tests {
         assert_eq!(stats.puts_rolled_back, 0, "No operations should be rolled back");
         assert_eq!(stats.deletes_rolled_back, 0, "No operations should be rolled back");
     }
+
+    #[tokio::test]
+    async fn test_sync_counters_in_always_mode() {
+        use crate::sync::test_stats;
+
+        test_stats::reset();
+        let temp_dir = TempDir::new().unwrap();
+        let data_dir = temp_dir.path().join("data");
+        let tmp_dir = temp_dir.path().join("tmp");
+
+        // Use Always sync mode to trigger both file and directory sync
+        let sync_config = SyncConfig { data: SyncStrategy::Always, ..Default::default() };
+
+        let storage = LocalStorage::with_full_config(
+            data_dir,
+            tmp_dir,
+            sync_config,
+            RedbConfig::default(),
+            WalConfig::disabled(),
+        )
+        .await
+        .unwrap();
+
+        storage.create_bucket("test").await.unwrap();
+
+        // Put an object - should trigger file sync and dir sync
+        storage
+            .put_object(
+                "test",
+                "key1",
+                Bytes::from("test data"),
+                Default::default(),
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Verify syncs were recorded
+        // File sync happens in streaming.rs (Always mode) and local.rs (threshold)
+        let data_syncs = test_stats::data_sync_count();
+        assert!(data_syncs >= 1, "Always mode should trigger file sync: got {data_syncs}");
+
+        // Directory sync happens in Always mode
+        let dir_syncs = test_stats::dir_sync_count();
+        assert!(dir_syncs >= 1, "Always mode should trigger directory sync: got {dir_syncs}");
+    }
+
+    #[tokio::test]
+    async fn test_sync_counters_threshold_triggered() {
+        use crate::sync::test_stats;
+
+        test_stats::reset();
+        let temp_dir = TempDir::new().unwrap();
+        let data_dir = temp_dir.path().join("data");
+        let tmp_dir = temp_dir.path().join("tmp");
+
+        // Use Threshold mode with low threshold to trigger sync
+        let sync_config = SyncConfig {
+            data: SyncStrategy::Threshold,
+            bytes_threshold: 10, // Very low threshold
+            ops_threshold: 2,    // Trigger on 2nd op
+            ..Default::default()
+        };
+
+        let storage = LocalStorage::with_full_config(
+            data_dir,
+            tmp_dir,
+            sync_config,
+            RedbConfig::default(),
+            WalConfig::disabled(),
+        )
+        .await
+        .unwrap();
+
+        storage.create_bucket("test").await.unwrap();
+
+        let initial_syncs = test_stats::data_sync_count();
+
+        // First put - may or may not trigger depending on byte count
+        storage
+            .put_object("test", "key1", Bytes::from("data1"), Default::default(), HashMap::new())
+            .await
+            .unwrap();
+
+        // Second put - should definitely trigger threshold
+        storage
+            .put_object(
+                "test",
+                "key2",
+                Bytes::from("data2 with more bytes to exceed threshold"),
+                Default::default(),
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Verify threshold-triggered sync happened
+        let final_syncs = test_stats::data_sync_count();
+        assert!(
+            final_syncs > initial_syncs,
+            "Threshold mode should trigger sync when threshold exceeded: got {final_syncs} (was {initial_syncs})"
+        );
+    }
 }
