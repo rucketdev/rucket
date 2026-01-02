@@ -222,7 +222,6 @@ async fn test_get_object_attributes_version() {
 /// Test GetObjectAttributes for multipart uploaded object.
 /// MinIO: testGetObjectAttributesMultipart
 #[tokio::test]
-#[ignore = "GetObjectAttributes not implemented"]
 async fn test_get_object_attributes_multipart() {
     let ctx = S3TestContext::new().await;
     let key = "multipart-object.txt";

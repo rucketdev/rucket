@@ -856,6 +856,9 @@ impl StorageBackend for LocalStorage {
         // Get source object
         let (src_meta, data) = self.get_object(src_bucket, src_key).await?;
 
+        // Get source tags (these should be preserved by default)
+        let src_tags = self.get_object_tagging(src_bucket, src_key).await.unwrap_or_default();
+
         // Use new headers/metadata if provided (MetadataDirective=REPLACE),
         // otherwise preserve source object's headers/metadata (MetadataDirective=COPY)
         let headers = new_headers.unwrap_or(ObjectHeaders {
@@ -870,6 +873,16 @@ impl StorageBackend for LocalStorage {
         let metadata = new_metadata.unwrap_or(src_meta.user_metadata);
 
         let result = self.put_object(dst_bucket, dst_key, data, headers, metadata).await?;
+
+        // Copy tags to destination object (tags are preserved by default per S3 spec)
+        if !src_tags.tags.is_empty() {
+            if let Some(ref version_id) = result.version_id {
+                self.put_object_tagging_version(dst_bucket, dst_key, version_id, src_tags).await?;
+            } else {
+                self.put_object_tagging(dst_bucket, dst_key, src_tags).await?;
+            }
+        }
+
         Ok(result.etag)
     }
 

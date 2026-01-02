@@ -416,7 +416,6 @@ async fn test_object_tagging_concurrent() {
 /// Test put object with tagging header.
 /// Ceph: test_put_object_with_tagging
 #[tokio::test]
-#[ignore = "x-amz-tagging header parsing on PUT not implemented"]
 async fn test_object_put_with_tagging() {
     use aws_sdk_s3::primitives::ByteStream;
 
@@ -575,7 +574,6 @@ async fn test_object_tagging_empty_key() {
 /// Test copy object preserves tags by default.
 /// Ceph: test_object_copy_preserves_tags
 #[tokio::test]
-#[ignore = "Copy object doesn't preserve tags yet"]
 async fn test_object_tagging_preserved_in_copy() {
     let ctx = S3TestContext::new().await;
 
