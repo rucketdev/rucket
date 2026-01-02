@@ -29,6 +29,7 @@ Core platform capabilities. Solid base for production use.
 | CORS support | ✅ |
 | Bucket tagging persistence | ✅ |
 | Tag validation (length, count) | ✅ |
+| GetObjectAttributes | ✅ |
 
 ### To Complete - Critical
 
@@ -41,7 +42,6 @@ Core platform capabilities. Solid base for production use.
 
 | Feature | Tests | Status |
 |---------|-------|--------|
-| GetObjectAttributes | 10 | ⬜ |
 | Checksum validation (CRC32, SHA) | 13 | ⬜ |
 | Multipart metadata (cache-control, etc.) | 3 | ⬜ |
 | List pagination edge cases | 5 | ⬜ |

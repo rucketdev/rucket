@@ -623,6 +623,84 @@ impl From<&rucket_core::types::CorsConfiguration> for CorsConfigurationResponse 
     }
 }
 
+/// `GetObjectAttributesResponse` response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "GetObjectAttributesResponse")]
+pub struct GetObjectAttributesResponse {
+    /// ETag of the object.
+    #[serde(rename = "ETag", skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    /// Last modified timestamp.
+    #[serde(rename = "LastModified", skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+    /// Object size in bytes.
+    #[serde(rename = "ObjectSize", skip_serializing_if = "Option::is_none")]
+    pub object_size: Option<i64>,
+    /// Storage class.
+    #[serde(rename = "StorageClass", skip_serializing_if = "Option::is_none")]
+    pub storage_class: Option<String>,
+    /// Checksum information.
+    #[serde(rename = "Checksum", skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<ObjectChecksum>,
+    /// Object parts (for multipart uploads).
+    #[serde(rename = "ObjectParts", skip_serializing_if = "Option::is_none")]
+    pub object_parts: Option<ObjectParts>,
+}
+
+/// Checksum information for an object.
+#[derive(Debug, Serialize)]
+pub struct ObjectChecksum {
+    /// CRC32 checksum.
+    #[serde(rename = "ChecksumCRC32", skip_serializing_if = "Option::is_none")]
+    pub crc32: Option<String>,
+    /// CRC32C checksum.
+    #[serde(rename = "ChecksumCRC32C", skip_serializing_if = "Option::is_none")]
+    pub crc32c: Option<String>,
+    /// SHA1 checksum.
+    #[serde(rename = "ChecksumSHA1", skip_serializing_if = "Option::is_none")]
+    pub sha1: Option<String>,
+    /// SHA256 checksum.
+    #[serde(rename = "ChecksumSHA256", skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+/// Object parts information (for multipart uploaded objects).
+#[derive(Debug, Serialize)]
+pub struct ObjectParts {
+    /// Total number of parts.
+    #[serde(rename = "TotalPartsCount", skip_serializing_if = "Option::is_none")]
+    pub total_parts_count: Option<i32>,
+    /// Part number marker.
+    #[serde(rename = "PartNumberMarker", skip_serializing_if = "Option::is_none")]
+    pub part_number_marker: Option<i32>,
+    /// Next part number marker.
+    #[serde(rename = "NextPartNumberMarker", skip_serializing_if = "Option::is_none")]
+    pub next_part_number_marker: Option<i32>,
+    /// Maximum parts.
+    #[serde(rename = "MaxParts", skip_serializing_if = "Option::is_none")]
+    pub max_parts: Option<i32>,
+    /// Whether the list is truncated.
+    #[serde(rename = "IsTruncated", skip_serializing_if = "Option::is_none")]
+    pub is_truncated: Option<bool>,
+    /// Part details.
+    #[serde(rename = "Part", default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<ObjectPartInfo>,
+}
+
+/// Individual part information.
+#[derive(Debug, Serialize)]
+pub struct ObjectPartInfo {
+    /// Part number.
+    #[serde(rename = "PartNumber")]
+    pub part_number: i32,
+    /// Part size in bytes.
+    #[serde(rename = "Size")]
+    pub size: i64,
+    /// Part checksum.
+    #[serde(rename = "ChecksumCRC32C", skip_serializing_if = "Option::is_none")]
+    pub checksum_crc32c: Option<String>,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors
