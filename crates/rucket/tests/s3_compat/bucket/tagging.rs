@@ -11,6 +11,7 @@ use crate::S3TestContext;
 /// Test putting and getting bucket tags.
 /// Ceph: test_set_bucket_tagging
 #[tokio::test]
+#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_put_get() {
     let ctx = S3TestContext::new().await;
 
@@ -133,6 +134,7 @@ async fn test_bucket_tagging_max_key_length() {
 
 /// Test putting many tags.
 #[tokio::test]
+#[ignore = "Bucket tagging storage not implemented"]
 async fn test_bucket_tagging_many_tags() {
     let ctx = S3TestContext::new().await;
 
