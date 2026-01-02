@@ -1,4 +1,4 @@
-.PHONY: setup fmt fmt-check check clippy test test-integration lint doc deny bench all \
+.PHONY: setup fmt fmt-check check clippy test test-integration lint doc deny bench coverage coverage-open all \
        s3-compat s3-compat-minio s3-compat-build s3-compat-clean
 
 # Install lefthook git hooks
@@ -43,6 +43,14 @@ deny:
 # Run benchmarks and generate graphs
 bench:
 	./scripts/run-benchmarks.sh
+
+# Generate code coverage report (HTML)
+coverage:
+	./scripts/coverage.sh
+
+# Generate and open coverage report in browser
+coverage-open: coverage
+	open target/coverage/html/index.html 2>/dev/null || xdg-open target/coverage/html/index.html
 
 # Run all CI checks locally
 all: lint test doc deny

@@ -26,10 +26,14 @@ pub enum S3ErrorCode {
     NoSuchKey,
     /// The specified upload does not exist.
     NoSuchUpload,
+    /// The specified version does not exist.
+    NoSuchVersion,
     /// The bucket policy does not exist.
     NoSuchBucketPolicy,
     /// The lifecycle configuration does not exist.
     NoSuchLifecycleConfiguration,
+    /// The CORS configuration does not exist.
+    NoSuchCORSConfiguration,
     /// The Object Lock configuration does not exist.
     ObjectLockConfigurationNotFoundError,
     /// The server-side encryption configuration was not found.
@@ -58,6 +62,10 @@ pub enum S3ErrorCode {
     NotImplemented,
     /// At least one of the preconditions you specified did not hold.
     PreconditionFailed,
+    /// The specified bucket name is not valid.
+    InvalidBucketName,
+    /// The XML you provided was not well-formed.
+    MalformedXML,
 }
 
 impl S3ErrorCode {
@@ -69,8 +77,10 @@ impl S3ErrorCode {
             Self::NoSuchBucket
             | Self::NoSuchKey
             | Self::NoSuchUpload
+            | Self::NoSuchVersion
             | Self::NoSuchBucketPolicy
             | Self::NoSuchLifecycleConfiguration
+            | Self::NoSuchCORSConfiguration
             | Self::ObjectLockConfigurationNotFoundError
             | Self::ServerSideEncryptionConfigurationNotFoundError => 404,
             Self::BucketAlreadyExists | Self::BucketNotEmpty => 409,
@@ -82,7 +92,9 @@ impl S3ErrorCode {
             | Self::InvalidKey
             | Self::InvalidArgument
             | Self::BadDigest
-            | Self::InvalidRequest => 400,
+            | Self::InvalidRequest
+            | Self::InvalidBucketName
+            | Self::MalformedXML => 400,
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
@@ -110,8 +122,10 @@ impl S3ErrorCode {
             Self::NoSuchBucket => "NoSuchBucket",
             Self::NoSuchKey => "NoSuchKey",
             Self::NoSuchUpload => "NoSuchUpload",
+            Self::NoSuchVersion => "NoSuchVersion",
             Self::NoSuchBucketPolicy => "NoSuchBucketPolicy",
             Self::NoSuchLifecycleConfiguration => "NoSuchLifecycleConfiguration",
+            Self::NoSuchCORSConfiguration => "NoSuchCORSConfiguration",
             Self::ObjectLockConfigurationNotFoundError => "ObjectLockConfigurationNotFoundError",
             Self::ServerSideEncryptionConfigurationNotFoundError => {
                 "ServerSideEncryptionConfigurationNotFoundError"
@@ -128,6 +142,8 @@ impl S3ErrorCode {
             Self::InvalidRequest => "InvalidRequest",
             Self::NotImplemented => "NotImplemented",
             Self::PreconditionFailed => "PreconditionFailed",
+            Self::InvalidBucketName => "InvalidBucketName",
+            Self::MalformedXML => "MalformedXML",
         }
     }
 }

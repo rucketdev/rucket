@@ -7,14 +7,18 @@ use std::sync::Arc;
 use bytes::Bytes;
 use dashmap::DashMap;
 use rucket_core::error::{Error, S3ErrorCode};
-use rucket_core::types::{BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part};
+use rucket_core::types::{
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+};
 use rucket_core::{RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-use crate::backend::{ListObjectsResult, StorageBackend};
-use crate::metadata::{MetadataBackend, RedbMetadataStore};
+use crate::backend::{
+    DeleteObjectResult, ListObjectsResult, ObjectHeaders, PutObjectResult, StorageBackend,
+};
+use crate::metadata::{ListVersionsResult, MetadataBackend, RedbMetadataStore};
 use crate::streaming::compute_crc32c;
 use crate::sync::{write_and_hash_with_strategy, SyncManager};
 use crate::wal::{RecoveryManager, WalEntry, WalSyncMode, WalWriter, WalWriterConfig};
@@ -314,6 +318,16 @@ impl StorageBackend for LocalStorage {
     }
 
     async fn delete_bucket(&self, name: &str) -> Result<()> {
+        // Check if bucket is empty before deleting (S3 requires buckets to be empty)
+        let list_result = self.list_objects(name, None, None, None, 1).await?;
+        if !list_result.objects.is_empty() || !list_result.common_prefixes.is_empty() {
+            return Err(Error::S3 {
+                code: S3ErrorCode::BucketNotEmpty,
+                message: "The bucket you tried to delete is not empty".to_string(),
+                resource: Some(name.to_string()),
+            });
+        }
+
         self.metadata.delete_bucket(name).await?;
 
         // Remove the bucket directory
@@ -333,22 +347,31 @@ impl StorageBackend for LocalStorage {
         self.metadata.list_buckets().await
     }
 
+    async fn get_bucket(&self, name: &str) -> Result<BucketInfo> {
+        self.metadata.get_bucket(name).await
+    }
+
+    async fn set_bucket_versioning(&self, name: &str, status: VersioningStatus) -> Result<()> {
+        self.metadata.set_bucket_versioning(name, status).await
+    }
+
     async fn put_object(
         &self,
         bucket: &str,
         key: &str,
         data: Bytes,
-        content_type: Option<&str>,
+        headers: ObjectHeaders,
         user_metadata: HashMap<String, String>,
-    ) -> Result<ETag> {
-        // Check bucket exists first (before acquiring lock)
-        if !self.metadata.bucket_exists(bucket).await? {
-            return Err(Error::s3_with_resource(
-                S3ErrorCode::NoSuchBucket,
-                "The specified bucket does not exist",
-                bucket,
-            ));
-        }
+    ) -> Result<PutObjectResult> {
+        // Get bucket info (also verifies bucket exists)
+        let bucket_info = self.metadata.get_bucket(bucket).await?;
+
+        // Check if versioning is enabled and generate a version_id if so
+        let version_id = match bucket_info.versioning_status {
+            Some(VersioningStatus::Enabled) => Some(Uuid::new_v4().to_string()),
+            Some(VersioningStatus::Suspended) => Some("null".to_string()),
+            None => None,
+        };
 
         // Acquire per-key lock to serialize concurrent writes to the same key.
         // This prevents race conditions during overwrites.
@@ -419,19 +442,30 @@ impl StorageBackend for LocalStorage {
             self.sync_manager.add_pending_file(final_path).await;
         }
 
-        // Delete old object if it exists
-        if let Ok(old_meta) = self.metadata.get_object(bucket, key).await {
-            let old_path = self.object_path(bucket, &old_meta.uuid);
-            let _ = fs::remove_file(&old_path).await;
+        // Delete old object file if versioning is NOT enabled
+        // For versioned buckets, we keep old files for historical versions
+        if bucket_info.versioning_status.is_none() {
+            if let Ok(old_meta) = self.metadata.get_object(bucket, key).await {
+                let old_path = self.object_path(bucket, &old_meta.uuid);
+                let _ = fs::remove_file(&old_path).await;
+            }
         }
 
-        // Step 4: Update metadata with checksum and user metadata
+        // Step 4: Update metadata with checksum, headers, user metadata, and version_id
         let mut meta = ObjectMetadata::new(key, uuid, data_len, write_result.etag.clone())
             .with_checksum(write_result.crc32c)
             .with_user_metadata(user_metadata);
-        if let Some(ct) = content_type {
+        if let Some(ct) = headers.content_type {
             meta = meta.with_content_type(ct);
         }
+        if let Some(ref vid) = version_id {
+            meta = meta.with_version_id(vid);
+        }
+        meta.cache_control = headers.cache_control;
+        meta.content_disposition = headers.content_disposition;
+        meta.content_encoding = headers.content_encoding;
+        meta.expires = headers.expires;
+        meta.content_language = headers.content_language;
         self.metadata.put_object(bucket, meta).await?;
 
         // Step 5: Write commit to WAL (if enabled)
@@ -444,7 +478,7 @@ impl StorageBackend for LocalStorage {
             }
         }
 
-        Ok(write_result.etag)
+        Ok(PutObjectResult { etag: write_result.etag, version_id })
     }
 
     async fn get_object(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
@@ -510,11 +544,21 @@ impl StorageBackend for LocalStorage {
         Ok((meta, Bytes::from(buffer)))
     }
 
-    async fn delete_object(&self, bucket: &str, key: &str) -> Result<()> {
+    async fn delete_object(&self, bucket: &str, key: &str) -> Result<DeleteObjectResult> {
         // Acquire per-key lock to serialize with concurrent writes
         let lock = self.get_key_lock(bucket, key);
         let _guard = lock.lock().await;
 
+        // Check bucket versioning status
+        let bucket_info = self.metadata.get_bucket(bucket).await?;
+
+        // For versioned buckets, create a delete marker instead of permanent deletion
+        if bucket_info.versioning_status == Some(VersioningStatus::Enabled) {
+            let version_id = self.metadata.create_delete_marker(bucket, key).await?;
+            return Ok(DeleteObjectResult { version_id: Some(version_id), is_delete_marker: true });
+        }
+
+        // For non-versioned or suspended buckets, perform permanent deletion
         // Get the old UUID before deletion for WAL
         let old_uuid = self.metadata.get_object(bucket, key).await.ok().map(|m| m.uuid);
 
@@ -546,7 +590,7 @@ impl StorageBackend for LocalStorage {
                 }
             }
         }
-        Ok(())
+        Ok(DeleteObjectResult::default())
     }
 
     async fn head_object(&self, bucket: &str, key: &str) -> Result<ObjectMetadata> {
@@ -559,19 +603,26 @@ impl StorageBackend for LocalStorage {
         src_key: &str,
         dst_bucket: &str,
         dst_key: &str,
+        new_headers: Option<ObjectHeaders>,
+        new_metadata: Option<HashMap<String, String>>,
     ) -> Result<ETag> {
         // Get source object
         let (src_meta, data) = self.get_object(src_bucket, src_key).await?;
 
-        // Put to destination, preserving content type and user metadata
-        self.put_object(
-            dst_bucket,
-            dst_key,
-            data,
-            src_meta.content_type.as_deref(),
-            src_meta.user_metadata,
-        )
-        .await
+        // Use new headers/metadata if provided (MetadataDirective=REPLACE),
+        // otherwise preserve source object's headers/metadata (MetadataDirective=COPY)
+        let headers = new_headers.unwrap_or(ObjectHeaders {
+            content_type: src_meta.content_type.clone(),
+            cache_control: src_meta.cache_control.clone(),
+            content_disposition: src_meta.content_disposition.clone(),
+            content_encoding: src_meta.content_encoding.clone(),
+            expires: src_meta.expires.clone(),
+            content_language: src_meta.content_language.clone(),
+        });
+        let metadata = new_metadata.unwrap_or(src_meta.user_metadata);
+
+        let result = self.put_object(dst_bucket, dst_key, data, headers, metadata).await?;
+        Ok(result.etag)
     }
 
     async fn list_objects(
@@ -591,18 +642,45 @@ impl StorageBackend for LocalStorage {
             ));
         }
 
-        let (objects, next_token): (Vec<ObjectMetadata>, Option<String>) =
-            self.metadata.list_objects(bucket, prefix, continuation_token, max_keys).await?;
+        // When using delimiter, multiple objects may collapse into a single common prefix.
+        // To get max_keys unique items, we may need to fetch more objects from the DB.
+        // We fetch in batches until we have enough unique items or run out of objects.
+        let use_delimiter = delimiter.is_some_and(|d| !d.is_empty());
 
-        // Handle delimiter (compute common prefixes)
+        if !use_delimiter {
+            // No delimiter - simple case, just fetch max_keys objects
+            let (objects, next_token) =
+                self.metadata.list_objects(bucket, prefix, continuation_token, max_keys).await?;
+
+            return Ok(ListObjectsResult {
+                objects,
+                common_prefixes: Vec::new(),
+                is_truncated: next_token.is_some(),
+                next_continuation_token: next_token,
+            });
+        }
+
+        // With delimiter - need to handle collapsing into common prefixes
+        let delim = delimiter.unwrap();
+        let prefix_str = prefix.unwrap_or("");
+        let marker = continuation_token.unwrap_or("");
+        let mut seen_prefixes = std::collections::HashSet::new();
         let mut common_prefixes = Vec::new();
-        let filtered_objects = if let Some(delim) = delimiter {
-            let prefix_str = prefix.unwrap_or("");
-            let mut seen_prefixes = std::collections::HashSet::new();
-            let mut result = Vec::new();
+        let mut filtered_objects = Vec::new();
+        let mut current_token = continuation_token.map(|s| s.to_string());
+        let mut final_next_token: Option<String> = None;
+
+        // Fetch objects in batches until we have max_keys unique items
+        let batch_size = max_keys.max(100); // Fetch at least 100 at a time for efficiency
+
+        loop {
+            let (objects, next_token) = self
+                .metadata
+                .list_objects(bucket, prefix, current_token.as_deref(), batch_size)
+                .await?;
 
             for obj in objects {
-                // Safely get the suffix after the prefix
+                // Process the object
                 let key_suffix = if obj.key.starts_with(prefix_str) {
                     &obj.key[prefix_str.len()..]
                 } else {
@@ -610,27 +688,60 @@ impl StorageBackend for LocalStorage {
                 };
 
                 if let Some(pos) = key_suffix.find(delim) {
-                    // Find the end of the delimiter (handle multi-byte chars)
                     let delim_end = pos + delim.len();
-                    // Safely slice: prefix + part before delimiter + delimiter
                     let common_prefix = format!("{}{}", prefix_str, &key_suffix[..delim_end]);
-                    if seen_prefixes.insert(common_prefix.clone()) {
+
+                    // Skip common prefixes that are <= marker (already returned in previous page)
+                    if common_prefix.as_str() <= marker {
+                        continue;
+                    }
+
+                    // Check if this would be a new unique item
+                    if !seen_prefixes.contains(&common_prefix) {
+                        // Check if we've already reached max_keys
+                        let total_items = filtered_objects.len() + common_prefixes.len();
+                        if total_items >= max_keys as usize {
+                            // This would be a new item beyond max_keys - we're truncated
+                            final_next_token = Some(obj.key.clone());
+                            break;
+                        }
+                        seen_prefixes.insert(common_prefix.clone());
                         common_prefixes.push(common_prefix);
                     }
+                    // If prefix already seen, just continue (don't count as new item)
                 } else {
-                    result.push(obj);
+                    // This is a direct key (not under a delimiter)
+                    let total_items = filtered_objects.len() + common_prefixes.len();
+                    if total_items >= max_keys as usize {
+                        final_next_token = Some(obj.key.clone());
+                        break;
+                    }
+                    filtered_objects.push(obj);
                 }
             }
-            result
-        } else {
-            objects
-        };
+
+            // If we found a next item beyond max_keys, we're done
+            if final_next_token.is_some() {
+                break;
+            }
+
+            // If no more objects in the DB, we're done
+            if next_token.is_none() {
+                break;
+            }
+
+            // Need to fetch more to see if there's a next item
+            current_token = next_token;
+        }
+
+        // We're truncated only if we found an actual next item beyond max_keys
+        let is_truncated = final_next_token.is_some();
 
         Ok(ListObjectsResult {
             objects: filtered_objects,
             common_prefixes,
-            is_truncated: next_token.is_some(),
-            next_continuation_token: next_token,
+            is_truncated,
+            next_continuation_token: final_next_token,
         })
     }
 
@@ -864,6 +975,90 @@ impl StorageBackend for LocalStorage {
 
         self.metadata.list_multipart_uploads(bucket).await
     }
+
+    // === Versioning Operations ===
+
+    async fn get_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<(ObjectMetadata, Bytes)> {
+        let meta = self.metadata.get_object_version(bucket, key, version_id).await?;
+
+        // Check if this is a delete marker
+        if meta.is_delete_marker {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::MethodNotAllowed,
+                "The specified method is not allowed against this resource",
+                key,
+            ));
+        }
+
+        let path = self.object_path(bucket, &meta.uuid);
+        let data = fs::read(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Error::s3_with_resource(
+                    S3ErrorCode::NoSuchKey,
+                    "The specified key does not exist",
+                    key,
+                )
+            } else {
+                Error::Io(e)
+            }
+        })?;
+
+        Ok((meta, Bytes::from(data)))
+    }
+
+    async fn head_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<ObjectMetadata> {
+        self.metadata.get_object_version(bucket, key, version_id).await
+    }
+
+    async fn delete_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<DeleteObjectResult> {
+        // Acquire per-key lock
+        let lock = self.get_key_lock(bucket, key);
+        let _guard = lock.lock().await;
+
+        // Delete the specific version and its file
+        if let Some(uuid) = self.metadata.delete_object_version(bucket, key, version_id).await? {
+            let path = self.object_path(bucket, &uuid);
+            let _ = fs::remove_file(&path).await;
+        }
+
+        Ok(DeleteObjectResult { version_id: Some(version_id.to_string()), is_delete_marker: false })
+    }
+
+    async fn list_object_versions(
+        &self,
+        bucket: &str,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        key_marker: Option<&str>,
+        version_id_marker: Option<&str>,
+        max_keys: u32,
+    ) -> Result<ListVersionsResult> {
+        self.metadata
+            .list_object_versions(
+                bucket,
+                prefix,
+                delimiter,
+                key_marker,
+                version_id_marker,
+                max_keys,
+            )
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -911,18 +1106,14 @@ mod tests {
 
         // Put object
         let data = Bytes::from("Hello, World!");
-        let etag = storage
-            .put_object(
-                "test-bucket",
-                "hello.txt",
-                data.clone(),
-                Some("text/plain"),
-                HashMap::new(),
-            )
+        let headers =
+            ObjectHeaders { content_type: Some("text/plain".to_string()), ..Default::default() };
+        let result = storage
+            .put_object("test-bucket", "hello.txt", data.clone(), headers, HashMap::new())
             .await
             .unwrap();
 
-        assert!(!etag.is_multipart());
+        assert!(!result.etag.is_multipart());
 
         // Get object
         let (meta, retrieved) = storage.get_object("test-bucket", "hello.txt").await.unwrap();
@@ -945,7 +1136,10 @@ mod tests {
         storage.create_bucket("test-bucket").await.unwrap();
 
         let data = Bytes::from("Hello, World!");
-        storage.put_object("test-bucket", "hello.txt", data, None, HashMap::new()).await.unwrap();
+        storage
+            .put_object("test-bucket", "hello.txt", data, ObjectHeaders::default(), HashMap::new())
+            .await
+            .unwrap();
 
         // Get range
         let (_, range_data) =
@@ -965,19 +1159,27 @@ mod tests {
         storage.create_bucket("bucket2").await.unwrap();
 
         let data = Bytes::from("Hello, World!");
+        let headers =
+            ObjectHeaders { content_type: Some("text/plain".to_string()), ..Default::default() };
         storage
-            .put_object("bucket1", "source.txt", data.clone(), Some("text/plain"), HashMap::new())
+            .put_object("bucket1", "source.txt", data.clone(), headers, HashMap::new())
             .await
             .unwrap();
 
         // Copy to same bucket
-        storage.copy_object("bucket1", "source.txt", "bucket1", "copy.txt").await.unwrap();
+        storage
+            .copy_object("bucket1", "source.txt", "bucket1", "copy.txt", None, None)
+            .await
+            .unwrap();
 
         let (_, copied) = storage.get_object("bucket1", "copy.txt").await.unwrap();
         assert_eq!(copied, data);
 
         // Copy to different bucket
-        storage.copy_object("bucket1", "source.txt", "bucket2", "dest.txt").await.unwrap();
+        storage
+            .copy_object("bucket1", "source.txt", "bucket2", "dest.txt", None, None)
+            .await
+            .unwrap();
 
         let (meta, copied) = storage.get_object("bucket2", "dest.txt").await.unwrap();
         assert_eq!(copied, data);
@@ -1004,7 +1206,13 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let data = Bytes::from(format!("data-from-writer-{i}"));
                 storage
-                    .put_object("test-bucket", "same-key", data, None, HashMap::new())
+                    .put_object(
+                        "test-bucket",
+                        "same-key",
+                        data,
+                        ObjectHeaders::default(),
+                        HashMap::new(),
+                    )
                     .await
                     .expect("put_object failed");
                 completed.fetch_add(1, Ordering::SeqCst);
@@ -1054,7 +1262,7 @@ mod tests {
                 let key = format!("key-{i}");
                 let data = Bytes::from(format!("data-{i}"));
                 storage
-                    .put_object("test-bucket", &key, data, None, HashMap::new())
+                    .put_object("test-bucket", &key, data, ObjectHeaders::default(), HashMap::new())
                     .await
                     .expect("put_object failed");
             }));
@@ -1082,13 +1290,22 @@ mod tests {
 
         // Write initial object
         let data1 = Bytes::from("initial data");
-        storage.put_object("test-bucket", "test-key", data1, None, HashMap::new()).await.unwrap();
+        storage
+            .put_object("test-bucket", "test-key", data1, ObjectHeaders::default(), HashMap::new())
+            .await
+            .unwrap();
 
         // Overwrite multiple times
         for i in 0..5 {
             let data = Bytes::from(format!("overwrite-{i}"));
             storage
-                .put_object("test-bucket", "test-key", data, None, HashMap::new())
+                .put_object(
+                    "test-bucket",
+                    "test-key",
+                    data,
+                    ObjectHeaders::default(),
+                    HashMap::new(),
+                )
                 .await
                 .unwrap();
         }

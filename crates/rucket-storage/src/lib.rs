@@ -20,7 +20,7 @@ pub mod streaming;
 pub mod sync;
 pub mod wal;
 
-pub use backend::StorageBackend;
+pub use backend::{DeleteObjectResult, ObjectHeaders, PutObjectResult, StorageBackend};
 pub use batch::{BatchConfig, BatchWriter};
 pub use local::LocalStorage;
 pub use metadata::{MetadataBackend, RedbMetadataStore};
