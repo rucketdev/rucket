@@ -10,5 +10,6 @@ pub mod legal_hold;
 pub mod lock;
 pub mod metadata;
 pub mod put;
+pub mod restore;
 pub mod retention;
 pub mod tagging;

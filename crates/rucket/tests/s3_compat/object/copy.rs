@@ -372,3 +372,317 @@ async fn test_object_copy_if_match_fails() {
 
     assert!(result.is_err(), "Copy with wrong If-Match should fail");
 }
+
+// =============================================================================
+// Extended Copy Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test copy with If-None-Match condition.
+/// Ceph: test_object_copy_if_none_match
+#[tokio::test]
+async fn test_object_copy_if_none_match() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("source.txt", b"content").await;
+
+    // Copy with non-matching ETag should succeed
+    let result = ctx
+        .client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt", ctx.bucket))
+        .copy_source_if_none_match("\"different-etag\"")
+        .send()
+        .await;
+
+    assert!(result.is_ok(), "Copy with non-matching If-None-Match should succeed");
+}
+
+/// Test copy with If-None-Match matching ETag fails.
+/// Ceph: test_object_copy_if_none_match_fails
+#[tokio::test]
+async fn test_object_copy_if_none_match_fails() {
+    let ctx = S3TestContext::new().await;
+
+    let put = ctx.put("source.txt", b"content").await;
+    let etag = put.e_tag().unwrap();
+
+    let result = ctx
+        .client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt", ctx.bucket))
+        .copy_source_if_none_match(etag)
+        .send()
+        .await;
+
+    assert!(result.is_err(), "Copy with matching If-None-Match should fail");
+}
+
+/// Test copy versioned object.
+/// Ceph: test_object_copy_versioned
+#[tokio::test]
+async fn test_object_copy_versioned() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let v1 = ctx.put("source.txt", b"version1").await;
+    let _v2 = ctx.put("source.txt", b"version2").await;
+
+    let vid1 = v1.version_id().unwrap();
+
+    // Copy specific version
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt?versionId={}", ctx.bucket, vid1))
+        .send()
+        .await
+        .expect("Should copy specific version");
+
+    let data = ctx.get("dest.txt").await;
+    assert_eq!(data.as_slice(), b"version1");
+}
+
+/// Test copy to versioned bucket creates version.
+/// Ceph: test_object_copy_to_versioned
+#[tokio::test]
+async fn test_object_copy_to_versioned_bucket() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    ctx.put("source.txt", b"content").await;
+
+    let copy_result = ctx
+        .client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt", ctx.bucket))
+        .send()
+        .await
+        .expect("Should copy object");
+
+    assert!(copy_result.version_id().is_some(), "Copy to versioned bucket should return version ID");
+}
+
+/// Test copy preserves cache control.
+/// Ceph: test_object_copy_cache_control
+#[tokio::test]
+async fn test_object_copy_preserves_cache_control() {
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"content");
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("source.txt")
+        .body(body)
+        .cache_control("max-age=3600")
+        .send()
+        .await
+        .expect("Should put object");
+
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt", ctx.bucket))
+        .send()
+        .await
+        .expect("Should copy object");
+
+    let response = ctx.head("dest.txt").await;
+    assert_eq!(response.cache_control(), Some("max-age=3600"));
+}
+
+/// Test copy preserves content encoding.
+/// Ceph: test_object_copy_content_encoding
+#[tokio::test]
+async fn test_object_copy_preserves_content_encoding() {
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"content");
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("source.gz")
+        .body(body)
+        .content_encoding("gzip")
+        .send()
+        .await
+        .expect("Should put object");
+
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.gz")
+        .copy_source(format!("{}/source.gz", ctx.bucket))
+        .send()
+        .await
+        .expect("Should copy object");
+
+    let response = ctx.head("dest.gz").await;
+    assert_eq!(response.content_encoding(), Some("gzip"));
+}
+
+/// Test copy preserves content disposition.
+/// Ceph: test_object_copy_content_disposition
+#[tokio::test]
+async fn test_object_copy_preserves_content_disposition() {
+    let ctx = S3TestContext::new().await;
+
+    let body = ByteStream::from_static(b"content");
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("source.txt")
+        .body(body)
+        .content_disposition("attachment")
+        .send()
+        .await
+        .expect("Should put object");
+
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt", ctx.bucket))
+        .send()
+        .await
+        .expect("Should copy object");
+
+    let response = ctx.head("dest.txt").await;
+    assert_eq!(response.content_disposition(), Some("attachment"));
+}
+
+/// Test copy with storage class.
+/// Ceph: test_object_copy_storage_class
+#[tokio::test]
+async fn test_object_copy_storage_class() {
+    use aws_sdk_s3::types::StorageClass;
+
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("source.txt", b"content").await;
+
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt", ctx.bucket))
+        .storage_class(StorageClass::Standard)
+        .send()
+        .await
+        .expect("Should copy with storage class");
+
+    let exists = ctx.exists("dest.txt").await;
+    assert!(exists);
+}
+
+/// Test copy with tagging.
+/// Ceph: test_object_copy_tagging
+#[tokio::test]
+async fn test_object_copy_with_tagging() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("source.txt", b"content").await;
+
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .copy_source(format!("{}/source.txt", ctx.bucket))
+        .tagging("key1=value1&key2=value2")
+        .tagging_directive(aws_sdk_s3::types::TaggingDirective::Replace)
+        .send()
+        .await
+        .expect("Should copy with tagging");
+
+    let response = ctx
+        .client
+        .get_object_tagging()
+        .bucket(&ctx.bucket)
+        .key("dest.txt")
+        .send()
+        .await
+        .expect("Should get tagging");
+
+    assert_eq!(response.tag_set().len(), 2);
+}
+
+/// Test copy concurrent operations.
+/// Ceph: test_object_copy_concurrent
+#[tokio::test]
+async fn test_object_copy_concurrent() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("source.txt", b"content for concurrent copy").await;
+
+    let mut handles = Vec::new();
+    for i in 0..10 {
+        let client = ctx.client.clone();
+        let bucket = ctx.bucket.clone();
+        let handle = tokio::spawn(async move {
+            client
+                .copy_object()
+                .bucket(&bucket)
+                .key(format!("copy-{}.txt", i))
+                .copy_source(format!("{}/source.txt", bucket))
+                .send()
+                .await
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let result = handle.await.unwrap();
+        assert!(result.is_ok());
+    }
+
+    let list = ctx.list_objects().await;
+    assert_eq!(list.contents().len(), 11); // source + 10 copies
+}
+
+/// Test copy empty object.
+/// Ceph: test_object_copy_empty
+#[tokio::test]
+async fn test_object_copy_empty() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("empty.txt", b"").await;
+
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("empty-copy.txt")
+        .copy_source(format!("{}/empty.txt", ctx.bucket))
+        .send()
+        .await
+        .expect("Should copy empty object");
+
+    let response = ctx.head("empty-copy.txt").await;
+    assert_eq!(response.content_length(), Some(0));
+}
+
+/// Test copy with special characters in key.
+/// Ceph: test_object_copy_special_chars
+#[tokio::test]
+async fn test_object_copy_special_chars_key() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("source with spaces.txt", b"content").await;
+
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("dest with spaces.txt")
+        .copy_source(format!("{}/source with spaces.txt", ctx.bucket))
+        .send()
+        .await
+        .expect("Should copy object with special chars");
+
+    let exists = ctx.exists("dest with spaces.txt").await;
+    assert!(exists);
+}
