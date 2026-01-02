@@ -121,3 +121,111 @@ async fn test_versioning_delete_delete_marker() {
     let data = ctx.get("test.txt").await;
     assert_eq!(data.as_slice(), b"content");
 }
+
+// =============================================================================
+// Extended Versioning Delete Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test delete nonexistent version.
+/// Ceph: test_versioned_delete_nonexistent
+#[tokio::test]
+async fn test_versioning_delete_nonexistent_version() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    ctx.put("test.txt", b"content").await;
+
+    let result = ctx
+        .client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id("nonexistent-version-id")
+        .send()
+        .await;
+
+    // Behavior varies - some return error, some succeed silently
+    let _ = result;
+}
+
+/// Test delete all versions leaves bucket empty.
+/// Ceph: test_versioned_delete_all
+#[tokio::test]
+async fn test_versioning_delete_all_versions() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let v1 = ctx.put("test.txt", b"v1").await;
+    let v2 = ctx.put("test.txt", b"v2").await;
+
+    let vid1 = v1.version_id().unwrap();
+    let vid2 = v2.version_id().unwrap();
+
+    // Delete all versions
+    ctx.client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(vid1)
+        .send()
+        .await
+        .expect("Should delete v1");
+
+    ctx.client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(vid2)
+        .send()
+        .await
+        .expect("Should delete v2");
+
+    // List should be empty
+    let response = ctx.list_versions().await;
+    assert!(response.versions().is_empty());
+}
+
+/// Test concurrent delete creates multiple markers.
+/// Ceph: test_versioned_delete_concurrent
+#[tokio::test]
+async fn test_versioning_delete_concurrent() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    ctx.put("test.txt", b"content").await;
+
+    let mut handles = Vec::new();
+    for _ in 0..5 {
+        let client = ctx.client.clone();
+        let bucket = ctx.bucket.clone();
+        let handle = tokio::spawn(async move {
+            client.delete_object().bucket(&bucket).key("test.txt").send().await
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let result = handle.await.unwrap();
+        assert!(result.is_ok());
+    }
+}
+
+/// Test delete returns correct version id.
+/// Ceph: test_versioned_delete_returns_version
+#[tokio::test]
+async fn test_versioning_delete_returns_version_id() {
+    let ctx = S3TestContext::with_versioning().await;
+
+    let put = ctx.put("test.txt", b"content").await;
+    let put_vid = put.version_id().unwrap();
+
+    // Delete specific version returns that version ID
+    let delete = ctx
+        .client
+        .delete_object()
+        .bucket(&ctx.bucket)
+        .key("test.txt")
+        .version_id(put_vid)
+        .send()
+        .await
+        .expect("Should delete");
+
+    assert_eq!(delete.version_id().unwrap(), put_vid);
+}

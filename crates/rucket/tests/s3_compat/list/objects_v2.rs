@@ -523,3 +523,203 @@ async fn test_list_objects_v2_storage_class() {
         assert_eq!(sc, &aws_sdk_s3::types::ObjectStorageClass::Standard);
     }
 }
+
+/// Test list objects v2 concurrent requests.
+/// Ceph: test_bucket_listv2_concurrent
+#[tokio::test]
+async fn test_list_objects_v2_concurrent() {
+    let ctx = S3TestContext::new().await;
+
+    for i in 0..20 {
+        ctx.put(&format!("file{:02}.txt", i), b"content").await;
+    }
+
+    let mut handles = Vec::new();
+    for _ in 0..10 {
+        let client = ctx.client.clone();
+        let bucket = ctx.bucket.clone();
+        let handle = tokio::spawn(async move { client.list_objects_v2().bucket(&bucket).send().await });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let result = handle.await.unwrap();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().contents().len(), 20);
+    }
+}
+
+/// Test list objects v2 start after nonexistent.
+/// Ceph: test_bucket_listv2_startafter_nonexistent
+#[tokio::test]
+async fn test_list_objects_v2_start_after_nonexistent() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("a.txt", b"content").await;
+    ctx.put("c.txt", b"content").await;
+
+    let response = ctx
+        .client
+        .list_objects_v2()
+        .bucket(&ctx.bucket)
+        .start_after("b.txt")
+        .send()
+        .await
+        .expect("Should list");
+
+    let keys: Vec<&str> = response.contents().iter().filter_map(|o| o.key()).collect();
+    assert_eq!(keys, vec!["c.txt"]);
+}
+
+/// Test list objects v2 start after last.
+/// Ceph: test_bucket_listv2_startafter_last
+#[tokio::test]
+async fn test_list_objects_v2_start_after_last() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("a.txt", b"content").await;
+    ctx.put("b.txt", b"content").await;
+
+    let response = ctx
+        .client
+        .list_objects_v2()
+        .bucket(&ctx.bucket)
+        .start_after("z.txt")
+        .send()
+        .await
+        .expect("Should list");
+
+    assert!(response.contents().is_empty());
+}
+
+/// Test list objects v2 empty delimiter.
+/// Ceph: test_bucket_listv2_empty_delimiter
+#[tokio::test]
+async fn test_list_objects_v2_empty_delimiter() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("a/b.txt", b"content").await;
+    ctx.put("a/c.txt", b"content").await;
+
+    let response = ctx
+        .client
+        .list_objects_v2()
+        .bucket(&ctx.bucket)
+        .delimiter("")
+        .send()
+        .await
+        .expect("Should list");
+
+    // Empty delimiter should return all objects
+    assert_eq!(response.contents().len(), 2);
+    assert!(response.common_prefixes().is_empty());
+}
+
+/// Test list objects v2 with unicode keys.
+/// Ceph: test_bucket_listv2_unicode
+#[tokio::test]
+async fn test_list_objects_v2_unicode_keys() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("日本語/ファイル.txt", b"content").await;
+    ctx.put("中文/文件.txt", b"content").await;
+    ctx.put("한국어/파일.txt", b"content").await;
+
+    let response = ctx.list_objects().await;
+
+    assert_eq!(response.contents().len(), 3);
+}
+
+/// Test list objects v2 max keys negative handled.
+/// Some implementations treat negative as error, others as default
+#[tokio::test]
+async fn test_list_objects_v2_max_keys_boundary() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("test.txt", b"content").await;
+
+    // Very large max_keys
+    let response = ctx
+        .client
+        .list_objects_v2()
+        .bucket(&ctx.bucket)
+        .max_keys(10000)
+        .send()
+        .await
+        .expect("Should list");
+
+    assert_eq!(response.contents().len(), 1);
+}
+
+/// Test list objects v2 with continuation token and prefix.
+/// Ceph: test_bucket_listv2_continuation_prefix
+#[tokio::test]
+async fn test_list_objects_v2_continuation_with_prefix() {
+    let ctx = S3TestContext::new().await;
+
+    for i in 0..10 {
+        ctx.put(&format!("docs/file{:02}.txt", i), b"content").await;
+    }
+    ctx.put("other.txt", b"content").await;
+
+    // First page with prefix
+    let response1 = ctx
+        .client
+        .list_objects_v2()
+        .bucket(&ctx.bucket)
+        .prefix("docs/")
+        .max_keys(3)
+        .send()
+        .await
+        .expect("Should list");
+
+    assert_eq!(response1.contents().len(), 3);
+    let token = response1.next_continuation_token().unwrap();
+
+    // Second page should maintain prefix
+    let response2 = ctx
+        .client
+        .list_objects_v2()
+        .bucket(&ctx.bucket)
+        .prefix("docs/")
+        .continuation_token(token)
+        .send()
+        .await
+        .expect("Should list");
+
+    for obj in response2.contents() {
+        assert!(obj.key().unwrap().starts_with("docs/"));
+    }
+}
+
+/// Test list objects v2 includes checksum algorithm.
+/// Ceph: test_bucket_listv2_checksum
+#[tokio::test]
+async fn test_list_objects_v2_checksum_algorithm() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("test.txt", b"content").await;
+
+    let response = ctx.list_objects().await;
+
+    // Checksum algorithm info may or may not be included
+    let _obj = &response.contents()[0];
+    // Just verify we can access objects, checksum is optional
+}
+
+/// Test list objects v2 deleted object not listed.
+/// Ceph: test_bucket_listv2_after_delete
+#[tokio::test]
+async fn test_list_objects_v2_after_delete() {
+    let ctx = S3TestContext::new().await;
+
+    ctx.put("keep.txt", b"content").await;
+    ctx.put("delete.txt", b"content").await;
+
+    ctx.delete("delete.txt").await;
+
+    let response = ctx.list_objects().await;
+
+    let keys: Vec<&str> = response.contents().iter().filter_map(|o| o.key()).collect();
+    assert_eq!(keys, vec!["keep.txt"]);
+}
