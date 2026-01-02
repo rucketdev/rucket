@@ -788,7 +788,6 @@ async fn test_object_put_concurrent_same_key() {
 /// Test PUT with tagging.
 /// Ceph: test_object_put_tagging
 #[tokio::test]
-#[ignore = "PUT with tagging header not implemented"]
 async fn test_object_put_with_tagging() {
     let ctx = S3TestContext::new().await;
 

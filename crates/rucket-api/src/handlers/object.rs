@@ -343,6 +343,14 @@ pub async fn put_object(
     // Check conditional headers for optimistic locking
     check_preconditions(&state, &bucket, &key, &headers).await?;
 
+    // Parse x-amz-tagging header early to fail fast on invalid tags
+    let tagging =
+        if let Some(tagging_header) = headers.get("x-amz-tagging").and_then(|v| v.to_str().ok()) {
+            Some(parse_tagging_header(tagging_header)?)
+        } else {
+            None
+        };
+
     let user_metadata = extract_user_metadata(&headers);
 
     // Extract HTTP headers
@@ -406,6 +414,15 @@ pub async fn put_object(
     let result =
         state.storage.put_object(&bucket, &key, body, object_headers, user_metadata).await?;
 
+    // Apply tags if x-amz-tagging header was provided
+    if let Some(tag_set) = tagging {
+        if let Some(ref version_id) = result.version_id {
+            state.storage.put_object_tagging_version(&bucket, &key, version_id, tag_set).await?;
+        } else {
+            state.storage.put_object_tagging(&bucket, &key, tag_set).await?;
+        }
+    }
+
     // Build response with headers
     let mut response =
         Response::builder().status(StatusCode::OK).header("ETag", result.etag.as_str());
@@ -422,6 +439,71 @@ pub async fn put_object(
     response
         .body(Body::empty())
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+}
+
+/// Parse x-amz-tagging header into a TagSet.
+///
+/// The header format is URL-encoded `key=value` pairs separated by `&`.
+/// Example: `key1=value1&key2=value2`
+fn parse_tagging_header(header_value: &str) -> Result<TagSet, ApiError> {
+    let mut tags = Vec::new();
+
+    for pair in header_value.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = match pair.split_once('=') {
+            Some((k, v)) => (k, v),
+            None => (pair, ""),
+        };
+
+        // URL-decode key and value
+        let key = percent_decode_str(key)
+            .decode_utf8()
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidTag, "Invalid UTF-8 in tag key"))?
+            .to_string();
+        let value = percent_decode_str(value)
+            .decode_utf8()
+            .map_err(|_| ApiError::new(S3ErrorCode::InvalidTag, "Invalid UTF-8 in tag value"))?
+            .to_string();
+
+        // Validate tag key
+        if key.is_empty() {
+            return Err(ApiError::new(S3ErrorCode::InvalidTag, "Tag key cannot be empty"));
+        }
+        if key.len() > MAX_TAG_KEY_LENGTH {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidTag,
+                format!("Tag key exceeds the maximum length of {} characters", MAX_TAG_KEY_LENGTH),
+            ));
+        }
+        // Validate tag value
+        if value.len() > MAX_TAG_VALUE_LENGTH {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidTag,
+                format!(
+                    "Tag value exceeds the maximum length of {} characters",
+                    MAX_TAG_VALUE_LENGTH
+                ),
+            ));
+        }
+
+        tags.push(Tag::new(key, value));
+    }
+
+    // Validate tag count
+    if tags.len() > MAX_OBJECT_TAGS {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidTag,
+            format!(
+                "Object tags cannot be greater than {}. You have {} tags.",
+                MAX_OBJECT_TAGS,
+                tags.len()
+            ),
+        ));
+    }
+
+    Ok(TagSet::with_tags(tags))
 }
 
 /// Parse client-provided checksum from request headers.
@@ -466,13 +548,14 @@ pub async fn get_object(
         .with_resource(&bucket));
     }
 
-    // Check for Range header (not supported with versionId for now)
-    if let Some(range) = headers.get("range").and_then(|v| v.to_str().ok()) {
+    // Parse Range header if present
+    let range_header = headers.get("range").and_then(|v| v.to_str().ok());
+
+    // Handle range request for non-versioned objects using efficient storage method
+    if let Some(range) = range_header {
         if version_id.is_none() {
             return get_object_range(state, &bucket, &key, range).await;
         }
-        // For versioned objects with range, we'd need to extend get_object_range
-        // For now, we ignore range for versioned objects
     }
 
     // Get object, either latest or specific version
@@ -481,6 +564,11 @@ pub async fn get_object(
     } else {
         state.storage.get_object(&bucket, &key).await?
     };
+
+    // Handle range request for versioned objects (extract range from full data)
+    if let Some(range) = range_header {
+        return get_object_version_range(meta, data, range);
+    }
 
     // Check If-None-Match: return 304 Not Modified if ETag matches
     if let Some(if_none_match) = headers.get("if-none-match").and_then(|v| v.to_str().ok()) {
@@ -708,6 +796,79 @@ fn parse_range_header(header: &str) -> Result<RangeSpec, ApiError> {
     }
 }
 
+/// Handle range request for a versioned object by extracting the range from loaded data.
+fn get_object_version_range(
+    meta: rucket_core::types::ObjectMetadata,
+    data: Bytes,
+    range_header: &str,
+) -> Result<Response, ApiError> {
+    let range_spec = parse_range_header(range_header)?;
+    let size = meta.size;
+
+    // Calculate actual start and end
+    let (start, end) = match range_spec {
+        RangeSpec::FromTo(s, e) => {
+            if s > size {
+                return Err(ApiError::new(
+                    S3ErrorCode::InvalidRange,
+                    "The requested range is not satisfiable",
+                ));
+            }
+            let actual_end = e.min(size.saturating_sub(1));
+            (s, actual_end)
+        }
+        RangeSpec::SuffixLength(suffix_len) => {
+            if suffix_len >= size {
+                (0, size.saturating_sub(1))
+            } else {
+                (size - suffix_len, size - 1)
+            }
+        }
+    };
+
+    // Extract the range from data
+    let start_usize = start as usize;
+    let end_usize = (end + 1).min(size) as usize;
+    let range_data = data.slice(start_usize..end_usize);
+
+    let content_range = format!("bytes {start}-{end}/{size}");
+
+    let mut response = Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header("ETag", meta.etag.as_str())
+        .header("Content-Length", range_data.len().to_string())
+        .header("Content-Range", content_range)
+        .header("Accept-Ranges", "bytes");
+
+    // Add version ID header if present
+    if let Some(ref version_id) = meta.version_id {
+        response = response.header("x-amz-version-id", version_id.as_str());
+    }
+
+    if let Some(ct) = &meta.content_type {
+        response = response.header("Content-Type", ct.as_str());
+    }
+    if let Some(cc) = &meta.cache_control {
+        response = response.header("Cache-Control", cc.as_str());
+    }
+    if let Some(cd) = &meta.content_disposition {
+        response = response.header("Content-Disposition", cd.as_str());
+    }
+    if let Some(ce) = &meta.content_encoding {
+        response = response.header("Content-Encoding", ce.as_str());
+    }
+    if let Some(exp) = &meta.expires {
+        response = response.header("Expires", exp.as_str());
+    }
+    if let Some(cl) = &meta.content_language {
+        response = response.header("Content-Language", cl.as_str());
+    }
+
+    response
+        .body(Body::from(range_data))
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+}
+
 /// `DELETE /{bucket}/{key}` - Delete object.
 pub async fn delete_object(
     State(state): State<AppState>,
@@ -879,6 +1040,20 @@ pub async fn copy_object(
         let src_etag = src_meta.etag.as_str();
         let etags: Vec<&str> = if_match.split(',').map(|s| s.trim()).collect();
         if !etags.iter().any(|&e| {
+            e == "*" || e == src_etag || e.trim_matches('"') == src_etag.trim_matches('"')
+        }) {
+            return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));
+        }
+    }
+
+    // Check x-amz-copy-source-if-none-match: fail if source ETag DOES match
+    if let Some(if_none_match) =
+        headers.get("x-amz-copy-source-if-none-match").and_then(|v| v.to_str().ok())
+    {
+        let src_meta = state.storage.head_object(src_bucket, &src_key).await?;
+        let src_etag = src_meta.etag.as_str();
+        let etags: Vec<&str> = if_none_match.split(',').map(|s| s.trim()).collect();
+        if etags.iter().any(|&e| {
             e == "*" || e == src_etag || e.trim_matches('"') == src_etag.trim_matches('"')
         }) {
             return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));

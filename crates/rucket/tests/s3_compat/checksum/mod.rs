@@ -161,7 +161,6 @@ async fn test_get_object_checksum() {
 /// Test multipart upload with checksum algorithm.
 /// MinIO: testMultipartChecksumCRC32
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_multipart_checksum_crc32() {
     let ctx = S3TestContext::new().await;
     let key = "multipart-checksum.txt";
@@ -218,7 +217,6 @@ async fn test_multipart_checksum_crc32() {
 /// Test multipart upload with SHA256 checksum.
 /// MinIO: testMultipartChecksumSHA256
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_multipart_checksum_sha256() {
     let ctx = S3TestContext::new().await;
     let key = "multipart-sha256.txt";
@@ -339,7 +337,6 @@ async fn test_head_object_checksum() {
 /// Test checksum with large object (chunked encoding).
 /// MinIO: testChecksumTrailer
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_checksum_large_object() {
     let ctx = S3TestContext::new().await;
     let key = "checksum-large.txt";
@@ -364,7 +361,6 @@ async fn test_checksum_large_object() {
 /// Test ListParts returns part checksums.
 /// MinIO: testListPartsChecksum
 #[tokio::test]
-#[ignore = "Checksum validation not implemented"]
 async fn test_list_parts_checksum() {
     let ctx = S3TestContext::new().await;
     let key = "multipart-list-parts.txt";
