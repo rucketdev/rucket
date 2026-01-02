@@ -20,7 +20,7 @@ use crate::backend::{
     DeleteObjectResult, ListObjectsResult, ObjectHeaders, PutObjectResult, StorageBackend,
 };
 use crate::metadata::{ListVersionsResult, MetadataBackend, RedbMetadataStore};
-use crate::streaming::compute_crc32c;
+use crate::streaming::{compute_checksum, compute_crc32c};
 use crate::sync::{write_and_hash_with_strategy, SyncManager};
 use crate::wal::{
     RecoveryManager, RecoveryStats, WalEntry, WalSyncMode, WalWriter, WalWriterConfig,
@@ -596,6 +596,10 @@ impl StorageBackend for LocalStorage {
         let crc32c = compute_crc32c(&data);
         let timestamp = chrono::Utc::now().timestamp_millis();
 
+        // Compute user-requested checksum if algorithm is specified
+        let requested_checksum =
+            headers.checksum_algorithm.map(|algorithm| compute_checksum(&data, algorithm));
+
         // Step 1: Write intent to WAL (if enabled)
         // This is the durability point - if we crash after this, recovery will clean up
         if let Some(wal) = &self.wal {
@@ -677,6 +681,13 @@ impl StorageBackend for LocalStorage {
         meta.content_encoding = headers.content_encoding;
         meta.expires = headers.expires;
         meta.content_language = headers.content_language;
+
+        // Store the user-requested checksum in metadata
+        if let Some(ref checksum) = requested_checksum {
+            let algorithm = checksum.algorithm();
+            meta = meta.with_algorithm_checksum(algorithm, checksum.clone());
+        }
+
         self.metadata.put_object(bucket, meta).await?;
 
         // Step 5: Write commit to WAL (if enabled)
@@ -689,7 +700,7 @@ impl StorageBackend for LocalStorage {
             }
         }
 
-        Ok(PutObjectResult { etag: write_result.etag, version_id })
+        Ok(PutObjectResult { etag: write_result.etag, version_id, checksum: requested_checksum })
     }
 
     async fn get_object(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
@@ -854,6 +865,7 @@ impl StorageBackend for LocalStorage {
             content_encoding: src_meta.content_encoding.clone(),
             expires: src_meta.expires.clone(),
             content_language: src_meta.content_language.clone(),
+            checksum_algorithm: src_meta.checksum_algorithm,
         });
         let metadata = new_metadata.unwrap_or(src_meta.user_metadata);
 

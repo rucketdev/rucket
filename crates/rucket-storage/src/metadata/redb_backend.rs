@@ -88,6 +88,18 @@ struct StoredObjectMetadata {
     /// Added in v0.2.0 - defaults to None for backward compatibility with older data.
     #[serde(default)]
     crc32c: Option<u32>,
+    /// CRC32 checksum (IEEE polynomial).
+    #[serde(default)]
+    crc32: Option<u32>,
+    /// SHA-1 checksum (20 bytes).
+    #[serde(default)]
+    sha1: Option<[u8; 20]>,
+    /// SHA-256 checksum (32 bytes).
+    #[serde(default)]
+    sha256: Option<[u8; 32]>,
+    /// The checksum algorithm that was requested during upload.
+    #[serde(default)]
+    checksum_algorithm: Option<String>,
     content_type: Option<String>,
     #[serde(default)]
     cache_control: Option<String>,
@@ -125,6 +137,10 @@ impl StoredObjectMetadata {
             size: meta.size,
             etag: meta.etag.as_str().to_string(),
             crc32c: meta.crc32c,
+            crc32: meta.crc32,
+            sha1: meta.sha1,
+            sha256: meta.sha256,
+            checksum_algorithm: meta.checksum_algorithm.map(|a| a.as_str().to_string()),
             content_type: meta.content_type.clone(),
             cache_control: meta.cache_control.clone(),
             content_disposition: meta.content_disposition.clone(),
@@ -140,12 +156,20 @@ impl StoredObjectMetadata {
     }
 
     fn to_object_metadata(&self) -> ObjectMetadata {
+        use rucket_core::types::ChecksumAlgorithm;
         ObjectMetadata {
             key: self.key.clone(),
             uuid: Uuid::from_bytes(self.uuid),
             size: self.size,
             etag: ETag::new(&self.etag),
             crc32c: self.crc32c,
+            crc32: self.crc32,
+            sha1: self.sha1,
+            sha256: self.sha256,
+            checksum_algorithm: self
+                .checksum_algorithm
+                .as_ref()
+                .and_then(|s| ChecksumAlgorithm::parse(s)),
             content_type: self.content_type.clone(),
             cache_control: self.cache_control.clone(),
             content_disposition: self.content_disposition.clone(),

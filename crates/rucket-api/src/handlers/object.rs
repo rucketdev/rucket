@@ -34,7 +34,8 @@ pub struct ResponseHeaderOverrides {
     /// Override Cache-Control header.
     pub cache_control: Option<String>,
 }
-use rucket_core::types::{Tag, TagSet};
+use rucket_core::types::{Checksum, ChecksumAlgorithm, Tag, TagSet};
+use rucket_storage::streaming::compute_checksum;
 
 use crate::xml::request::Tagging as TaggingRequest;
 use crate::xml::response::{
@@ -359,6 +360,19 @@ pub async fn put_object(
             }
         });
 
+    // Parse checksum algorithm from header
+    // AWS SDK sends "x-amz-sdk-checksum-algorithm", S3 API uses "x-amz-checksum-algorithm"
+    let checksum_algorithm = headers
+        .get("x-amz-sdk-checksum-algorithm")
+        .or_else(|| headers.get("x-amz-checksum-algorithm"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(ChecksumAlgorithm::parse);
+
+    // Parse client-provided checksum value for validation
+    let client_checksum = parse_client_checksum(&headers).map_err(|e| {
+        ApiError::new(S3ErrorCode::BadDigest, format!("Invalid checksum format: {e}"))
+    })?;
+
     let object_headers = ObjectHeaders {
         content_type: headers.get("content-type").and_then(|v| v.to_str().ok()).map(String::from),
         cache_control: headers.get("cache-control").and_then(|v| v.to_str().ok()).map(String::from),
@@ -372,10 +386,22 @@ pub async fn put_object(
             .get("content-language")
             .and_then(|v| v.to_str().ok())
             .map(String::from),
+        checksum_algorithm,
     };
 
     // Decode AWS chunked encoding if present
     let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
+
+    // Validate client-provided checksum before storage
+    if let Some((algorithm, ref expected)) = client_checksum {
+        let computed = compute_checksum(&body, algorithm);
+        if &computed != expected {
+            return Err(ApiError::new(
+                S3ErrorCode::BadDigest,
+                "The Content-MD5 or checksum value that you specified did not match what the server received.",
+            ));
+        }
+    }
 
     let result =
         state.storage.put_object(&bucket, &key, body, object_headers, user_metadata).await?;
@@ -388,9 +414,39 @@ pub async fn put_object(
         response = response.header("x-amz-version-id", version_id.as_str());
     }
 
+    // Add checksum header to response if checksum was computed
+    if let Some(ref checksum) = result.checksum {
+        response = response.header(checksum.algorithm().header_name(), checksum.to_base64());
+    }
+
     response
         .body(Body::empty())
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+}
+
+/// Parse client-provided checksum from request headers.
+/// Returns Ok(Some(checksum)) if valid, Ok(None) if not provided, Err if invalid.
+fn parse_client_checksum(
+    headers: &HeaderMap,
+) -> Result<Option<(ChecksumAlgorithm, Checksum)>, &'static str> {
+    // Check each checksum header
+    if let Some(value) = headers.get("x-amz-checksum-crc32").and_then(|v| v.to_str().ok()) {
+        return Checksum::from_base64(ChecksumAlgorithm::Crc32, value)
+            .map(|c| Some((ChecksumAlgorithm::Crc32, c)));
+    }
+    if let Some(value) = headers.get("x-amz-checksum-crc32c").and_then(|v| v.to_str().ok()) {
+        return Checksum::from_base64(ChecksumAlgorithm::Crc32C, value)
+            .map(|c| Some((ChecksumAlgorithm::Crc32C, c)));
+    }
+    if let Some(value) = headers.get("x-amz-checksum-sha1").and_then(|v| v.to_str().ok()) {
+        return Checksum::from_base64(ChecksumAlgorithm::Sha1, value)
+            .map(|c| Some((ChecksumAlgorithm::Sha1, c)));
+    }
+    if let Some(value) = headers.get("x-amz-checksum-sha256").and_then(|v| v.to_str().ok()) {
+        return Checksum::from_base64(ChecksumAlgorithm::Sha256, value)
+            .map(|c| Some((ChecksumAlgorithm::Sha256, c)));
+    }
+    Ok(None)
 }
 
 /// `GET /{bucket}/{key}` - Download object.
@@ -527,6 +583,21 @@ pub async fn get_object(
             .collect();
         if let Ok(header_value) = HeaderValue::from_bytes(&latin1_bytes) {
             response = response.header(format!("x-amz-meta-{key}"), header_value);
+        }
+    }
+
+    // Add checksum header if checksum mode is enabled and we have a stored checksum
+    let checksum_mode_enabled = headers
+        .get("x-amz-checksum-mode")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("ENABLED"))
+        .unwrap_or(false);
+
+    if checksum_mode_enabled {
+        if let Some(algorithm) = meta.checksum_algorithm {
+            if let Some(checksum) = meta.get_checksum(algorithm) {
+                response = response.header(algorithm.header_name(), checksum.to_base64());
+            }
         }
     }
 
@@ -758,6 +829,21 @@ pub async fn head_object(
         }
     }
 
+    // Add checksum header if checksum mode is enabled and we have a stored checksum
+    let checksum_mode_enabled = headers
+        .get("x-amz-checksum-mode")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("ENABLED"))
+        .unwrap_or(false);
+
+    if checksum_mode_enabled {
+        if let Some(algorithm) = meta.checksum_algorithm {
+            if let Some(checksum) = meta.get_checksum(algorithm) {
+                response = response.header(algorithm.header_name(), checksum.to_base64());
+            }
+        }
+    }
+
     response
         .body(Body::empty())
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
@@ -836,6 +922,8 @@ pub async fn copy_object(
                 .get("content-language")
                 .and_then(|v| v.to_str().ok())
                 .map(String::from),
+            // For copy with REPLACE, we don't support changing checksum algorithm
+            checksum_algorithm: None,
         };
         let user_metadata = extract_user_metadata(&headers);
         (Some(object_headers), Some(user_metadata))

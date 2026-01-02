@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use rucket_core::types::{
-    BucketInfo, CorsConfiguration, ETag, MultipartUpload, ObjectMetadata, Part, TagSet,
-    VersioningStatus,
+    BucketInfo, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag, MultipartUpload,
+    ObjectMetadata, Part, TagSet, VersioningStatus,
 };
 use rucket_core::Result;
 
@@ -18,6 +18,8 @@ pub struct PutObjectResult {
     pub etag: ETag,
     /// The version ID if bucket versioning is enabled.
     pub version_id: Option<String>,
+    /// The checksum if a checksum algorithm was requested.
+    pub checksum: Option<Checksum>,
 }
 
 /// Result of a delete_object operation.
@@ -44,6 +46,8 @@ pub struct ObjectHeaders {
     pub expires: Option<String>,
     /// Content-Language header.
     pub content_language: Option<String>,
+    /// Checksum algorithm requested for this upload.
+    pub checksum_algorithm: Option<ChecksumAlgorithm>,
 }
 
 /// Trait for object storage backends.
