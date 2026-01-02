@@ -1,16 +1,42 @@
 # Roadmap
 
-Current test coverage: **472 passing** / 530 ignored (47% S3 API coverage)
-
 ---
 
-## Phase 1: Quick Wins
+## Phase 1: Foundation
 
-Low complexity, high value. Target: 54% coverage.
+Core platform capabilities. Solid base for production use.
+
+### Completed
+
+| Feature | Status |
+|---------|--------|
+| Core S3 API (buckets, objects, multipart) | ✅ |
+| Object versioning (with delete markers) | ✅ |
+| WAL crash recovery (light/full modes) | ✅ |
+| CRC32C checksums with verification | ✅ |
+| Durability presets (Performance/Balanced/Durable) | ✅ |
+| Sync strategies (None/Periodic/Threshold/Always) | ✅ |
+| Prometheus metrics | ✅ |
+| AWS Signature V4 authentication | ✅ |
+| Conditional requests (If-Match, If-None-Match, etc.) | ✅ |
+| Range requests | ✅ |
+| User metadata (x-amz-meta-*) | ✅ |
+| Batch delete operations | ✅ |
+| Copy object with metadata directive | ✅ |
+
+### To Complete - Critical
 
 | Feature | Tests | Status |
 |---------|-------|--------|
-| TLS support (HTTPS) | - | ⬜ |
+| TLS support with tests | ~10 | ⬜ |
+| High Availability (active/passive) | ~20 | ⬜ |
+| S3 compatibility test suite (Rust port) | 500+ | ⬜ |
+| Presigned URLs | 26 | ⬜ |
+
+### To Complete - Quick Wins
+
+| Feature | Tests | Status |
+|---------|-------|--------|
 | CORS support | 17 | ⬜ |
 | Object tagging persistence | 9 | ⬜ |
 | Bucket tagging persistence | 6 | ⬜ |
@@ -20,9 +46,23 @@ Low complexity, high value. Target: 54% coverage.
 | Multipart metadata (cache-control, etc.) | 3 | ⬜ |
 | List pagination edge cases | 5 | ⬜ |
 
-## Phase 2: Access Control
+---
 
-Foundation for enterprise use. Target: 63% coverage.
+## Phase 2: Scale & Performance
+
+Horizontal scaling and I/O optimization.
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| HA cross-site replication | Async replication across data centers | ⬜ |
+| io_uring support | Linux async I/O for improved throughput | ⬜ |
+| Data partitioning | Consistent hashing to distribute data across nodes | ⬜ |
+
+---
+
+## Phase 3: Access Control
+
+Foundation for enterprise use.
 
 | Feature | Tests | Status |
 |---------|-------|--------|
@@ -30,9 +70,11 @@ Foundation for enterprise use. Target: 63% coverage.
 | Bucket policies | 37 | ⬜ |
 | Anonymous/public access | 15 | ⬜ |
 
-## Phase 3: Encryption
+---
 
-Security-critical features. Target: 68% coverage.
+## Phase 4: Encryption
+
+Security-critical features.
 
 | Feature | Tests | Status |
 |---------|-------|--------|
@@ -40,9 +82,11 @@ Security-critical features. Target: 68% coverage.
 | SSE-C (customer-provided keys) | 21 | ⬜ |
 | Bucket default encryption | 14 | ⬜ |
 
-## Phase 4: Data Management
+---
 
-Compliance and lifecycle. Target: 75% coverage.
+## Phase 5: Data Management
+
+Compliance and lifecycle.
 
 | Feature | Tests | Status |
 |---------|-------|--------|
@@ -52,9 +96,11 @@ Compliance and lifecycle. Target: 75% coverage.
 | Legal hold | 4 | ⬜ |
 | Storage classes | 14 | ⬜ |
 
-## Phase 5: Advanced
+---
 
-Complex features for specific use cases. Target: 100% coverage.
+## Phase 6: Advanced
+
+Complex features for specific use cases.
 
 | Feature | Tests | Status |
 |---------|-------|--------|
@@ -68,28 +114,27 @@ Complex features for specific use cases. Target: 100% coverage.
 | Static website hosting | 15 | ⬜ |
 | Glacier restore | 15 | ⬜ |
 | Access logging | 13 | ⬜ |
-| Presigned URLs | 26 | ⬜ |
 
 ---
 
 ## Future / Experimental
 
-Long-term features for scale, performance, and enterprise deployment.
-
-### Cluster Mode
-
-| Phase | Feature | Description |
-|-------|---------|-------------|
-| 1 | High Availability (HA) | Active/passive replication for automatic failover |
-| 2 | Data Partitioning | Consistent hashing to distribute data across nodes |
-
-### Storage Performance
+Long-term features requiring specialized hardware or significant architecture changes.
 
 | Feature | Description |
 |---------|-------------|
 | Direct NVMe access | Bypass filesystem for raw block devices |
-| io_uring support | Linux async I/O for improved throughput |
 | SPDK integration | Storage Performance Development Kit for ultra-low latency |
+
+---
+
+## Architectural Decisions Needed
+
+- [ ] **Policy engine**: JSON policy evaluation approach
+- [ ] **Key management**: Built-in vs external KMS
+- [ ] **Background jobs**: Lifecycle rule execution model
+- [ ] **Events**: Internal bus vs external queue integration
+- [ ] **Multi-tenancy**: Account isolation model
 
 ---
 
@@ -101,14 +146,6 @@ Long-term features for scale, performance, and enterprise deployment.
 | Medium | 1-3 days | Multiple files, new modules |
 | High | 3-7 days | New subsystem |
 | Very High | 1-2 weeks | Major architecture |
-
-## Architectural Decisions Needed
-
-- [ ] **Policy engine**: JSON policy evaluation approach
-- [ ] **Key management**: Built-in vs external KMS
-- [ ] **Background jobs**: Lifecycle rule execution model
-- [ ] **Events**: Internal bus vs external queue integration
-- [ ] **Multi-tenancy**: Account isolation model
 
 ---
 
