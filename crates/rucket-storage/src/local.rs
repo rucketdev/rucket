@@ -643,7 +643,9 @@ impl StorageBackend for LocalStorage {
         if bucket_info.versioning_status.is_none() {
             if let Ok(old_meta) = self.metadata.get_object(bucket, key).await {
                 let old_path = self.object_path(bucket, &old_meta.uuid);
-                let _ = fs::remove_file(&old_path).await;
+                if let Err(e) = fs::remove_file(&old_path).await {
+                    tracing::warn!(?old_path, error = %e, "Failed to cleanup old object file");
+                }
             }
         }
 
@@ -798,7 +800,9 @@ impl StorageBackend for LocalStorage {
         // Step 2: Delete metadata and file
         if let Some(uuid) = self.metadata.delete_object(bucket, key).await? {
             let path = self.object_path(bucket, &uuid);
-            let _ = fs::remove_file(&path).await;
+            if let Err(e) = fs::remove_file(&path).await {
+                tracing::warn!(?path, error = %e, "Failed to delete object file (orphan may remain)");
+            }
 
             // Step 3: Write delete commit to WAL
             if let Some(wal) = &self.wal {
@@ -1128,7 +1132,9 @@ impl StorageBackend for LocalStorage {
         // Delete old object if overwriting
         if let Ok(old_meta) = self.metadata.get_object(bucket, key).await {
             let old_path = self.object_path(bucket, &old_meta.uuid);
-            let _ = fs::remove_file(&old_path).await;
+            if let Err(e) = fs::remove_file(&old_path).await {
+                tracing::warn!(?old_path, error = %e, "Failed to cleanup old object during multipart complete");
+            }
         }
 
         // Store final object metadata with content_type and user_metadata from the upload
@@ -1143,7 +1149,9 @@ impl StorageBackend for LocalStorage {
         let part_uuids = self.metadata.delete_parts(upload_id).await?;
         for uuid in part_uuids {
             let part_path = self.part_path(&uuid);
-            let _ = fs::remove_file(&part_path).await;
+            if let Err(e) = fs::remove_file(&part_path).await {
+                tracing::warn!(?part_path, error = %e, "Failed to cleanup part file");
+            }
         }
 
         // Delete upload record
@@ -1163,7 +1171,9 @@ impl StorageBackend for LocalStorage {
         let part_uuids = self.metadata.delete_parts(upload_id).await?;
         for uuid in part_uuids {
             let part_path = self.part_path(&uuid);
-            let _ = fs::remove_file(&part_path).await;
+            if let Err(e) = fs::remove_file(&part_path).await {
+                tracing::warn!(?part_path, error = %e, "Failed to cleanup part file during abort");
+            }
         }
 
         // Delete upload record
@@ -1276,7 +1286,9 @@ impl StorageBackend for LocalStorage {
         // Delete the specific version and its file
         if let Some(uuid) = self.metadata.delete_object_version(bucket, key, version_id).await? {
             let path = self.object_path(bucket, &uuid);
-            let _ = fs::remove_file(&path).await;
+            if let Err(e) = fs::remove_file(&path).await {
+                tracing::warn!(?path, error = %e, "Failed to delete object version file (orphan may remain)");
+            }
         }
 
         Ok(DeleteObjectResult { version_id: Some(version_id.to_string()), is_delete_marker: false })

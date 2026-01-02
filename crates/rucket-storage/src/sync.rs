@@ -194,26 +194,44 @@ impl SyncManager {
     /// Sync all pending files.
     pub async fn sync_pending(&self) -> std::io::Result<()> {
         let mut pending = self.pending_files.lock().await;
+        let mut sync_errors = Vec::new();
 
         for path in pending.drain(..) {
             if path.exists() {
-                if let Ok(file) = File::open(&path).await {
-                    let _ = file.sync_all().await;
-                    #[cfg(test)]
-                    test_stats::record_data_sync();
+                match File::open(&path).await {
+                    Ok(file) => {
+                        if let Err(e) = file.sync_all().await {
+                            tracing::warn!(?path, error = %e, "Failed to sync file");
+                            sync_errors.push(e);
+                        } else {
+                            #[cfg(test)]
+                            test_stats::record_data_sync();
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(?path, error = %e, "Failed to open file for sync");
+                        sync_errors.push(e);
+                    }
                 }
             }
         }
 
         self.reset_counters();
+
+        // Return first error if any occurred
+        if let Some(first_error) = sync_errors.into_iter().next() {
+            return Err(first_error);
+        }
         Ok(())
     }
 
     /// Shutdown the sync manager, flushing any pending writes.
     pub async fn shutdown(&self) {
         self.shutdown.notify_one();
-        // Sync any remaining files
-        let _ = self.sync_pending().await;
+        // Sync any remaining files - log errors but don't propagate during shutdown
+        if let Err(e) = self.sync_pending().await {
+            tracing::error!(error = %e, "Failed to sync pending files during shutdown");
+        }
     }
 
     /// Background task for periodic sync.
@@ -223,7 +241,9 @@ impl SyncManager {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(interval) => {
-                    let _ = self.sync_pending().await;
+                    if let Err(e) = self.sync_pending().await {
+                        tracing::warn!(error = %e, "Periodic sync failed");
+                    }
                 }
                 _ = self.notify.notified() => {
                     // Just continue, will sync on next interval
@@ -278,7 +298,9 @@ impl SyncManager {
                             pending_files = pending_count,
                             "Threshold idle timeout reached, syncing"
                         );
-                        let _ = self.sync_pending().await;
+                        if let Err(e) = self.sync_pending().await {
+                            tracing::warn!(error = %e, "Threshold idle sync failed");
+                        }
                     }
                 }
                 _ = self.notify.notified() => {

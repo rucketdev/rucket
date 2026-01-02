@@ -674,7 +674,8 @@ impl MetadataBackend for RedbMetadataStore {
                     // Non-versioned bucket: delete old entry if exists
                     let old_key =
                         Self::object_version_key(&bucket, &meta.key, Self::CURRENT_VERSION);
-                    let _ = objects_table.remove(old_key.as_str());
+                    // Ignore the return value (old entry), but check for errors
+                    objects_table.remove(old_key.as_str()).map_err(db_err)?;
                 }
 
                 // Insert new version with is_latest = true
@@ -1627,7 +1628,7 @@ impl MetadataBackend for RedbMetadataStore {
 
         tokio::task::spawn_blocking(move || {
             let mut txn = db.begin_write().map_err(db_err)?;
-            let _ = txn.set_durability(durability);
+            txn.set_durability(durability).map_err(db_err)?;
 
             {
                 let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
@@ -1654,7 +1655,7 @@ impl MetadataBackend for RedbMetadataStore {
 
         tokio::task::spawn_blocking(move || {
             let mut txn = db.begin_write().map_err(db_err)?;
-            let _ = txn.set_durability(durability);
+            txn.set_durability(durability).map_err(db_err)?;
 
             {
                 let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
@@ -1714,7 +1715,7 @@ impl MetadataBackend for RedbMetadataStore {
 
         tokio::task::spawn_blocking(move || {
             let mut txn = db.begin_write().map_err(db_err)?;
-            let _ = txn.set_durability(durability);
+            txn.set_durability(durability).map_err(db_err)?;
 
             {
                 let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
@@ -1746,7 +1747,7 @@ impl MetadataBackend for RedbMetadataStore {
 
         tokio::task::spawn_blocking(move || {
             let mut txn = db.begin_write().map_err(db_err)?;
-            let _ = txn.set_durability(durability);
+            txn.set_durability(durability).map_err(db_err)?;
 
             {
                 let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
