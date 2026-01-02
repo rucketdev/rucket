@@ -13,7 +13,7 @@ coverage:
         threshold: 15%
 
 comment:
-  layout: "reach,diff,flags,files"
+  layout: "diff,flags,files"
   behavior: default
   require_changes: true
 
