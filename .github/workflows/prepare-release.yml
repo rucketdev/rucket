@@ -1,0 +1,86 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: Create Release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit --locked
+
+      - name: Install git-cliff
+        run: cargo install git-cliff --locked
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        run: cargo set-version --bump ${{ inputs.bump }}
+
+      - name: Get new version
+        id: version
+        run: echo "version=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)" >> $GITHUB_OUTPUT
+
+      - name: Update changelog
+        run: git cliff --tag "v${{ steps.version.outputs.version }}" -o CHANGELOG.md
+
+      - name: Update Cargo.lock
+        run: cargo check --quiet
+
+      - name: Create release branch
+        run: |
+          git checkout -b release/v${{ steps.version.outputs.version }}
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): prepare v${{ steps.version.outputs.version }}"
+          git push origin release/v${{ steps.version.outputs.version }}
+
+      - name: Create pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "chore(release): v${{ steps.version.outputs.version }}" \
+            --body "## Release v${{ steps.version.outputs.version }}
+
+          This PR was automatically created by the Prepare Release workflow.
+
+          ### Changes
+          - Version bump: ${{ inputs.bump }}
+          - Updated CHANGELOG.md
+
+          ### After merging
+          This PR will automatically create a git tag and trigger the release workflow to:
+          - Build binaries for all platforms
+          - Publish Docker image to ghcr.io
+          - Create GitHub Release with artifacts
+
+          ---
+          > [!NOTE]
+          > Review the CHANGELOG.md changes before merging." \
+            --label "release"
