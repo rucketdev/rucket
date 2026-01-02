@@ -999,7 +999,7 @@ impl StorageBackend for LocalStorage {
         &self,
         bucket: &str,
         key: &str,
-        content_type: Option<&str>,
+        headers: ObjectHeaders,
         user_metadata: HashMap<String, String>,
     ) -> Result<MultipartUpload> {
         // Check bucket exists
@@ -1013,7 +1013,18 @@ impl StorageBackend for LocalStorage {
 
         let upload_id = Uuid::new_v4().to_string();
         self.metadata
-            .create_multipart_upload(bucket, key, &upload_id, content_type, user_metadata)
+            .create_multipart_upload(
+                bucket,
+                key,
+                &upload_id,
+                headers.content_type.as_deref(),
+                user_metadata,
+                headers.cache_control.as_deref(),
+                headers.content_disposition.as_deref(),
+                headers.content_encoding.as_deref(),
+                headers.content_language.as_deref(),
+                headers.expires.as_deref(),
+            )
             .await
     }
 
@@ -1162,12 +1173,17 @@ impl StorageBackend for LocalStorage {
             }
         }
 
-        // Store final object metadata with content_type and user_metadata from the upload
+        // Store final object metadata with headers and user_metadata from the upload
         let mut meta = ObjectMetadata::new(key, final_uuid, total_size, etag.clone())
             .with_user_metadata(upload.user_metadata);
         if let Some(ct) = upload.content_type {
             meta = meta.with_content_type(&ct);
         }
+        meta.cache_control = upload.cache_control;
+        meta.content_disposition = upload.content_disposition;
+        meta.content_encoding = upload.content_encoding;
+        meta.content_language = upload.content_language;
+        meta.expires = upload.expires;
         self.metadata.put_object(bucket, meta).await?;
 
         // Clean up parts
