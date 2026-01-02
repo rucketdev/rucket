@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  pull_request:
+    types: [closed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -13,8 +16,58 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Determine version and create tag if this is a release PR merge
+  setup:
+    name: Setup Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if should release
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            # Check for release label
+            LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+            if echo "$LABELS" | grep -q '"release"'; then
+              echo "should_release=true" >> $GITHUB_OUTPUT
+            else
+              echo "should_release=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get version
+        id: version
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Tag push - use tag name
+            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            # PR merge - extract from Cargo.toml
+            VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+            echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        if: steps.check.outputs.should_release == 'true' && github.event_name == 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
+
   build:
     name: Build ${{ matrix.target }}
+    needs: setup
+    if: needs.setup.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -71,17 +124,17 @@ jobs:
         if: "!contains(matrix.target, 'windows')"
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ../../../rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz rucket
+          tar -czvf ../../../rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz rucket
           cd ../../..
-          sha256sum rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz > rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+          sha256sum rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz > rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
 
       - name: Create archive (Windows)
         if: contains(matrix.target, 'windows')
         shell: pwsh
         run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/rucket.exe" -DestinationPath "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip"
-          $hash = (Get-FileHash "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  rucket-${{ github.ref_name }}-${{ matrix.target }}.zip" | Out-File -FilePath "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256" -Encoding ASCII
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rucket.exe" -DestinationPath "rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip"
+          $hash = (Get-FileHash "rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip" | Out-File -FilePath "rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip.sha256" -Encoding ASCII
 
       - name: Upload artifact (Unix)
         if: "!contains(matrix.target, 'windows')"
@@ -89,8 +142,8 @@ jobs:
         with:
           name: rucket-${{ matrix.target }}
           path: |
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+            rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz
+            rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
 
       - name: Upload artifact (Windows)
         if: contains(matrix.target, 'windows')
@@ -98,11 +151,13 @@ jobs:
         with:
           name: rucket-${{ matrix.target }}
           path: |
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.zip
-            rucket-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256
+            rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip
+            rucket-${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip.sha256
 
   docker:
     name: Build Docker Image
+    needs: setup
+    if: needs.setup.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -120,16 +175,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract version for tags
         id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          MAJOR="${VERSION%%.*}"
+          MINOR="${VERSION%.*}"
+          echo "major=${MAJOR}" >> $GITHUB_OUTPUT
+          echo "minor=${MINOR}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -137,17 +192,27 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.minor }}
+            ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.major }}
+            ghcr.io/${{ github.repository }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   release:
     name: Create Release
-    needs: [build, docker]
+    needs: [setup, build, docker]
+    if: needs.setup.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -177,6 +242,7 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.setup.outputs.version }}
           body: ${{ steps.changelog.outputs.content }}
           files: release/*
           fail_on_unmatched_files: true
