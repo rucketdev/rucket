@@ -4,46 +4,34 @@
 [![codecov](https://codecov.io/gh/rucketdev/rucket/graph/badge.svg)](https://codecov.io/gh/rucketdev/rucket)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-> **Warning**: This project is experimental and not ready for production use. Production-ready release planned for version 1.x.
+S3-compatible object storage server written in Rust.
 
-A high-performance, S3-compatible object storage server written in Rust.
+> [!CAUTION]
+> **Not production-ready.** This project is under active development. APIs may change. Data durability is not guaranteed. Target: v1.0 for production use.
 
 ## Features
 
-- Full S3 API compatibility (PUT, GET, DELETE, LIST, multipart uploads)
-- Single-node deployment (distributed mode coming soon)
-- redb-backed metadata for reliability
+- S3 API compatibility (PUT, GET, DELETE, LIST, multipart uploads, versioning)
+- Single-node deployment
+- redb-backed metadata storage
 - AWS Signature V4 authentication
-- Streaming uploads and downloads
-- Range request support
+- Streaming transfers
+- Range requests
 
 ## Quick Start
 
-### Installation
-
-**From source:**
-
 ```bash
+# Install
 cargo install rucket
-```
 
-**From binary releases:**
-
-Download from [GitHub Releases](https://github.com/rucketdev/rucket/releases)
-
-### Running
-
-```bash
-# Start with defaults
+# Run
 rucket serve
 
-# With custom config
-rucket serve --config /path/to/rucket.toml
+# Or with config
+rucket serve --config rucket.toml
 ```
 
-### Configuration
-
-Create `rucket.toml`:
+**Configuration** (`rucket.toml`):
 
 ```toml
 [server]
@@ -57,116 +45,55 @@ access_key = "your-access-key"
 secret_key = "your-secret-key"
 ```
 
-### Usage with AWS CLI
+**Usage**:
 
 ```bash
-# Configure AWS CLI
 export AWS_ACCESS_KEY_ID=rucket
 export AWS_SECRET_ACCESS_KEY=rucket123
 
-# Create bucket
 aws --endpoint-url http://localhost:9000 s3 mb s3://my-bucket
-
-# Upload file
 aws --endpoint-url http://localhost:9000 s3 cp file.txt s3://my-bucket/
-
-# List objects
 aws --endpoint-url http://localhost:9000 s3 ls s3://my-bucket/
-
-# Download file
-aws --endpoint-url http://localhost:9000 s3 cp s3://my-bucket/file.txt downloaded.txt
-
-# Delete file
-aws --endpoint-url http://localhost:9000 s3 rm s3://my-bucket/file.txt
 ```
 
-### Usage with MinIO Client
+## S3 Compatibility
 
-```bash
-# Configure mc
-mc alias set rucket http://localhost:9000 rucket rucket123
+| Category | Operations | Status |
+|----------|------------|--------|
+| Buckets | Create, Delete, Head, List | ✅ |
+| Objects | Put, Get, Delete, Head, Copy | ✅ |
+| Listing | ListObjectsV1/V2, ListVersions | ✅ |
+| Multipart | Create, Upload, Complete, Abort, List | ✅ |
+| Versioning | Put/Get versions, Delete markers | ✅ |
+| Metadata | User metadata, Content-Type, Cache-Control | ✅ |
+| Conditional | If-Match, If-None-Match, If-Modified-Since | ✅ |
+| Range | Byte range requests | ✅ |
 
-# Create bucket
-mc mb rucket/my-bucket
-
-# Upload file
-mc cp file.txt rucket/my-bucket/
-
-# List objects
-mc ls rucket/my-bucket/
-```
-
-## S3 API Compatibility
-
-### Supported Operations
-
-| Operation | Status |
-|-----------|--------|
-| CreateBucket | ✅ |
-| DeleteBucket | ✅ |
-| HeadBucket | ✅ |
-| ListBuckets | ✅ |
-| PutObject | ✅ |
-| GetObject | ✅ |
-| DeleteObject | ✅ |
-| HeadObject | ✅ |
-| CopyObject | ✅ |
-| ListObjectsV2 | ✅ |
-| CreateMultipartUpload | ✅ |
-| UploadPart | ✅ |
-| CompleteMultipartUpload | ✅ |
-| AbortMultipartUpload | ✅ |
-| ListParts | ✅ |
-| ListMultipartUploads | ✅ |
-
-### Not Yet Implemented
-
-- Object versioning
-- Bucket policies and ACLs
-- Pre-signed URLs
-- Server-side encryption
-- Lifecycle rules
-- Replication
+See [Roadmap](docs/ROADMAP.md) for planned features.
 
 ## Architecture
 
-Rucket uses a simple but effective architecture:
-
-- **HTTP Layer**: axum for high-performance async HTTP handling
-- **Storage Layer**: Local filesystem with UUID-based object storage
-- **Metadata Layer**: redb for atomic, transactional metadata operations
-- **Authentication**: AWS Signature V4 with static credentials
-
 ```
-data/
-├── {bucket-name}/
-│   ├── {uuid1}.dat          # Object data files
-│   ├── {uuid2}.dat
-│   └── ...
-└── metadata.redb            # redb database
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   axum      │────▶│   Storage   │────▶│ Filesystem  │
+│  (HTTP)     │     │   Backend   │     │   + redb    │
+└─────────────┘     └─────────────┘     └─────────────┘
 ```
+
+- **HTTP**: axum async runtime
+- **Storage**: Local filesystem, UUID-based object storage
+- **Metadata**: redb for transactional operations
 
 ## Development
 
 ```bash
-# Clone repository
 git clone https://github.com/rucketdev/rucket.git
 cd rucket
-
-# Build
-cargo build
-
-# Run tests
-cargo test
-
-# Run with debug logging
-RUST_LOG=debug cargo run -- serve
+make test        # Run tests
+make lint        # Format + clippy
+make coverage    # Generate coverage report
 ```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+Apache 2.0. See [LICENSE](LICENSE).
