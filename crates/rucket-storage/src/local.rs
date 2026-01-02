@@ -2149,18 +2149,12 @@ mod tests {
 
         // Verify syncs were recorded
         // File sync happens in streaming.rs (Always mode) and local.rs (threshold)
-        assert!(
-            test_stats::data_sync_count() >= 1,
-            "Always mode should trigger file sync: got {}",
-            test_stats::data_sync_count()
-        );
+        let data_syncs = test_stats::data_sync_count();
+        assert!(data_syncs >= 1, "Always mode should trigger file sync: got {data_syncs}");
 
         // Directory sync happens in Always mode
-        assert!(
-            test_stats::dir_sync_count() >= 1,
-            "Always mode should trigger directory sync: got {}",
-            test_stats::dir_sync_count()
-        );
+        let dir_syncs = test_stats::dir_sync_count();
+        assert!(dir_syncs >= 1, "Always mode should trigger directory sync: got {dir_syncs}");
     }
 
     #[tokio::test]
@@ -2213,11 +2207,10 @@ mod tests {
             .unwrap();
 
         // Verify threshold-triggered sync happened
+        let final_syncs = test_stats::data_sync_count();
         assert!(
-            test_stats::data_sync_count() > initial_syncs,
-            "Threshold mode should trigger sync when threshold exceeded: got {} (was {})",
-            test_stats::data_sync_count(),
-            initial_syncs
+            final_syncs > initial_syncs,
+            "Threshold mode should trigger sync when threshold exceeded: got {final_syncs} (was {initial_syncs})"
         );
     }
 }
