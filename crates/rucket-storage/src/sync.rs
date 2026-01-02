@@ -513,8 +513,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_counter_none_mode() {
-        // Capture count before (don't reset - other tests may run in parallel)
-        let before = test_stats::data_sync_count();
+        // Reset stats to get a clean baseline - this test must verify no syncs happen
+        test_stats::reset();
         let temp_dir = TempDir::new().unwrap();
 
         // Write with None strategy
@@ -524,11 +524,8 @@ mod tests {
         }
 
         // Should not have synced (streaming.rs only syncs in Always mode)
-        let after = test_stats::data_sync_count();
-        assert_eq!(
-            after, before,
-            "None mode should not call sync in streaming (before={before}, after={after})"
-        );
+        let count = test_stats::data_sync_count();
+        assert_eq!(count, 0, "None mode should not call sync in streaming (count={count})");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
