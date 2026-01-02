@@ -198,6 +198,16 @@ struct StoredMultipartUpload {
     content_type: Option<String>,
     #[serde(default)]
     user_metadata: HashMap<String, String>,
+    #[serde(default)]
+    cache_control: Option<String>,
+    #[serde(default)]
+    content_disposition: Option<String>,
+    #[serde(default)]
+    content_encoding: Option<String>,
+    #[serde(default)]
+    content_language: Option<String>,
+    #[serde(default)]
+    expires: Option<String>,
 }
 
 impl StoredMultipartUpload {
@@ -209,6 +219,11 @@ impl StoredMultipartUpload {
             initiated_millis: upload.initiated.timestamp_millis(),
             content_type: upload.content_type.clone(),
             user_metadata: upload.user_metadata.clone(),
+            cache_control: upload.cache_control.clone(),
+            content_disposition: upload.content_disposition.clone(),
+            content_encoding: upload.content_encoding.clone(),
+            content_language: upload.content_language.clone(),
+            expires: upload.expires.clone(),
         }
     }
 
@@ -223,6 +238,11 @@ impl StoredMultipartUpload {
                 .unwrap_or_else(Utc::now),
             content_type: self.content_type.clone(),
             user_metadata: self.user_metadata.clone(),
+            cache_control: self.cache_control.clone(),
+            content_disposition: self.content_disposition.clone(),
+            content_encoding: self.content_encoding.clone(),
+            content_language: self.content_language.clone(),
+            expires: self.expires.clone(),
         }
     }
 }
@@ -1015,6 +1035,7 @@ impl MetadataBackend for RedbMetadataStore {
 
     // === Multipart Upload Operations ===
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_multipart_upload(
         &self,
         bucket: &str,
@@ -1022,11 +1043,21 @@ impl MetadataBackend for RedbMetadataStore {
         upload_id: &str,
         content_type: Option<&str>,
         user_metadata: HashMap<String, String>,
+        cache_control: Option<&str>,
+        content_disposition: Option<&str>,
+        content_encoding: Option<&str>,
+        content_language: Option<&str>,
+        expires: Option<&str>,
     ) -> Result<MultipartUpload> {
         let bucket = bucket.to_string();
         let key = key.to_string();
         let upload_id = upload_id.to_string();
         let content_type = content_type.map(String::from);
+        let cache_control = cache_control.map(String::from);
+        let content_disposition = content_disposition.map(String::from);
+        let content_encoding = content_encoding.map(String::from);
+        let content_language = content_language.map(String::from);
+        let expires = expires.map(String::from);
         let now = Utc::now();
         let db = Arc::clone(&self.db);
         let durability = self.durability;
@@ -1055,6 +1086,11 @@ impl MetadataBackend for RedbMetadataStore {
                     initiated: now,
                     content_type: content_type.clone(),
                     user_metadata: user_metadata.clone(),
+                    cache_control: cache_control.clone(),
+                    content_disposition: content_disposition.clone(),
+                    content_encoding: content_encoding.clone(),
+                    content_language: content_language.clone(),
+                    expires: expires.clone(),
                 };
                 let stored = StoredMultipartUpload::from_multipart_upload(&upload);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
@@ -1072,6 +1108,11 @@ impl MetadataBackend for RedbMetadataStore {
                 initiated: now,
                 content_type,
                 user_metadata,
+                cache_control,
+                content_disposition,
+                content_encoding,
+                content_language,
+                expires,
             })
         })
         .await

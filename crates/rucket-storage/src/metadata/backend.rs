@@ -244,6 +244,7 @@ pub trait MetadataBackend: Send + Sync + 'static {
     /// # Errors
     ///
     /// Returns `NotImplemented` error (stub).
+    #[allow(clippy::too_many_arguments)]
     async fn create_multipart_upload(
         &self,
         bucket: &str,
@@ -251,6 +252,11 @@ pub trait MetadataBackend: Send + Sync + 'static {
         upload_id: &str,
         content_type: Option<&str>,
         user_metadata: HashMap<String, String>,
+        cache_control: Option<&str>,
+        content_disposition: Option<&str>,
+        content_encoding: Option<&str>,
+        content_language: Option<&str>,
+        expires: Option<&str>,
     ) -> Result<MultipartUpload>;
 
     /// Get multipart upload info.

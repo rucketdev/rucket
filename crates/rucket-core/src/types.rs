@@ -458,6 +458,21 @@ pub struct MultipartUpload {
     /// Custom user metadata for the final object.
     #[serde(default)]
     pub user_metadata: std::collections::HashMap<String, String>,
+    /// Cache-Control header for the final object.
+    #[serde(default)]
+    pub cache_control: Option<String>,
+    /// Content-Disposition header for the final object.
+    #[serde(default)]
+    pub content_disposition: Option<String>,
+    /// Content-Encoding header for the final object.
+    #[serde(default)]
+    pub content_encoding: Option<String>,
+    /// Content-Language header for the final object.
+    #[serde(default)]
+    pub content_language: Option<String>,
+    /// Expires header for the final object.
+    #[serde(default)]
+    pub expires: Option<String>,
 }
 
 /// Represents a part in a multipart upload.

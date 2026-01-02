@@ -30,6 +30,9 @@ Core platform capabilities. Solid base for production use.
 | Bucket tagging persistence | ✅ |
 | Tag validation (length, count) | ✅ |
 | GetObjectAttributes | ✅ |
+| Checksum validation (CRC32, CRC32C, SHA1, SHA256) | ✅ |
+| Multipart metadata (cache-control, etc.) | ✅ |
+| List pagination edge cases | ✅ |
 
 ### To Complete - Critical
 
@@ -37,14 +40,6 @@ Core platform capabilities. Solid base for production use.
 |---------|-------|--------|
 | High Availability (active/passive) | ~20 | ⬜ |
 | S3 compatibility test suite (Rust port) | 500+ | ⬜ |
-
-### To Complete - Quick Wins
-
-| Feature | Tests | Status |
-|---------|-------|--------|
-| Checksum validation (CRC32, SHA) | 13 | ⬜ |
-| Multipart metadata (cache-control, etc.) | 3 | ⬜ |
-| List pagination edge cases | 5 | ⬜ |
 
 ---
 
