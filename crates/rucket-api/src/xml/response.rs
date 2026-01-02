@@ -254,6 +254,33 @@ pub struct ListMultipartUploadsResponse {
     /// Bucket name.
     #[serde(rename = "Bucket")]
     pub bucket: String,
+    /// Key marker from request.
+    #[serde(rename = "KeyMarker", skip_serializing_if = "Option::is_none")]
+    pub key_marker: Option<String>,
+    /// Upload ID marker from request.
+    #[serde(rename = "UploadIdMarker", skip_serializing_if = "Option::is_none")]
+    pub upload_id_marker: Option<String>,
+    /// Next key marker for pagination.
+    #[serde(rename = "NextKeyMarker", skip_serializing_if = "Option::is_none")]
+    pub next_key_marker: Option<String>,
+    /// Next upload ID marker for pagination.
+    #[serde(rename = "NextUploadIdMarker", skip_serializing_if = "Option::is_none")]
+    pub next_upload_id_marker: Option<String>,
+    /// Maximum number of uploads returned.
+    #[serde(rename = "MaxUploads")]
+    pub max_uploads: u32,
+    /// Whether results are truncated.
+    #[serde(rename = "IsTruncated")]
+    pub is_truncated: bool,
+    /// Prefix filter.
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    /// Delimiter used for grouping.
+    #[serde(rename = "Delimiter", skip_serializing_if = "Option::is_none")]
+    pub delimiter: Option<String>,
+    /// Common prefixes when using delimiter.
+    #[serde(rename = "CommonPrefixes", skip_serializing_if = "Vec::is_empty")]
+    pub common_prefixes: Vec<CommonPrefix>,
     /// Upload entries.
     #[serde(rename = "Upload", default)]
     pub uploads: Vec<MultipartUploadEntry>,
@@ -308,6 +335,27 @@ pub struct ListPartsResponse {
     /// Upload ID.
     #[serde(rename = "UploadId")]
     pub upload_id: String,
+    /// Part number marker from request.
+    #[serde(rename = "PartNumberMarker")]
+    pub part_number_marker: u32,
+    /// Next part number marker for pagination.
+    #[serde(rename = "NextPartNumberMarker", skip_serializing_if = "Option::is_none")]
+    pub next_part_number_marker: Option<u32>,
+    /// Maximum number of parts returned.
+    #[serde(rename = "MaxParts")]
+    pub max_parts: u32,
+    /// Whether results are truncated.
+    #[serde(rename = "IsTruncated")]
+    pub is_truncated: bool,
+    /// Initiator information.
+    #[serde(rename = "Initiator")]
+    pub initiator: Owner,
+    /// Owner information.
+    #[serde(rename = "Owner")]
+    pub owner: Owner,
+    /// Storage class.
+    #[serde(rename = "StorageClass")]
+    pub storage_class: String,
     /// Parts.
     #[serde(rename = "Part", default)]
     pub parts: Vec<PartEntry>,

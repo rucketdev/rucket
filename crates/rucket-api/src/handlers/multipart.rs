@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use chrono::Utc;
 use rucket_core::error::S3ErrorCode;
-use rucket_storage::StorageBackend;
+use rucket_storage::{ObjectHeaders, StorageBackend};
 use serde::Deserialize;
 
 use crate::error::ApiError;
@@ -118,11 +118,29 @@ pub async fn create_multipart_upload(
     Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let content_type = headers.get("content-type").and_then(|v| v.to_str().ok());
     let user_metadata = extract_user_metadata(&headers);
 
+    let object_headers = ObjectHeaders {
+        content_type: headers.get("content-type").and_then(|v| v.to_str().ok()).map(String::from),
+        cache_control: headers.get("cache-control").and_then(|v| v.to_str().ok()).map(String::from),
+        content_disposition: headers
+            .get("content-disposition")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+        content_encoding: headers
+            .get("content-encoding")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+        content_language: headers
+            .get("content-language")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+        expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
+        checksum_algorithm: None,
+    };
+
     let upload =
-        state.storage.create_multipart_upload(&bucket, &key, content_type, user_metadata).await?;
+        state.storage.create_multipart_upload(&bucket, &key, object_headers, user_metadata).await?;
 
     let response = InitiateMultipartUploadResponse {
         bucket: upload.bucket,
@@ -299,19 +317,44 @@ pub async fn abort_multipart_upload(
 pub async fn list_parts(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
-    Query(query): Query<MultipartQuery>,
+    Query(query): Query<ListPartsQuery>,
 ) -> Result<Response, ApiError> {
     let upload_id = query
         .upload_id
         .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
 
+    let max_parts = query.max_parts.unwrap_or(1000).min(1000);
+    let part_number_marker = query.part_number_marker.unwrap_or(0);
+
     let parts = state.storage.list_parts(&bucket, &key, &upload_id).await?;
+
+    // Filter by part number marker
+    let mut parts: Vec<_> =
+        parts.into_iter().filter(|p| p.part_number > part_number_marker).collect();
+
+    // Sort by part number
+    parts.sort_by_key(|p| p.part_number);
+
+    // Apply max_parts limit
+    let is_truncated = parts.len() > max_parts as usize;
+    let result_parts: Vec<_> = parts.into_iter().take(max_parts as usize).collect();
+
+    // Determine next part number marker
+    let next_part_number_marker =
+        if is_truncated { result_parts.last().map(|p| p.part_number) } else { None };
 
     let response = ListPartsResponse {
         bucket,
         key,
         upload_id,
-        parts: parts.into_iter().map(|p| PartEntry::from(&p)).collect(),
+        part_number_marker,
+        next_part_number_marker,
+        max_parts,
+        is_truncated,
+        initiator: crate::xml::response::Owner::default(),
+        owner: crate::xml::response::Owner::default(),
+        storage_class: "STANDARD".to_string(),
+        parts: result_parts.iter().map(PartEntry::from).collect(),
     };
 
     let xml = to_xml(&response).map_err(|e| {
@@ -326,6 +369,31 @@ pub async fn list_parts(
 pub struct ListUploadsQuery {
     /// Prefix filter.
     pub prefix: Option<String>,
+    /// Delimiter for grouping keys.
+    pub delimiter: Option<String>,
+    /// Maximum number of uploads to return.
+    #[serde(rename = "max-uploads")]
+    pub max_uploads: Option<u32>,
+    /// Key marker for pagination.
+    #[serde(rename = "key-marker")]
+    pub key_marker: Option<String>,
+    /// Upload ID marker for pagination.
+    #[serde(rename = "upload-id-marker")]
+    pub upload_id_marker: Option<String>,
+}
+
+/// Query parameters for listing parts.
+#[derive(Debug, Deserialize, Default)]
+pub struct ListPartsQuery {
+    /// Upload ID.
+    #[serde(rename = "uploadId")]
+    pub upload_id: Option<String>,
+    /// Maximum number of parts to return.
+    #[serde(rename = "max-parts")]
+    pub max_parts: Option<u32>,
+    /// Part number marker for pagination.
+    #[serde(rename = "part-number-marker")]
+    pub part_number_marker: Option<u32>,
 }
 
 /// `GET /{bucket}?uploads` - List multipart uploads.
@@ -334,10 +402,15 @@ pub async fn list_multipart_uploads(
     Path(bucket): Path<String>,
     Query(query): Query<ListUploadsQuery>,
 ) -> Result<Response, ApiError> {
+    use std::collections::BTreeSet;
+
+    use crate::xml::response::CommonPrefix;
+
+    let max_uploads = query.max_uploads.unwrap_or(1000).min(1000);
     let uploads = state.storage.list_multipart_uploads(&bucket).await?;
 
     // Filter by prefix if provided
-    let uploads: Vec<_> =
+    let mut uploads: Vec<_> =
         uploads
             .into_iter()
             .filter(|u| {
@@ -349,9 +422,66 @@ pub async fn list_multipart_uploads(
             })
             .collect();
 
+    // Sort by key for consistent ordering
+    uploads.sort_by(|a, b| a.key.cmp(&b.key));
+
+    // Apply key-marker pagination
+    if let Some(ref key_marker) = query.key_marker {
+        uploads.retain(|u| u.key.as_str() > key_marker.as_str());
+    }
+
+    // Handle delimiter and common prefixes
+    let mut common_prefixes: BTreeSet<String> = BTreeSet::new();
+    let mut filtered_uploads = Vec::new();
+
+    if let Some(ref delimiter) = query.delimiter {
+        let prefix_len = query.prefix.as_ref().map_or(0, |p| p.len());
+
+        for upload in uploads {
+            let key_after_prefix = &upload.key[prefix_len..];
+            if let Some(pos) = key_after_prefix.find(delimiter.as_str()) {
+                // Found delimiter - add to common prefixes
+                let prefix = format!(
+                    "{}{}",
+                    query.prefix.as_deref().unwrap_or(""),
+                    &key_after_prefix[..=pos]
+                );
+                common_prefixes.insert(prefix);
+            } else {
+                // No delimiter - include in results
+                filtered_uploads.push(upload);
+            }
+        }
+    } else {
+        filtered_uploads = uploads;
+    }
+
+    // Apply max_uploads limit
+    let is_truncated = filtered_uploads.len() > max_uploads as usize;
+    let result_uploads: Vec<_> = filtered_uploads.into_iter().take(max_uploads as usize).collect();
+
+    // Determine next markers
+    let (next_key_marker, next_upload_id_marker) = if is_truncated {
+        result_uploads
+            .last()
+            .map(|u| (Some(u.key.clone()), Some(u.upload_id.clone())))
+            .unwrap_or((None, None))
+    } else {
+        (None, None)
+    };
+
     let response = ListMultipartUploadsResponse {
         bucket,
-        uploads: uploads.into_iter().map(|u| MultipartUploadEntry::from(&u)).collect(),
+        key_marker: query.key_marker.clone(),
+        upload_id_marker: query.upload_id_marker.clone(),
+        next_key_marker,
+        next_upload_id_marker,
+        max_uploads,
+        is_truncated,
+        prefix: query.prefix.clone(),
+        delimiter: query.delimiter.clone(),
+        common_prefixes: common_prefixes.into_iter().map(|p| CommonPrefix { prefix: p }).collect(),
+        uploads: result_uploads.iter().map(MultipartUploadEntry::from).collect(),
     };
 
     let xml = to_xml(&response).map_err(|e| {

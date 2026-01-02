@@ -111,6 +111,18 @@ pub struct RequestQuery {
     /// Version ID for versioned object operations.
     #[serde(rename = "versionId")]
     pub version_id: Option<String>,
+    /// Max uploads for ListMultipartUploads.
+    #[serde(rename = "max-uploads")]
+    max_uploads: Option<u32>,
+    /// Upload ID marker for ListMultipartUploads.
+    #[serde(rename = "upload-id-marker")]
+    upload_id_marker: Option<String>,
+    /// Max parts for ListParts.
+    #[serde(rename = "max-parts")]
+    max_parts: Option<u32>,
+    /// Part number marker for ListParts.
+    #[serde(rename = "part-number-marker")]
+    part_number_marker: Option<u32>,
 }
 
 /// Create the S3 API router.
@@ -321,7 +333,13 @@ async fn handle_bucket_get(
 ) -> Response {
     // Check for ?uploads (list multipart uploads)
     if query.uploads.is_some() {
-        let list_query = multipart::ListUploadsQuery { prefix: query.prefix.clone() };
+        let list_query = multipart::ListUploadsQuery {
+            prefix: query.prefix.clone(),
+            delimiter: query.delimiter.clone(),
+            max_uploads: query.max_uploads,
+            key_marker: query.key_marker.clone(),
+            upload_id_marker: query.upload_id_marker.clone(),
+        };
         return multipart::list_multipart_uploads(state, path, Query(list_query))
             .await
             .into_response();
@@ -413,11 +431,12 @@ async fn handle_object_get(
 ) -> Response {
     // Check for ?uploadId (list parts)
     if query.upload_id.is_some() {
-        let mp_query = multipart::MultipartQuery {
+        let parts_query = multipart::ListPartsQuery {
             upload_id: query.upload_id,
-            part_number: query.part_number,
+            max_parts: query.max_parts,
+            part_number_marker: query.part_number_marker,
         };
-        return multipart::list_parts(state, path, Query(mp_query)).await.into_response();
+        return multipart::list_parts(state, path, Query(parts_query)).await.into_response();
     }
 
     // Check for ?tagging (GetObjectTagging)

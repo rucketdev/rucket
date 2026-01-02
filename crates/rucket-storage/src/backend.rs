@@ -190,7 +190,7 @@ pub trait StorageBackend: Send + Sync {
         &self,
         bucket: &str,
         key: &str,
-        content_type: Option<&str>,
+        headers: ObjectHeaders,
         user_metadata: HashMap<String, String>,
     ) -> Result<MultipartUpload>;
 
