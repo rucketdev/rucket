@@ -66,6 +66,36 @@ pub struct ObjectIdentifier {
     pub version_id: Option<String>,
 }
 
+/// `Tagging` request body for `PutObjectTagging`.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "Tagging")]
+pub struct Tagging {
+    /// The tag set.
+    #[serde(rename = "TagSet")]
+    pub tag_set: TagSetRequest,
+}
+
+/// Tag set in tagging request.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "TagSet")]
+pub struct TagSetRequest {
+    /// List of tags.
+    #[serde(rename = "Tag", default)]
+    pub tags: Vec<TagRequest>,
+}
+
+/// A single tag in the request.
+#[derive(Debug, Deserialize)]
+pub struct TagRequest {
+    /// Tag key.
+    #[serde(rename = "Key")]
+    pub key: String,
+
+    /// Tag value.
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
 #[cfg(test)]
 mod tests {
     use quick_xml::de::from_str;

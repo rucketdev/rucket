@@ -537,6 +537,36 @@ impl DeleteMarker {
     }
 }
 
+/// `Tagging` response for `GetObjectTagging`.
+#[derive(Debug, Serialize)]
+#[serde(rename = "Tagging")]
+pub struct TaggingResponse {
+    /// The tag set.
+    #[serde(rename = "TagSet")]
+    pub tag_set: TagSetResponse,
+}
+
+/// Tag set in tagging response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "TagSet")]
+pub struct TagSetResponse {
+    /// List of tags.
+    #[serde(rename = "Tag", default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<TagResponse>,
+}
+
+/// A single tag in the response.
+#[derive(Debug, Serialize)]
+pub struct TagResponse {
+    /// Tag key.
+    #[serde(rename = "Key")]
+    pub key: String,
+
+    /// Tag value.
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors

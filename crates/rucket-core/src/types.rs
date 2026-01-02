@@ -323,6 +323,56 @@ pub struct CorsConfiguration {
     pub rules: Vec<CorsRule>,
 }
 
+/// A single tag (key-value pair).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tag {
+    /// Tag key (1-128 Unicode characters).
+    pub key: String,
+    /// Tag value (0-256 Unicode characters).
+    pub value: String,
+}
+
+impl Tag {
+    /// Creates a new tag.
+    #[must_use]
+    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self { key: key.into(), value: value.into() }
+    }
+}
+
+/// A set of tags for an object or bucket.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagSet {
+    /// The tags in this set.
+    pub tags: Vec<Tag>,
+}
+
+impl TagSet {
+    /// Creates a new empty tag set.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { tags: Vec::new() }
+    }
+
+    /// Creates a tag set with the given tags.
+    #[must_use]
+    pub fn with_tags(tags: Vec<Tag>) -> Self {
+        Self { tags }
+    }
+
+    /// Returns true if the tag set is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.tags.is_empty()
+    }
+
+    /// Returns the number of tags.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.tags.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

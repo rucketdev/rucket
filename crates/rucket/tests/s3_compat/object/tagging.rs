@@ -11,7 +11,6 @@ use crate::S3TestContext;
 /// Test putting and getting object tags.
 /// Ceph: test_put_object_tagging
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
 async fn test_object_tagging_put_get() {
     let ctx = S3TestContext::new().await;
 
@@ -128,7 +127,6 @@ async fn test_object_tagging_nonexistent_object() {
 
 /// Test putting many tags.
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
 async fn test_object_tagging_many_tags() {
     let ctx = S3TestContext::new().await;
 
@@ -166,7 +164,6 @@ async fn test_object_tagging_many_tags() {
 
 /// Test replacing object tags.
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
 async fn test_object_tagging_replace() {
     let ctx = S3TestContext::new().await;
 
@@ -277,7 +274,6 @@ async fn test_object_tagging_max_value_length() {
 /// Test tagging on versioned object.
 /// Ceph: test_object_tagging_versioned
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
 async fn test_object_tagging_versioned() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -349,7 +345,6 @@ async fn test_object_tagging_versioned() {
 /// Test tagging with special characters in value.
 /// Ceph: test_object_tagging_special_chars
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
 async fn test_object_tagging_special_chars_value() {
     let ctx = S3TestContext::new().await;
 
@@ -386,7 +381,6 @@ async fn test_object_tagging_special_chars_value() {
 /// Test concurrent tagging operations.
 /// Ceph: test_object_tagging_concurrent
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
 async fn test_object_tagging_concurrent() {
     let ctx = S3TestContext::new().await;
 
@@ -422,7 +416,7 @@ async fn test_object_tagging_concurrent() {
 /// Test put object with tagging header.
 /// Ceph: test_put_object_with_tagging
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
+#[ignore = "x-amz-tagging header parsing on PUT not implemented"]
 async fn test_object_put_with_tagging() {
     use aws_sdk_s3::primitives::ByteStream;
 
@@ -585,7 +579,7 @@ async fn test_object_tagging_empty_key() {
 /// Test copy object preserves tags by default.
 /// Ceph: test_object_copy_preserves_tags
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
+#[ignore = "Copy object doesn't preserve tags yet"]
 async fn test_object_tagging_preserved_in_copy() {
     let ctx = S3TestContext::new().await;
 
@@ -630,7 +624,6 @@ async fn test_object_tagging_preserved_in_copy() {
 /// Test tagging on deep path key.
 /// Ceph: test_object_tagging_deep_path
 #[tokio::test]
-#[ignore = "Object tagging storage not implemented"]
 async fn test_object_tagging_deep_path() {
     let ctx = S3TestContext::new().await;
 

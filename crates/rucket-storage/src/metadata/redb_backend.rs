@@ -9,7 +9,7 @@ use chrono::{TimeZone, Utc};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{
-    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, Tag, TagSet, VersioningStatus,
 };
 use rucket_core::{Result, SyncStrategy};
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,9 @@ const MULTIPART_UPLOADS: TableDefinition<'_, &str, &[u8]> =
 
 /// Parts table: composite key "upload_id\0part_number" -> StoredPart (bincode)
 const PARTS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("parts");
+
+/// Object tagging table: composite key "bucket\0key" or "bucket\0key\0version" -> StoredTagSet (bincode)
+const OBJECT_TAGGING: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("object_tagging");
 
 // === Stored Types (for bincode serialization) ===
 
@@ -230,6 +233,22 @@ impl StoredPart {
     }
 }
 
+/// Stored representation of a tag set.
+#[derive(Serialize, Deserialize)]
+struct StoredTagSet {
+    tags: Vec<(String, String)>,
+}
+
+impl StoredTagSet {
+    fn from_tagset(tagset: &TagSet) -> Self {
+        Self { tags: tagset.tags.iter().map(|t| (t.key.clone(), t.value.clone())).collect() }
+    }
+
+    fn to_tagset(&self) -> TagSet {
+        TagSet::with_tags(self.tags.iter().map(|(k, v)| Tag::new(k, v)).collect())
+    }
+}
+
 /// Convert any error with Display to our Error type.
 fn db_err(e: impl std::fmt::Display) -> Error {
     Error::Database(e.to_string())
@@ -260,6 +279,7 @@ impl RedbMetadataStore {
             let _ = txn.open_table(OBJECTS).map_err(db_err)?;
             let _ = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
             let _ = txn.open_table(PARTS).map_err(db_err)?;
+            let _ = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
         }
 
@@ -300,6 +320,7 @@ impl RedbMetadataStore {
             let _ = txn.open_table(OBJECTS).map_err(db_err)?;
             let _ = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
             let _ = txn.open_table(PARTS).map_err(db_err)?;
+            let _ = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
         }
 
@@ -1568,6 +1589,176 @@ impl MetadataBackend for RedbMetadataStore {
         }
 
         false
+    }
+
+    // === Object Tagging Operations ===
+
+    async fn get_object_tagging(&self, bucket: &str, key: &str) -> Result<TagSet> {
+        // First verify the object exists
+        let _ = self.get_object(bucket, key).await?;
+
+        let db = Arc::clone(&self.db);
+        let tag_key = format!("{bucket}\0{key}");
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+
+            match table.get(tag_key.as_str()).map_err(db_err)? {
+                Some(value) => {
+                    let stored: StoredTagSet = bincode::deserialize(value.value())
+                        .map_err(|e| Error::Database(format!("Failed to deserialize tags: {e}")))?;
+                    Ok(stored.to_tagset())
+                }
+                None => Ok(TagSet::new()),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_object_tagging(&self, bucket: &str, key: &str, tags: TagSet) -> Result<()> {
+        // First verify the object exists
+        let _ = self.get_object(bucket, key).await?;
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let tag_key = format!("{bucket}\0{key}");
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            let _ = txn.set_durability(durability);
+
+            {
+                let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+                let stored = StoredTagSet::from_tagset(&tags);
+                let bytes = bincode::serialize(&stored)
+                    .map_err(|e| Error::Database(format!("Failed to serialize tags: {e}")))?;
+                table.insert(tag_key.as_str(), bytes.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_object_tagging(&self, bucket: &str, key: &str) -> Result<()> {
+        // First verify the object exists
+        let _ = self.get_object(bucket, key).await?;
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let tag_key = format!("{bucket}\0{key}");
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            let _ = txn.set_durability(durability);
+
+            {
+                let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(tag_key.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<TagSet> {
+        // First verify the object version exists
+        let _ = self.get_object_version(bucket, key, version_id).await?;
+
+        let db = Arc::clone(&self.db);
+        let tag_key = format!("{bucket}\0{key}\0{version_id}");
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+
+            match table.get(tag_key.as_str()).map_err(db_err)? {
+                Some(value) => {
+                    let stored: StoredTagSet = bincode::deserialize(value.value())
+                        .map_err(|e| Error::Database(format!("Failed to deserialize tags: {e}")))?;
+                    Ok(stored.to_tagset())
+                }
+                None => Ok(TagSet::new()),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        tags: TagSet,
+    ) -> Result<()> {
+        // First verify the object version exists
+        let _ = self.get_object_version(bucket, key, version_id).await?;
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let tag_key = format!("{bucket}\0{key}\0{version_id}");
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            let _ = txn.set_durability(durability);
+
+            {
+                let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+                let stored = StoredTagSet::from_tagset(&tags);
+                let bytes = bincode::serialize(&stored)
+                    .map_err(|e| Error::Database(format!("Failed to serialize tags: {e}")))?;
+                table.insert(tag_key.as_str(), bytes.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<()> {
+        // First verify the object version exists
+        let _ = self.get_object_version(bucket, key, version_id).await?;
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let tag_key = format!("{bucket}\0{key}\0{version_id}");
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            let _ = txn.set_durability(durability);
+
+            {
+                let mut table = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(tag_key.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
     }
 }
 

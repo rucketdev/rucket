@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use rucket_core::types::{BucketInfo, MultipartUpload, ObjectMetadata, Part, VersioningStatus};
+use rucket_core::types::{
+    BucketInfo, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
+};
 use rucket_core::Result;
 use uuid::Uuid;
 
@@ -287,4 +289,68 @@ pub trait MetadataBackend: Send + Sync + 'static {
     /// This is used during recovery to check if a data file has corresponding metadata.
     /// Returns `false` if the check fails or the UUID doesn't exist.
     fn uuid_exists_sync(&self, bucket: &str, uuid: Uuid) -> bool;
+
+    // === Object Tagging Operations ===
+
+    /// Get tags for an object.
+    ///
+    /// Returns an empty TagSet if the object has no tags.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket or object does not exist.
+    async fn get_object_tagging(&self, bucket: &str, key: &str) -> Result<TagSet>;
+
+    /// Set tags for an object.
+    ///
+    /// Replaces any existing tags with the provided tags.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket or object does not exist.
+    async fn put_object_tagging(&self, bucket: &str, key: &str, tags: TagSet) -> Result<()>;
+
+    /// Delete tags for an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket or object does not exist.
+    async fn delete_object_tagging(&self, bucket: &str, key: &str) -> Result<()>;
+
+    /// Get tags for a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn get_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<TagSet>;
+
+    /// Set tags for a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn put_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        tags: TagSet,
+    ) -> Result<()>;
+
+    /// Delete tags for a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn delete_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<()>;
 }

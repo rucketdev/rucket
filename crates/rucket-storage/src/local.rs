@@ -8,7 +8,7 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use rucket_core::error::{Error, S3ErrorCode};
 use rucket_core::types::{
-    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, VersioningStatus,
+    BucketInfo, ETag, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
 };
 use rucket_core::{RecoveryMode, RedbConfig, Result, SyncConfig, SyncStrategy, WalConfig};
 use tokio::fs;
@@ -1301,6 +1301,48 @@ impl StorageBackend for LocalStorage {
                 max_keys,
             )
             .await
+    }
+
+    // === Object Tagging Operations ===
+
+    async fn get_object_tagging(&self, bucket: &str, key: &str) -> Result<TagSet> {
+        self.metadata.get_object_tagging(bucket, key).await
+    }
+
+    async fn put_object_tagging(&self, bucket: &str, key: &str, tags: TagSet) -> Result<()> {
+        self.metadata.put_object_tagging(bucket, key, tags).await
+    }
+
+    async fn delete_object_tagging(&self, bucket: &str, key: &str) -> Result<()> {
+        self.metadata.delete_object_tagging(bucket, key).await
+    }
+
+    async fn get_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<TagSet> {
+        self.metadata.get_object_tagging_version(bucket, key, version_id).await
+    }
+
+    async fn put_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        tags: TagSet,
+    ) -> Result<()> {
+        self.metadata.put_object_tagging_version(bucket, key, version_id, tags).await
+    }
+
+    async fn delete_object_tagging_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<()> {
+        self.metadata.delete_object_tagging_version(bucket, key, version_id).await
     }
 }
 

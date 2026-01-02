@@ -34,10 +34,13 @@ pub struct ResponseHeaderOverrides {
     /// Override Cache-Control header.
     pub cache_control: Option<String>,
 }
+use rucket_core::types::{Tag, TagSet};
+
+use crate::xml::request::Tagging as TaggingRequest;
 use crate::xml::response::{
     to_xml, CommonPrefix, CopyObjectResponse, DeleteError, DeleteMarker, DeleteObjectsResponse,
     DeletedObject, ListObjectVersionsResponse, ListObjectsV1Response, ListObjectsV2Response,
-    ObjectEntry, ObjectVersion,
+    ObjectEntry, ObjectVersion, TagResponse, TagSetResponse, TaggingResponse,
 };
 
 /// Format a datetime for HTTP headers (RFC 7231 format).
@@ -1208,66 +1211,101 @@ pub async fn delete_objects(
 pub async fn get_object_tagging(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
+    Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
-    // Check bucket exists
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
+    // Get tags (this also verifies bucket and object exist)
+    let tag_set = if let Some(ref version_id) = query.version_id {
+        state.storage.get_object_tagging_version(&bucket, &key, version_id).await?
+    } else {
+        state.storage.get_object_tagging(&bucket, &key).await?
+    };
+
+    let response = TaggingResponse {
+        tag_set: TagSetResponse {
+            tags: tag_set
+                .tags
+                .into_iter()
+                .map(|t| TagResponse { key: t.key, value: t.value })
+                .collect(),
+        },
+    };
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    let mut response_builder =
+        Response::builder().status(StatusCode::OK).header("Content-Type", "application/xml");
+
+    // Add version ID header if provided
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
     }
 
-    // Check object exists
-    state.storage.head_object(&bucket, &key).await?;
-
-    // Return empty tagging (stub implementation)
-    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet/></Tagging>"#;
-    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+    response_builder
+        .body(Body::from(xml))
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `PUT /{bucket}/{key}?tagging` - Set object tagging.
 pub async fn put_object_tagging(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
-    _body: Bytes,
-) -> Result<impl IntoResponse, ApiError> {
-    // Check bucket exists
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
+    Query(query): Query<crate::router::RequestQuery>,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    // Parse the tagging XML
+    let tagging: TaggingRequest = quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+        ApiError::new(S3ErrorCode::MalformedXML, format!("Failed to parse tagging XML: {e}"))
+    })?;
+
+    // Convert to TagSet
+    let tag_set = TagSet::with_tags(
+        tagging.tag_set.tags.into_iter().map(|t| Tag::new(t.key, t.value)).collect(),
+    );
+
+    // Store tags (this also verifies bucket and object exist)
+    if let Some(ref version_id) = query.version_id {
+        state.storage.put_object_tagging_version(&bucket, &key, version_id, tag_set).await?;
+    } else {
+        state.storage.put_object_tagging(&bucket, &key, tag_set).await?;
     }
 
-    // Check object exists
-    state.storage.head_object(&bucket, &key).await?;
+    let mut response_builder = Response::builder().status(StatusCode::OK);
 
-    // Stub: accept but don't store (tags not persisted)
-    Ok(StatusCode::OK)
+    // Add version ID header if provided
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
+    }
+
+    response_builder
+        .body(Body::empty())
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `DELETE /{bucket}/{key}?tagging` - Delete object tagging.
 pub async fn delete_object_tagging(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
-) -> Result<impl IntoResponse, ApiError> {
-    // Check bucket exists
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
+    Query(query): Query<crate::router::RequestQuery>,
+) -> Result<Response, ApiError> {
+    // Delete tags (this also verifies bucket and object exist)
+    if let Some(ref version_id) = query.version_id {
+        state.storage.delete_object_tagging_version(&bucket, &key, version_id).await?;
+    } else {
+        state.storage.delete_object_tagging(&bucket, &key).await?;
     }
 
-    // Check object exists
-    state.storage.head_object(&bucket, &key).await?;
+    let mut response_builder = Response::builder().status(StatusCode::NO_CONTENT);
 
-    // Stub: accept but don't do anything (tags not persisted)
-    Ok(StatusCode::NO_CONTENT)
+    // Add version ID header if provided
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
+    }
+
+    response_builder
+        .body(Body::empty())
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 #[cfg(test)]
