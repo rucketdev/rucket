@@ -672,6 +672,7 @@ pub async fn delete_object(
 pub async fn head_object(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
     // Check bucket exists first to return proper error code
@@ -689,6 +690,18 @@ pub async fn head_object(
     } else {
         state.storage.head_object(&bucket, &key).await?
     };
+
+    // Check If-Match: return 412 Precondition Failed if ETag doesn't match
+    if let Some(if_match) = headers.get("if-match").and_then(|v| v.to_str().ok()) {
+        let etag = meta.etag.as_str();
+        let etags: Vec<&str> = if_match.split(',').map(|s| s.trim()).collect();
+        if !etags
+            .iter()
+            .any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"'))
+        {
+            return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));
+        }
+    }
 
     let mut response = Response::builder()
         .status(StatusCode::OK)
@@ -768,6 +781,19 @@ pub async fn copy_object(
 
     // URL-decode the source key (it may be percent-encoded)
     let src_key = s3_url_decode(src_key);
+
+    // Check x-amz-copy-source-if-match: fail if source ETag doesn't match
+    if let Some(if_match) = headers.get("x-amz-copy-source-if-match").and_then(|v| v.to_str().ok())
+    {
+        let src_meta = state.storage.head_object(src_bucket, &src_key).await?;
+        let src_etag = src_meta.etag.as_str();
+        let etags: Vec<&str> = if_match.split(',').map(|s| s.trim()).collect();
+        if !etags.iter().any(|&e| {
+            e == "*" || e == src_etag || e.trim_matches('"') == src_etag.trim_matches('"')
+        }) {
+            return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));
+        }
+    }
 
     // Check MetadataDirective - COPY (default) or REPLACE
     let metadata_directive =

@@ -69,7 +69,7 @@ async fn test_object_get_content_type() {
 async fn test_object_get_content_length() {
     let ctx = S3TestContext::new().await;
 
-    let content = b"Exactly 21 bytes....";
+    let content = b"Exactly 21 bytes.....";
     ctx.put("test.txt", content).await;
 
     let response = ctx.get_object("test.txt").await;

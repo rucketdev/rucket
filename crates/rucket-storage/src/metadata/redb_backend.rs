@@ -1454,6 +1454,13 @@ impl MetadataBackend for RedbMetadataStore {
                     continue;
                 };
 
+                // Skip entries at or before the key_marker
+                if let Some(ref km) = key_marker {
+                    if obj_key <= *km {
+                        continue;
+                    }
+                }
+
                 // Check prefix match
                 if let Some(ref p) = prefix {
                     if !obj_key.starts_with(p) {

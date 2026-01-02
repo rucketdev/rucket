@@ -321,12 +321,33 @@ pub async fn list_parts(
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
 }
 
+/// Query parameters for listing multipart uploads.
+#[derive(Debug, Deserialize, Default)]
+pub struct ListUploadsQuery {
+    /// Prefix filter.
+    pub prefix: Option<String>,
+}
+
 /// `GET /{bucket}?uploads` - List multipart uploads.
 pub async fn list_multipart_uploads(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
+    Query(query): Query<ListUploadsQuery>,
 ) -> Result<Response, ApiError> {
     let uploads = state.storage.list_multipart_uploads(&bucket).await?;
+
+    // Filter by prefix if provided
+    let uploads: Vec<_> =
+        uploads
+            .into_iter()
+            .filter(|u| {
+                if let Some(ref prefix) = query.prefix {
+                    u.key.starts_with(prefix)
+                } else {
+                    true
+                }
+            })
+            .collect();
 
     let response = ListMultipartUploadsResponse {
         bucket,

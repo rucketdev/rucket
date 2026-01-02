@@ -271,9 +271,10 @@ async fn head_bucket(state: State<AppState>, path: Path<String>) -> Response {
 async fn head_object(
     state: State<AppState>,
     path: Path<(String, String)>,
+    headers: HeaderMap,
     query: Query<RequestQuery>,
 ) -> Response {
-    object::head_object(state, path, query).await.into_response()
+    object::head_object(state, path, headers, query).await.into_response()
 }
 
 /// Handle POST requests to bucket (delete multiple objects).
@@ -304,7 +305,10 @@ async fn handle_bucket_get(
 ) -> Response {
     // Check for ?uploads (list multipart uploads)
     if query.uploads.is_some() {
-        return multipart::list_multipart_uploads(state, path).await.into_response();
+        let list_query = multipart::ListUploadsQuery { prefix: query.prefix.clone() };
+        return multipart::list_multipart_uploads(state, path, Query(list_query))
+            .await
+            .into_response();
     }
     // Check for ?versioning (GetBucketVersioning)
     if query.versioning.is_some() {
