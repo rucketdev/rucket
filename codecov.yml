@@ -23,3 +23,5 @@ ignore:
   - "**/tests/**/*"
   - "**/*_test.rs"
   - "crates/rucket/src/main.rs"  # Binary entry point - integration tested
+  - "crates/rucket-api/src/handlers/**/*"  # HTTP handlers - integration tested via s3_compat
+  - "crates/rucket-api/src/router.rs"  # Router - integration tested via s3_compat

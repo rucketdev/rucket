@@ -1906,4 +1906,98 @@ mod tests {
         // UUID should not exist in non-existent bucket
         assert!(!store.uuid_exists_sync("nonexistent-bucket", uuid));
     }
+
+    #[tokio::test]
+    async fn test_object_tagging_put_get() {
+        use rucket_core::types::{Tag, TagSet};
+
+        let store = RedbMetadataStore::open_in_memory().unwrap();
+        store.create_bucket("test-bucket").await.unwrap();
+
+        let meta = ObjectMetadata::new("test-key", Uuid::new_v4(), 100, ETag::new("\"test\""));
+        store.put_object("test-bucket", meta).await.unwrap();
+
+        // Initially empty
+        let tags = store.get_object_tagging("test-bucket", "test-key").await.unwrap();
+        assert!(tags.is_empty());
+
+        // Put tags
+        let tag_set =
+            TagSet::with_tags(vec![Tag::new("env", "test"), Tag::new("project", "rucket")]);
+        store.put_object_tagging("test-bucket", "test-key", tag_set.clone()).await.unwrap();
+
+        // Get tags
+        let retrieved = store.get_object_tagging("test-bucket", "test-key").await.unwrap();
+        assert_eq!(retrieved.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_object_tagging_delete() {
+        use rucket_core::types::{Tag, TagSet};
+
+        let store = RedbMetadataStore::open_in_memory().unwrap();
+        store.create_bucket("test-bucket").await.unwrap();
+
+        let meta = ObjectMetadata::new("test-key", Uuid::new_v4(), 100, ETag::new("\"test\""));
+        store.put_object("test-bucket", meta).await.unwrap();
+
+        // Put tags
+        let tag_set = TagSet::with_tags(vec![Tag::new("env", "test")]);
+        store.put_object_tagging("test-bucket", "test-key", tag_set).await.unwrap();
+
+        // Delete tags
+        store.delete_object_tagging("test-bucket", "test-key").await.unwrap();
+
+        // Should be empty now
+        let tags = store.get_object_tagging("test-bucket", "test-key").await.unwrap();
+        assert!(tags.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_object_tagging_versioned() {
+        use rucket_core::types::{Tag, TagSet, VersioningStatus};
+
+        let store = RedbMetadataStore::open_in_memory().unwrap();
+        store.create_bucket("test-bucket").await.unwrap();
+        store.set_bucket_versioning("test-bucket", VersioningStatus::Enabled).await.unwrap();
+
+        // Create v1
+        let meta_v1 = ObjectMetadata::new("test-key", Uuid::new_v4(), 100, ETag::new("\"v1\""))
+            .with_version_id("v1");
+        store.put_object("test-bucket", meta_v1).await.unwrap();
+
+        // Create v2
+        let meta_v2 = ObjectMetadata::new("test-key", Uuid::new_v4(), 200, ETag::new("\"v2\""))
+            .with_version_id("v2");
+        store.put_object("test-bucket", meta_v2).await.unwrap();
+
+        // Tag v1
+        let tags_v1 = TagSet::with_tags(vec![Tag::new("version", "1")]);
+        store.put_object_tagging_version("test-bucket", "test-key", "v1", tags_v1).await.unwrap();
+
+        // Tag v2
+        let tags_v2 = TagSet::with_tags(vec![Tag::new("version", "2")]);
+        store.put_object_tagging_version("test-bucket", "test-key", "v2", tags_v2).await.unwrap();
+
+        // Get v1 tags
+        let retrieved_v1 =
+            store.get_object_tagging_version("test-bucket", "test-key", "v1").await.unwrap();
+        assert_eq!(retrieved_v1.len(), 1);
+        assert_eq!(retrieved_v1.tags[0].value, "1");
+
+        // Get v2 tags
+        let retrieved_v2 =
+            store.get_object_tagging_version("test-bucket", "test-key", "v2").await.unwrap();
+        assert_eq!(retrieved_v2.len(), 1);
+        assert_eq!(retrieved_v2.tags[0].value, "2");
+    }
+
+    #[tokio::test]
+    async fn test_object_tagging_nonexistent_object() {
+        let store = RedbMetadataStore::open_in_memory().unwrap();
+        store.create_bucket("test-bucket").await.unwrap();
+
+        let result = store.get_object_tagging("test-bucket", "nonexistent").await;
+        assert!(result.is_err());
+    }
 }
