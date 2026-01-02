@@ -226,3 +226,41 @@ impl Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_checksum_mismatch_error_code() {
+        let code = S3ErrorCode::ChecksumMismatch;
+        assert_eq!(code.http_status(), 400);
+        assert_eq!(code.as_str(), "ChecksumMismatch");
+        assert_eq!(code.to_string(), "ChecksumMismatch");
+    }
+
+    #[test]
+    fn test_s3_error_codes_status() {
+        // Test a few error codes to ensure they return correct status
+        assert_eq!(S3ErrorCode::AccessDenied.http_status(), 403);
+        assert_eq!(S3ErrorCode::NoSuchBucket.http_status(), 404);
+        assert_eq!(S3ErrorCode::NoSuchKey.http_status(), 404);
+        assert_eq!(S3ErrorCode::BucketAlreadyExists.http_status(), 409);
+        assert_eq!(S3ErrorCode::InternalError.http_status(), 500);
+        assert_eq!(S3ErrorCode::NotImplemented.http_status(), 501);
+    }
+
+    #[test]
+    fn test_error_construction() {
+        let err = Error::s3(S3ErrorCode::ChecksumMismatch, "Data corruption detected");
+        assert_eq!(err.s3_error_code(), Some(S3ErrorCode::ChecksumMismatch));
+        assert_eq!(err.http_status(), 400);
+
+        let err_with_resource = Error::s3_with_resource(
+            S3ErrorCode::ChecksumMismatch,
+            "Checksum mismatch",
+            "my-bucket/my-key",
+        );
+        assert_eq!(err_with_resource.http_status(), 400);
+    }
+}

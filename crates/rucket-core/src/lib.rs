@@ -17,3 +17,4 @@ pub use config::{
     SyncStrategy, WalConfig, WalSyncMode,
 };
 pub use error::{Error, Result};
+// test
