@@ -616,7 +616,7 @@ async fn test_object_put_expires() {
         .await
         .expect("Should head object");
 
-    assert!(response.expires().is_some());
+    assert!(response.expires_string().is_some());
 }
 
 /// Test PUT to versioned bucket returns version id.

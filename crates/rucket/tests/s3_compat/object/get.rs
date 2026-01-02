@@ -380,7 +380,7 @@ async fn test_object_get_response_expires() {
         .await
         .expect("Should get object");
 
-    assert!(response.expires().is_some());
+    assert!(response.expires_string().is_some());
 }
 
 /// Test GET with part number on non-multipart object.
