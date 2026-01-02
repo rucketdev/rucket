@@ -8,8 +8,17 @@
 #   cp rucket.sample.toml rucket.toml
 #   rucket --config rucket.toml
 #
-# Environment variables can override config values:
-#   RUCKET_SERVER_BIND, RUCKET_AUTH_ACCESS_KEY, RUCKET_AUTH_SECRET_KEY, etc.
+# Environment variables override config values (12-factor app compatible).
+# Use double underscore (__) for nesting: RUCKET__<SECTION>__<FIELD>
+#
+# Examples:
+#   RUCKET__SERVER__BIND=0.0.0.0:9000
+#   RUCKET__STORAGE__DATA_DIR=/var/lib/rucket
+#   RUCKET__AUTH__ACCESS_KEY=mykey
+#   RUCKET__AUTH__SECRET_KEY=mysecret
+#   RUCKET__LOGGING__LEVEL=debug
+#   RUCKET__STORAGE__SYNC__DATA=always
+#   RUCKET__STORAGE__WAL__ENABLED=false
 
 # -----------------------------------------------------------------------------
 # Server Configuration
