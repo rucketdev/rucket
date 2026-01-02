@@ -49,7 +49,6 @@ Horizontal scaling and I/O optimization.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| HA cross-site replication | Async replication across data centers | ⬜ |
 | io_uring support | Linux async I/O for improved throughput | ⬜ |
 | Data partitioning | Consistent hashing to distribute data across nodes | ⬜ |
 
