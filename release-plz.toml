@@ -1,0 +1,40 @@
+# release-plz configuration
+# https://release-plz.dev/docs/config
+
+[workspace]
+# Use git-cliff for changelog generation
+changelog_config = "cliff.toml"
+
+# PR settings
+pr_labels = ["release"]
+pr_draft = false
+
+# Publish to crates.io (disabled until ready)
+publish = false
+
+# Git settings
+git_release_enable = true
+git_release_draft = false
+git_tag_enable = true
+
+# Commit message for version bumps
+release_commits = "chore(release): prepare release"
+
+[changelog]
+# Use conventional commits
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^perf", group = "Performance" },
+    { message = "^doc", group = "Documentation" },
+    { message = "^refactor", group = "Refactoring" },
+    { message = "^test", group = "Testing" },
+    { message = "^ci", group = "CI/CD" },
+    { message = "^chore", group = "Miscellaneous" },
+]
+
+# Skip certain commits from changelog
+commit_preprocessors = [
+    { pattern = "^chore\\(release\\)", skip = true },
+    { pattern = "^chore\\(deps\\)", skip = true },
+]
