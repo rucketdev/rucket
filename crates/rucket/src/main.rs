@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use rucket_api::create_router;
@@ -23,6 +24,11 @@ use cli::{Cli, Commands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install the default rustls crypto provider (ring)
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -94,16 +100,59 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
     // Bind to address
     let addr = config.server.bind;
 
-    let listener = TcpListener::bind(addr).await.context("Failed to bind to address")?;
+    // Check if TLS is configured
+    let tls_config = match (&config.server.tls_cert, &config.server.tls_key) {
+        (Some(cert_path), Some(key_path)) => {
+            let rustls_config =
+                RustlsConfig::from_pem_file(cert_path, key_path).await.with_context(|| {
+                    format!(
+                        "Failed to load TLS certificates from {} and {}",
+                        cert_path.display(),
+                        key_path.display()
+                    )
+                })?;
+            Some(rustls_config)
+        }
+        (Some(_), None) => {
+            anyhow::bail!("TLS certificate specified but key is missing");
+        }
+        (None, Some(_)) => {
+            anyhow::bail!("TLS key specified but certificate is missing");
+        }
+        (None, None) => None,
+    };
 
-    info!("Server listening on {}", addr);
-    println!("\n  Ready to accept connections.\n");
+    if let Some(tls_config) = tls_config {
+        // Run with TLS
+        info!("Server listening on https://{} (TLS enabled)", addr);
+        println!("\n  Ready to accept connections (HTTPS).\n");
 
-    // Run server with graceful shutdown
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("Server error")?;
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+
+        // Spawn shutdown handler
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+        });
+
+        axum_server::bind_rustls(addr, tls_config)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await
+            .context("Server error")?;
+    } else {
+        // Run without TLS
+        let listener = TcpListener::bind(addr).await.context("Failed to bind to address")?;
+
+        info!("Server listening on http://{}", addr);
+        println!("\n  Ready to accept connections.\n");
+
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .context("Server error")?;
+    }
 
     info!("Server shutdown complete");
     Ok(())
@@ -153,27 +202,33 @@ fn init_logging(config: &Config) -> Result<()> {
 }
 
 fn print_banner(config: &Config) {
+    let scheme = if config.server.tls_cert.is_some() { "https" } else { "http" };
     println!(
         r#"
   ╦═╗╦ ╦╔═╗╦╔═╔═╗╔╦╗
   ╠╦╝║ ║║  ╠╩╗║╣  ║
   ╩╚═╚═╝╚═╝╩ ╩╚═╝ ╩  v{}
 
-  Endpoint:    http://{}
+  Endpoint:    {}://{}
   Access Key:  {}
   Secret Key:  {}
   Data Dir:    {}
+  TLS:         {}
 
   Test with:
-    aws --endpoint-url http://{} s3 mb s3://my-bucket
-    aws --endpoint-url http://{} s3 cp file.txt s3://my-bucket/
+    aws --endpoint-url {}://{} s3 mb s3://my-bucket
+    aws --endpoint-url {}://{} s3 cp file.txt s3://my-bucket/
 "#,
         env!("CARGO_PKG_VERSION"),
+        scheme,
         config.server.bind,
         config.auth.access_key,
         mask_secret(&config.auth.secret_key),
         config.storage.data_dir.display(),
+        if config.server.tls_cert.is_some() { "enabled" } else { "disabled" },
+        scheme,
         config.server.bind,
+        scheme,
         config.server.bind
     );
 }

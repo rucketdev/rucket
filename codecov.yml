@@ -22,3 +22,4 @@ ignore:
   - "tests/**/*"
   - "**/tests/**/*"
   - "**/*_test.rs"
+  - "crates/rucket/src/main.rs"  # Binary entry point - integration tested
