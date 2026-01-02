@@ -206,9 +206,13 @@ fn print_banner(config: &Config) {
     let scheme = if config.server.tls_cert.is_some() { "https" } else { "http" };
     println!(
         r#"
-  ╦═╗╦ ╦╔═╗╦╔═╔═╗╔╦╗
-  ╠╦╝║ ║║  ╠╩╗║╣  ║
-  ╩╚═╚═╝╚═╝╩ ╩╚═╝ ╩  v{}
+         ____             __        __
+        / __ \__  _______/ /_____  / /_
+       / /_/ / / / / ___/ //_/ _ \/ __/
+      / _, _/ /_/ / /__/ ,< /  __/ /_
+     /_/ |_|\__,_/\___/_/|_|\___/\__/
+
+      S3-Compatible Object Storage  v{}
 
   Endpoint:    {}://{}
   Access Key:  {}
