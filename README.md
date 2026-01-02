@@ -18,16 +18,30 @@ S3-compatible object storage server written in Rust.
 - Streaming transfers
 - Range requests
 
+## Installation
+
+**Binary releases** (recommended):
+```bash
+# Download from GitHub releases
+curl -LO https://github.com/rucketdev/rucket/releases/latest/download/rucket-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf rucket-*.tar.gz
+./rucket serve
+```
+
+**Docker**:
+```bash
+docker run -p 9000:9000 -v rucket-data:/data ghcr.io/rucketdev/rucket:latest
+```
+
+**From source**:
+```bash
+cargo install rucket
+rucket serve
+```
+
 ## Quick Start
 
 ```bash
-# Install
-cargo install rucket
-
-# Run
-rucket serve
-
-# Or with config
 rucket serve --config rucket.toml
 ```
 
