@@ -7,40 +7,178 @@ on:
 
 permissions:
   contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            cross: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
           - target: x86_64-apple-darwin
             os: macos-latest
+            cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - run: cargo build --release --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v6
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (native)
+        if: "!matrix.cross"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Linux/macOS)
+        if: "!contains(matrix.target, 'windows')"
+        run: |
+          strip target/${{ matrix.target }}/release/rucket || true
+
+      - name: Create archive (Unix)
+        if: "!contains(matrix.target, 'windows')"
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czvf ../../../rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz rucket
+          cd ../../..
+          sha256sum rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz > rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Create archive (Windows)
+        if: contains(matrix.target, 'windows')
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rucket.exe" -DestinationPath "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          $hash = (Get-FileHash "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  rucket-${{ github.ref_name }}-${{ matrix.target }}.zip" | Out-File -FilePath "rucket-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256" -Encoding ASCII
+
+      - name: Upload artifact (Unix)
+        if: "!contains(matrix.target, 'windows')"
+        uses: actions/upload-artifact@v4
         with:
           name: rucket-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/rucket
+          path: |
+            rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+            rucket-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
 
-  release:
-    name: Create Release
-    needs: build
+      - name: Upload artifact (Windows)
+        if: contains(matrix.target, 'windows')
+        uses: actions/upload-artifact@v4
+        with:
+          name: rucket-${{ matrix.target }}
+          path: |
+            rucket-${{ github.ref_name }}-${{ matrix.target }}.zip
+            rucket-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256
+
+  docker:
+    name: Build Docker Image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v7
-      - uses: softprops/action-gh-release@v1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          files: |
-            rucket-*/rucket
-          generate_release_notes: true
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Create Release
+    needs: [build, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" \) -exec mv {} release/ \;
+
+      - name: Generate combined checksums
+        run: |
+          cd release
+          cat *.sha256 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.content }}
+          files: release/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

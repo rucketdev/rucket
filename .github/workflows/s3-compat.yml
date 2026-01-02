@@ -1,0 +1,129 @@
+name: S3 Compatibility Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+
+jobs:
+  minio-mint:
+    name: MinIO Mint Tests
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      contains(github.event.pull_request.labels.*.name, 'release')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build rucket
+        run: cargo build --release
+
+      - name: Start rucket
+        run: |
+          ./target/release/rucket serve --bind 127.0.0.1:9000 &
+          echo $! > /tmp/rucket.pid
+
+      - name: Wait for rucket
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:9000 > /dev/null 2>&1; then
+              echo "Rucket is ready"
+              exit 0
+            fi
+            echo "Waiting for rucket... ($i/30)"
+            sleep 1
+          done
+          echo "Rucket failed to start"
+          exit 1
+
+      - name: Run MinIO Mint tests
+        run: ./scripts/s3-compat-tests.sh minio --timeout 1800
+        env:
+          RUCKET_ENDPOINT: http://127.0.0.1:9000
+          RUCKET_ACCESS_KEY: rucket
+          RUCKET_SECRET_KEY: rucket123
+
+      - name: Stop rucket
+        if: always()
+        run: |
+          if [ -f /tmp/rucket.pid ]; then
+            kill $(cat /tmp/rucket.pid) || true
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: minio-mint-results
+          path: target/s3-compat-reports/
+          retention-days: 30
+
+  ceph-s3tests:
+    name: Ceph s3-tests
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      contains(github.event.pull_request.labels.*.name, 'release')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build rucket
+        run: cargo build --release
+
+      - name: Start rucket (Ceph compatibility mode)
+        run: |
+          ./target/release/rucket serve --bind 127.0.0.1:9000 --ceph-compat &
+          echo $! > /tmp/rucket.pid
+
+      - name: Wait for rucket
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:9000 > /dev/null 2>&1; then
+              echo "Rucket is ready"
+              exit 0
+            fi
+            echo "Waiting for rucket... ($i/30)"
+            sleep 1
+          done
+          echo "Rucket failed to start"
+          exit 1
+
+      - name: Run Ceph s3-tests
+        run: ./scripts/s3-compat-tests.sh ceph --timeout 1800
+        env:
+          RUCKET_ENDPOINT: http://127.0.0.1:9000
+          RUCKET_ACCESS_KEY: rucket
+          RUCKET_SECRET_KEY: rucket123
+
+      - name: Stop rucket
+        if: always()
+        run: |
+          if [ -f /tmp/rucket.pid ]; then
+            kill $(cat /tmp/rucket.pid) || true
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ceph-s3tests-results
+          path: target/s3-compat-reports/
+          retention-days: 30
