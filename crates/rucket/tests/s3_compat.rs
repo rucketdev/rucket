@@ -68,3 +68,11 @@ mod versioning;
 mod select;
 #[path = "s3_compat/checksum/mod.rs"]
 mod checksum;
+#[path = "s3_compat/sts/mod.rs"]
+mod sts;
+#[path = "s3_compat/iam/mod.rs"]
+mod iam;
+#[path = "s3_compat/anonymous/mod.rs"]
+mod anonymous;
+#[path = "s3_compat/storage_class/mod.rs"]
+mod storage_class;

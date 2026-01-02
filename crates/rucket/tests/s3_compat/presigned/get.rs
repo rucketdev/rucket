@@ -35,3 +35,87 @@ async fn test_presigned_get_expired() {
 async fn test_presigned_get_response_headers() {
     let _ctx = S3TestContext::new().await;
 }
+
+// =============================================================================
+// Extended Presigned GET Tests (ported from Ceph s3-tests)
+// =============================================================================
+
+/// Test presigned GET with custom expiry time.
+/// Ceph: test_presigned_get_custom_expiry
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_custom_expiry() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET with response-content-type.
+/// Ceph: test_presigned_get_response_content_type
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_response_content_type() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET with response-content-disposition.
+/// Ceph: test_presigned_get_response_content_disposition
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_response_content_disposition() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET with response-cache-control.
+/// Ceph: test_presigned_get_response_cache_control
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_response_cache_control() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET with versionId.
+/// Ceph: test_presigned_get_versioned
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_versioned() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET non-existent object.
+/// Ceph: test_presigned_get_nonexistent
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_nonexistent() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET with range header.
+/// Ceph: test_presigned_get_range
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_range() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET modified signature fails.
+/// Ceph: test_presigned_get_modified_signature
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_modified_signature() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET with wrong key fails.
+/// Ceph: test_presigned_get_wrong_key
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_wrong_key() {
+    let _ctx = S3TestContext::new().await;
+}
+
+/// Test presigned GET with wrong bucket fails.
+/// Ceph: test_presigned_get_wrong_bucket
+#[tokio::test]
+#[ignore = "Presigned URL testing requires HTTP client outside SDK"]
+async fn test_presigned_get_wrong_bucket() {
+    let _ctx = S3TestContext::new().await;
+}
