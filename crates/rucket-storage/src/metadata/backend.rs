@@ -378,4 +378,31 @@ pub trait MetadataBackend: Send + Sync + 'static {
         key: &str,
         version_id: &str,
     ) -> Result<()>;
+
+    // === Bucket Tagging Operations ===
+
+    /// Get tags for a bucket.
+    ///
+    /// Returns an empty TagSet if the bucket has no tags.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_bucket_tagging(&self, bucket: &str) -> Result<TagSet>;
+
+    /// Set tags for a bucket.
+    ///
+    /// Replaces any existing tags with the provided tags.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_bucket_tagging(&self, bucket: &str, tags: TagSet) -> Result<()>;
+
+    /// Delete tags for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_bucket_tagging(&self, bucket: &str) -> Result<()>;
 }

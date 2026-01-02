@@ -40,6 +40,9 @@ const OBJECT_TAGGING: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("o
 /// Bucket CORS configuration table: bucket_name -> StoredCorsConfiguration (bincode)
 const BUCKET_CORS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("bucket_cors");
 
+/// Bucket tagging table: bucket_name -> StoredTagSet (bincode)
+const BUCKET_TAGGING: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("bucket_tagging");
+
 // === Stored Types (for bincode serialization) ===
 
 #[derive(Serialize, Deserialize)]
@@ -335,6 +338,8 @@ impl RedbMetadataStore {
             let _ = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
             let _ = txn.open_table(PARTS).map_err(db_err)?;
             let _ = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_CORS).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
         }
 
@@ -376,6 +381,8 @@ impl RedbMetadataStore {
             let _ = txn.open_table(MULTIPART_UPLOADS).map_err(db_err)?;
             let _ = txn.open_table(PARTS).map_err(db_err)?;
             let _ = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_CORS).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
         }
 
@@ -1905,6 +1912,103 @@ impl MetadataBackend for RedbMetadataStore {
 
             {
                 let mut table = txn.open_table(BUCKET_CORS).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_bucket_tagging(&self, bucket: &str) -> Result<TagSet> {
+        // First verify the bucket exists
+        if !self.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let bucket_name = bucket.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
+
+            match table.get(bucket_name.as_str()).map_err(db_err)? {
+                Some(bytes) => {
+                    let stored: StoredTagSet =
+                        bincode::deserialize(bytes.value()).map_err(|e| {
+                            Error::Database(format!("Failed to deserialize bucket tags: {e}"))
+                        })?;
+                    Ok(stored.to_tagset())
+                }
+                None => Ok(TagSet::default()),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_bucket_tagging(&self, bucket: &str, tags: TagSet) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
+                let stored = StoredTagSet::from_tagset(&tags);
+                let bytes = bincode::serialize(&stored).map_err(|e| {
+                    Error::Database(format!("Failed to serialize bucket tags: {e}"))
+                })?;
+                table.insert(bucket_name.as_str(), bytes.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_bucket_tagging(&self, bucket: &str) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
                 // Remove if exists, ignore if not
                 let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
             }

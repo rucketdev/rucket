@@ -7,13 +7,14 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use rucket_core::config::ApiCompatibilityMode;
-use rucket_core::types::{CorsConfiguration, CorsRule, VersioningStatus};
+use rucket_core::types::{CorsConfiguration, CorsRule, Tag, TagSet, VersioningStatus};
 use rucket_storage::{LocalStorage, StorageBackend};
 
 use crate::error::ApiError;
-use crate::xml::request::{CorsConfigurationRequest, VersioningConfiguration};
+use crate::xml::request::{CorsConfigurationRequest, Tagging, VersioningConfiguration};
 use crate::xml::response::{
     to_xml, BucketEntry, Buckets, CorsConfigurationResponse, ListBucketsResponse, Owner,
+    TagResponse, TagSetResponse, TaggingResponse,
 };
 
 /// Validates an S3 bucket name according to S3 naming rules.
@@ -355,15 +356,28 @@ pub async fn delete_bucket_cors(
 pub async fn set_bucket_tagging(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
-    _body: Bytes,
+    body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            rucket_core::error::S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
+    // Parse the tagging configuration XML
+    let tagging: Tagging = quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::MalformedXML,
+            format!("Invalid tagging configuration XML: {e}"),
         )
-        .with_resource(&bucket));
-    }
+    })?;
+
+    // Convert request type to domain type
+    let tags = TagSet {
+        tags: tagging
+            .tag_set
+            .tags
+            .into_iter()
+            .map(|t| Tag { key: t.key, value: t.value })
+            .collect(),
+    };
+
+    state.storage.put_bucket_tagging(&bucket, tags).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -372,15 +386,25 @@ pub async fn get_bucket_tagging(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
 ) -> Result<Response, ApiError> {
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            rucket_core::error::S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
+    let tags = state.storage.get_bucket_tagging(&bucket).await?;
+
+    let response = TaggingResponse {
+        tag_set: TagSetResponse {
+            tags: tags
+                .tags
+                .into_iter()
+                .map(|t| TagResponse { key: t.key, value: t.value })
+                .collect(),
+        },
+    };
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::InternalError,
+            format!("Failed to serialize response: {e}"),
         )
-        .with_resource(&bucket));
-    }
-    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet/></Tagging>"#;
+    })?;
+
     Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
 }
 
@@ -389,13 +413,7 @@ pub async fn delete_bucket_tagging(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.storage.head_bucket(&bucket).await? {
-        return Err(ApiError::new(
-            rucket_core::error::S3ErrorCode::NoSuchBucket,
-            "The specified bucket does not exist",
-        )
-        .with_resource(&bucket));
-    }
+    state.storage.delete_bucket_tagging(&bucket).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
