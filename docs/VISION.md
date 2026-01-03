@@ -4,12 +4,14 @@
 
 The S3-compatible storage landscape has a gap:
 
-| Project | License | Governance | S3 Features | Distributed |
-|---------|---------|------------|-------------|-------------|
-| MinIO | AGPL | Single vendor | Full | Yes |
-| RustFS | Apache | Single vendor | Full | Yes |
-| Garage | AGPL | Non-profit | Partial | Yes |
-| Ceph | LGPL | Foundation | Full | Yes |
+| Project | License | Governance | S3 Features | Distributed | Simple |
+|---------|---------|------------|-------------|-------------|--------|
+| MinIO | AGPL | Single vendor | Full | Yes | Yes |
+| RustFS | Apache | Single vendor | Full | Yes | Yes |
+| Garage | AGPL | Non-profit | Partial | Yes | Yes |
+| CubeFS | Apache | CNCF | Partial | Yes | No |
+| Ceph | LGPL | Foundation | Full | Yes | No |
+| SeaweedFS | Apache | Single vendor | Full | Yes | Medium |
 
 **MinIO** is AGPL but controlled by a single company that has [stripped features](https://www.futuriom.com/articles/news/minio-faces-fallout-for-stripping-features-from-web-gui/2025/06) from the open source version and put the project in maintenance mode.
 
@@ -17,7 +19,11 @@ The S3-compatible storage landscape has a gap:
 
 **Garage** is community-governed but [explicitly rejects](https://garagehq.deuxfleurs.fr/documentation/design/goals/) feature completeness: no versioning, no tagging, no erasure coding, no performance optimization.
 
-**Ceph** requires significant operational complexity for simple use cases.
+**CubeFS** is CNCF graduated (Jan 2025), but multi-protocol (POSIX/HDFS/S3) means complexity overkill for S3-only users. S3 is bolted-on, not native—versioning/tagging support unclear. Apache 2.0 offers no copyleft protection.
+
+**Ceph** requires significant operational complexity for simple use cases—designed for petabyte-scale, not self-hosters.
+
+**SeaweedFS** is Apache 2.0 single-vendor with less mature S3 compatibility than MinIO.
 
 Rucket aims to be: community-governed, feature-complete, simple to operate.
 
