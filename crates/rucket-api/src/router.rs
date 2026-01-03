@@ -228,6 +228,7 @@ async fn list_buckets(state: State<AppState>) -> Response {
 async fn handle_bucket_put(
     state: State<AppState>,
     path: Path<String>,
+    headers: axum::http::HeaderMap,
     Query(query): Query<RequestQuery>,
     body: Bytes,
 ) -> Response {
@@ -264,7 +265,7 @@ async fn handle_bucket_put(
         return bucket::set_bucket_notification(state, path, body).await.into_response();
     }
     // Default: CreateBucket
-    bucket::create_bucket(state, path).await.into_response()
+    bucket::create_bucket(state, path, headers).await.into_response()
 }
 
 /// Handle DELETE requests to bucket (delete bucket, policy, tagging, etc.).

@@ -916,8 +916,11 @@ pub async fn delete_object(
 
     // Check Object Lock retention before deleting
     // SECURITY: Fail-secure - if we can't verify retention, deny deletion
+    // NOTE: Only check retention when a specific version_id is provided.
+    // When no version_id is specified on a versioned bucket, we create a delete marker,
+    // which doesn't actually remove the protected version - it just hides it.
     if let Some(ref version_id) = query.version_id {
-        // Check specific version
+        // Check specific version - this is a permanent deletion
         match state.storage.head_object_version(&bucket, &key, version_id).await {
             Ok(meta) => {
                 if !meta.can_delete(bypass_governance) {
@@ -932,31 +935,7 @@ pub async fn delete_object(
                 code: S3ErrorCode::NoSuchKey | S3ErrorCode::NoSuchVersion,
                 ..
             }) => {
-                // Object/version doesn't exist - allow delete (will be no-op or create marker)
-            }
-            Err(e) => {
-                // Any other error - fail secure, deny deletion
-                tracing::error!(error = %e, "Failed to check object lock retention, denying delete");
-                return Err(ApiError::new(
-                    S3ErrorCode::InternalError,
-                    "Could not verify Object Lock status",
-                ));
-            }
-        }
-    } else {
-        // Check current version
-        match state.storage.head_object(&bucket, &key).await {
-            Ok(meta) => {
-                if !meta.can_delete(bypass_governance) {
-                    return Err(ApiError::new(
-                        S3ErrorCode::AccessDenied,
-                        "Object is protected by Object Lock",
-                    )
-                    .with_resource(&key));
-                }
-            }
-            Err(rucket_core::Error::S3 { code: S3ErrorCode::NoSuchKey, .. }) => {
-                // Object doesn't exist - allow delete (will be no-op or create marker)
+                // Object/version doesn't exist - allow delete (will be no-op)
             }
             Err(e) => {
                 // Any other error - fail secure, deny deletion
@@ -968,6 +947,8 @@ pub async fn delete_object(
             }
         }
     }
+    // When no version_id is specified, we allow creating a delete marker even for locked objects.
+    // The locked version remains protected; the delete marker just hides the object.
 
     let result = if let Some(ref version_id) = query.version_id {
         // Delete specific version permanently

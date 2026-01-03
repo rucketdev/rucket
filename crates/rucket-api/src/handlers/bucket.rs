@@ -86,12 +86,20 @@ pub struct AppState {
 pub async fn create_bucket(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     // Validate bucket name before creating
     if let Some(error_msg) = validate_bucket_name(&bucket) {
         return Err(ApiError::new(rucket_core::error::S3ErrorCode::InvalidBucketName, error_msg)
             .with_resource(&bucket));
     }
+
+    // Check if Object Lock is requested
+    let object_lock_enabled = headers
+        .get("x-amz-bucket-object-lock-enabled")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
     // Check if bucket already exists - S3 returns 200 OK for idempotent creates by same owner
     if state.storage.head_bucket(&bucket).await? {
@@ -100,6 +108,18 @@ pub async fn create_bucket(
     }
 
     state.storage.create_bucket(&bucket).await?;
+
+    // If Object Lock is enabled, configure it and enable versioning
+    if object_lock_enabled {
+        use rucket_core::types::{ObjectLockConfig, VersioningStatus};
+
+        // Enable versioning (required for Object Lock)
+        state.storage.set_bucket_versioning(&bucket, VersioningStatus::Enabled).await?;
+
+        // Enable Object Lock configuration
+        let lock_config = ObjectLockConfig { enabled: true, default_retention: None };
+        state.storage.put_bucket_lock_config(&bucket, lock_config).await?;
+    }
 
     Ok((StatusCode::OK, [("Location", format!("/{bucket}"))]))
 }

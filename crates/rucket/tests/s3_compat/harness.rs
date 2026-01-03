@@ -79,6 +79,16 @@ impl S3TestContext {
         ctx
     }
 
+    /// Create a new test context with Object Lock enabled on the default bucket.
+    /// Object Lock requires versioning, which is automatically enabled.
+    pub async fn with_object_lock() -> Self {
+        let bucket = random_bucket_name();
+        let mut ctx = Self::start_server(None).await;
+        ctx.bucket = bucket.clone();
+        ctx.create_bucket_with_object_lock(&bucket).await;
+        ctx
+    }
+
     /// Create a new test context with multiple buckets.
     pub async fn with_buckets(names: &[&str]) -> Self {
         let mut ctx = Self::start_server(None).await;
@@ -300,6 +310,132 @@ impl S3TestContext {
             .send()
             .await
             .expect("Failed to list versions")
+    }
+
+    // =========================================================================
+    // Object Lock Methods
+    // =========================================================================
+
+    /// Create a bucket with Object Lock enabled.
+    pub async fn create_bucket_with_object_lock(&self, name: &str) {
+        self.client
+            .create_bucket()
+            .bucket(name)
+            .object_lock_enabled_for_bucket(true)
+            .send()
+            .await
+            .expect("Failed to create bucket with object lock");
+    }
+
+    /// Get Object Lock configuration for the default bucket.
+    pub async fn get_object_lock_configuration(
+        &self,
+    ) -> aws_sdk_s3::operation::get_object_lock_configuration::GetObjectLockConfigurationOutput
+    {
+        self.client
+            .get_object_lock_configuration()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .expect("Failed to get object lock configuration")
+    }
+
+    /// Put Object Lock configuration on the default bucket.
+    pub async fn put_object_lock_configuration(
+        &self,
+        config: aws_sdk_s3::types::ObjectLockConfiguration,
+    ) {
+        self.client
+            .put_object_lock_configuration()
+            .bucket(&self.bucket)
+            .object_lock_configuration(config)
+            .send()
+            .await
+            .expect("Failed to put object lock configuration");
+    }
+
+    /// Get object retention for a specific object.
+    pub async fn get_object_retention(
+        &self,
+        key: &str,
+        version_id: Option<&str>,
+    ) -> aws_sdk_s3::operation::get_object_retention::GetObjectRetentionOutput {
+        let mut req = self.client.get_object_retention().bucket(&self.bucket).key(key);
+        if let Some(vid) = version_id {
+            req = req.version_id(vid);
+        }
+        req.send().await.expect("Failed to get object retention")
+    }
+
+    /// Put object retention on a specific object.
+    pub async fn put_object_retention(
+        &self,
+        key: &str,
+        retention: aws_sdk_s3::types::ObjectLockRetention,
+        version_id: Option<&str>,
+        bypass_governance: bool,
+    ) {
+        let mut req =
+            self.client.put_object_retention().bucket(&self.bucket).key(key).retention(retention);
+        if let Some(vid) = version_id {
+            req = req.version_id(vid);
+        }
+        if bypass_governance {
+            req = req.bypass_governance_retention(true);
+        }
+        req.send().await.expect("Failed to put object retention");
+    }
+
+    /// Get legal hold for a specific object.
+    pub async fn get_object_legal_hold(
+        &self,
+        key: &str,
+        version_id: Option<&str>,
+    ) -> aws_sdk_s3::operation::get_object_legal_hold::GetObjectLegalHoldOutput {
+        let mut req = self.client.get_object_legal_hold().bucket(&self.bucket).key(key);
+        if let Some(vid) = version_id {
+            req = req.version_id(vid);
+        }
+        req.send().await.expect("Failed to get object legal hold")
+    }
+
+    /// Put legal hold on a specific object.
+    pub async fn put_object_legal_hold(
+        &self,
+        key: &str,
+        legal_hold: aws_sdk_s3::types::ObjectLockLegalHold,
+        version_id: Option<&str>,
+    ) {
+        let mut req = self
+            .client
+            .put_object_legal_hold()
+            .bucket(&self.bucket)
+            .key(key)
+            .legal_hold(legal_hold);
+        if let Some(vid) = version_id {
+            req = req.version_id(vid);
+        }
+        req.send().await.expect("Failed to put object legal hold");
+    }
+
+    /// Delete an object with optional version ID and bypass governance.
+    pub async fn delete_object_with_options(
+        &self,
+        key: &str,
+        version_id: Option<&str>,
+        bypass_governance: bool,
+    ) -> Result<
+        aws_sdk_s3::operation::delete_object::DeleteObjectOutput,
+        aws_sdk_s3::error::SdkError<aws_sdk_s3::operation::delete_object::DeleteObjectError>,
+    > {
+        let mut req = self.client.delete_object().bucket(&self.bucket).key(key);
+        if let Some(vid) = version_id {
+            req = req.version_id(vid);
+        }
+        if bypass_governance {
+            req = req.bypass_governance_retention(true);
+        }
+        req.send().await
     }
 }
 
