@@ -574,10 +574,12 @@ impl StorageBackend for LocalStorage {
         let bucket_info = self.metadata.get_bucket(bucket).await?;
 
         // Check if versioning is enabled and generate a version_id if so
+        // For suspended versioning, we use None (stored as _current internally),
+        // which allows the object to be overwritten and maps correctly when
+        // deleting with versionId="null".
         let version_id = match bucket_info.versioning_status {
             Some(VersioningStatus::Enabled) => Some(Uuid::new_v4().to_string()),
-            Some(VersioningStatus::Suspended) => Some("null".to_string()),
-            None => None,
+            Some(VersioningStatus::Suspended) | None => None,
         };
 
         // Acquire per-key lock to serialize concurrent writes to the same key.
