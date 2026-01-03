@@ -77,6 +77,24 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
         .await
         .context("Failed to initialize storage backend")?;
 
+    // Configure encryption if enabled
+    let storage = if config.storage.encryption.enabled {
+        let master_key = config
+            .storage
+            .encryption
+            .master_key
+            .as_ref()
+            .context("Encryption is enabled but master_key is not set. \
+                     Set RUCKET__STORAGE__ENCRYPTION__MASTER_KEY or storage.encryption.master_key in config file. \
+                     Generate a key with: openssl rand -hex 32")?;
+
+        storage.with_encryption_hex(master_key).context(
+            "Failed to configure encryption - ensure master_key is a valid 64-character hex string",
+        )?
+    } else {
+        storage
+    };
+
     let storage = Arc::new(storage);
 
     // Start storage metrics collector if enabled
@@ -198,6 +216,7 @@ fn print_banner(config: &Config) {
   Secret Key:  {}
   Data Dir:    {}
   TLS:         {}
+  Encryption:  {}
 
   Test with:
     aws --endpoint-url {}://{} s3 mb s3://my-bucket
@@ -210,6 +229,7 @@ fn print_banner(config: &Config) {
         mask_secret(&config.auth.secret_key),
         config.storage.data_dir.display(),
         if config.server.tls_cert.is_some() { "enabled" } else { "disabled" },
+        if config.storage.encryption.enabled { "SSE-S3 (AES-256-GCM)" } else { "disabled" },
         scheme,
         config.server.bind,
         scheme,

@@ -453,6 +453,14 @@ pub struct ObjectMetadata {
     /// Legal hold status (prevents deletion until removed).
     #[serde(default)]
     pub legal_hold: bool,
+
+    // --- Encryption fields ---
+    /// Server-side encryption algorithm (e.g., "AES256" for SSE-S3).
+    #[serde(default)]
+    pub server_side_encryption: Option<String>,
+    /// Encryption nonce (for AES-GCM).
+    #[serde(default)]
+    pub encryption_nonce: Option<Vec<u8>>,
 }
 
 fn default_is_latest() -> bool {
@@ -497,6 +505,9 @@ impl ObjectMetadata {
             // Object Lock fields
             retention: None,
             legal_hold: false,
+            // Encryption fields
+            server_side_encryption: None,
+            encryption_nonce: None,
         }
     }
 
@@ -533,6 +544,9 @@ impl ObjectMetadata {
             // Object Lock fields
             retention: None,
             legal_hold: false,
+            // Encryption fields
+            server_side_encryption: None,
+            encryption_nonce: None,
         }
     }
 
@@ -607,6 +621,20 @@ impl ObjectMetadata {
     pub fn with_legal_hold(mut self, enabled: bool) -> Self {
         self.legal_hold = enabled;
         self
+    }
+
+    /// Sets the server-side encryption metadata.
+    #[must_use]
+    pub fn with_encryption(mut self, algorithm: &str, nonce: Vec<u8>) -> Self {
+        self.server_side_encryption = Some(algorithm.to_string());
+        self.encryption_nonce = Some(nonce);
+        self
+    }
+
+    /// Returns true if the object is encrypted.
+    #[must_use]
+    pub fn is_encrypted(&self) -> bool {
+        self.server_side_encryption.is_some()
     }
 
     /// Returns true if the object is protected by retention or legal hold.

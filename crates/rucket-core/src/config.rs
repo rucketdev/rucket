@@ -20,6 +20,8 @@
 //! - `RUCKET__API__COMPATIBILITY_MODE=ceph`
 //! - `RUCKET__STORAGE__SYNC__DATA=always`
 //! - `RUCKET__STORAGE__WAL__ENABLED=false`
+//! - `RUCKET__STORAGE__ENCRYPTION__ENABLED=true`
+//! - `RUCKET__STORAGE__ENCRYPTION__MASTER_KEY=<64-char hex key>`
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -153,6 +155,21 @@ pub struct StorageConfig {
     pub redb: RedbConfig,
     /// Write-ahead log configuration.
     pub wal: WalConfig,
+    /// Server-side encryption configuration.
+    pub encryption: EncryptionConfig,
+}
+
+/// Server-side encryption (SSE-S3) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct EncryptionConfig {
+    /// Enable server-side encryption at rest.
+    /// When enabled, all objects are encrypted using AES-256-GCM.
+    pub enabled: bool,
+    /// Master encryption key (hex-encoded, 64 characters for 32 bytes).
+    /// Required when encryption is enabled.
+    /// Generate with: `openssl rand -hex 32`
+    pub master_key: Option<String>,
 }
 
 /// redb database configuration.
@@ -294,6 +311,7 @@ impl Default for StorageConfig {
             sync: SyncConfig::default(),
             redb: RedbConfig::default(),
             wal: WalConfig::default(),
+            encryption: EncryptionConfig::default(),
         }
     }
 }

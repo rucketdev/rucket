@@ -54,6 +54,8 @@ pub struct LocalStorage {
     verify_checksums_on_read: bool,
     /// Recovery stats from the last startup (if WAL was enabled).
     last_recovery_stats: Option<RecoveryStats>,
+    /// Optional SSE-S3 encryption provider.
+    encryption_provider: Option<Arc<crate::crypto::SseS3Provider>>,
 }
 
 impl LocalStorage {
@@ -257,12 +259,48 @@ impl LocalStorage {
             wal,
             verify_checksums_on_read,
             last_recovery_stats,
+            encryption_provider: None,
         };
 
         // Clean up any orphaned temp files from previous runs
         storage.recover_temp_files().await?;
 
         Ok(storage)
+    }
+
+    /// Enable SSE-S3 encryption with the given master key.
+    ///
+    /// Once enabled, all new objects will be encrypted at rest.
+    /// Existing objects remain unencrypted until overwritten.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the master key is invalid.
+    pub fn with_encryption(mut self, master_key: &[u8]) -> Result<Self> {
+        let provider = crate::crypto::SseS3Provider::new(master_key).map_err(|e| {
+            Error::s3(S3ErrorCode::InternalError, format!("Invalid encryption master key: {e}"))
+        })?;
+        self.encryption_provider = Some(Arc::new(provider));
+        Ok(self)
+    }
+
+    /// Enable SSE-S3 encryption with a hex-encoded master key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the master key is not a valid 64-character hex string.
+    pub fn with_encryption_hex(mut self, hex_key: &str) -> Result<Self> {
+        let provider = crate::crypto::SseS3Provider::from_hex(hex_key).map_err(|e| {
+            Error::s3(S3ErrorCode::InternalError, format!("Invalid encryption master key: {e}"))
+        })?;
+        self.encryption_provider = Some(Arc::new(provider));
+        Ok(self)
+    }
+
+    /// Returns true if encryption is enabled.
+    #[must_use]
+    pub fn is_encryption_enabled(&self) -> bool {
+        self.encryption_provider.is_some()
     }
 
     /// Verify CRC32C checksums of all objects in storage.
@@ -391,6 +429,7 @@ impl LocalStorage {
             wal: None, // No WAL for in-memory tests
             verify_checksums_on_read,
             last_recovery_stats: None, // No recovery for in-memory
+            encryption_provider: None,
         };
 
         // Clean up any orphaned temp files from previous runs
@@ -600,6 +639,17 @@ impl StorageBackend for LocalStorage {
         let requested_checksum =
             headers.checksum_algorithm.map(|algorithm| compute_checksum(&data, algorithm));
 
+        // Encrypt data if encryption is enabled
+        let (data_to_write, encryption_metadata) =
+            if let Some(ref provider) = self.encryption_provider {
+                let (encrypted, enc_meta) = provider.encrypt(uuid, &data).map_err(|e| {
+                    Error::s3(S3ErrorCode::InternalError, format!("Encryption failed: {e}"))
+                })?;
+                (encrypted, Some(enc_meta))
+            } else {
+                (data, None)
+            };
+
         // Step 1: Write intent to WAL (if enabled)
         // This is the durability point - if we crash after this, recovery will clean up
         if let Some(wal) = &self.wal {
@@ -607,7 +657,7 @@ impl StorageBackend for LocalStorage {
                 bucket: bucket.to_string(),
                 key: key.to_string(),
                 uuid,
-                size: data_len,
+                size: data_to_write.len() as u64, // Use encrypted size for WAL
                 crc32c,
                 timestamp,
             };
@@ -618,7 +668,7 @@ impl StorageBackend for LocalStorage {
 
         // Step 2: Write to temp file and compute ETag (no sync yet - WAL protects us)
         let write_result =
-            write_and_hash_with_strategy(&temp_path, &data, SyncStrategy::None).await?;
+            write_and_hash_with_strategy(&temp_path, &data_to_write, SyncStrategy::None).await?;
 
         // Check if we should sync NOW (Always mode, or threshold reached for Periodic/Threshold)
         let should_sync = self.sync_manager.should_sync_now(data_len);
@@ -688,6 +738,11 @@ impl StorageBackend for LocalStorage {
             meta = meta.with_algorithm_checksum(algorithm, checksum.clone());
         }
 
+        // Store encryption metadata if encryption was used
+        if let Some(ref enc_meta) = encryption_metadata {
+            meta = meta.with_encryption(enc_meta.algorithm.as_s3_header(), enc_meta.nonce.clone());
+        }
+
         self.metadata.put_object(bucket, meta).await?;
 
         // Step 5: Write commit to WAL (if enabled)
@@ -700,14 +755,22 @@ impl StorageBackend for LocalStorage {
             }
         }
 
-        Ok(PutObjectResult { etag: write_result.etag, version_id, checksum: requested_checksum })
+        let server_side_encryption =
+            encryption_metadata.as_ref().map(|m| m.algorithm.as_s3_header().to_string());
+
+        Ok(PutObjectResult {
+            etag: write_result.etag,
+            version_id,
+            checksum: requested_checksum,
+            server_side_encryption,
+        })
     }
 
     async fn get_object(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
         let meta = self.metadata.get_object(bucket, key).await?;
         let path = self.object_path(bucket, &meta.uuid);
 
-        let data = fs::read(&path).await.map_err(|e| {
+        let raw_data = fs::read(&path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 Error::s3_with_resource(
                     S3ErrorCode::NoSuchKey,
@@ -719,7 +782,35 @@ impl StorageBackend for LocalStorage {
             }
         })?;
 
+        // Decrypt data if the object is encrypted
+        let data = if meta.is_encrypted() {
+            if let Some(ref provider) = self.encryption_provider {
+                // Build encryption metadata from stored values
+                let enc_meta = crate::crypto::EncryptionMetadata {
+                    algorithm: crate::crypto::EncryptionAlgorithm::Aes256Gcm,
+                    nonce: meta.encryption_nonce.clone().unwrap_or_default(),
+                };
+                provider.decrypt(meta.uuid, &raw_data, &enc_meta).map_err(|e| {
+                    Error::s3_with_resource(
+                        S3ErrorCode::InternalError,
+                        format!("Decryption failed: {e}"),
+                        key,
+                    )
+                })?
+            } else {
+                // Object is encrypted but no encryption provider is configured
+                return Err(Error::s3_with_resource(
+                    S3ErrorCode::InternalError,
+                    "Object is encrypted but server encryption is not configured",
+                    key,
+                ));
+            }
+        } else {
+            Bytes::from(raw_data)
+        };
+
         // Verify checksum if enabled and checksum is available
+        // Note: CRC32C is computed on original (unencrypted) data
         if self.verify_checksums_on_read {
             if let Some(expected_crc) = meta.crc32c {
                 let actual_crc = compute_crc32c(&data);
@@ -742,7 +833,7 @@ impl StorageBackend for LocalStorage {
             }
         }
 
-        Ok((meta, Bytes::from(data)))
+        Ok((meta, data))
     }
 
     async fn get_object_range(
@@ -764,6 +855,48 @@ impl StorageBackend for LocalStorage {
         }
 
         let end = end.min(meta.size - 1);
+
+        // For encrypted objects, we must decrypt the entire file first
+        // (AES-GCM doesn't support partial decryption)
+        if meta.is_encrypted() {
+            let raw_data = fs::read(&path).await.map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    Error::s3_with_resource(
+                        S3ErrorCode::NoSuchKey,
+                        "The specified key does not exist",
+                        key,
+                    )
+                } else {
+                    Error::Io(e)
+                }
+            })?;
+
+            let decrypted = if let Some(ref provider) = self.encryption_provider {
+                let enc_meta = crate::crypto::EncryptionMetadata {
+                    algorithm: crate::crypto::EncryptionAlgorithm::Aes256Gcm,
+                    nonce: meta.encryption_nonce.clone().unwrap_or_default(),
+                };
+                provider.decrypt(meta.uuid, &raw_data, &enc_meta).map_err(|e| {
+                    Error::s3_with_resource(
+                        S3ErrorCode::InternalError,
+                        format!("Decryption failed: {e}"),
+                        key,
+                    )
+                })?
+            } else {
+                return Err(Error::s3_with_resource(
+                    S3ErrorCode::InternalError,
+                    "Object is encrypted but server encryption is not configured",
+                    key,
+                ));
+            };
+
+            // Return the requested range from decrypted data
+            let range_data = decrypted.slice(start as usize..(end as usize + 1));
+            return Ok((meta, range_data));
+        }
+
+        // For non-encrypted objects, use efficient seek-based reading
         let length = (end - start + 1) as usize;
 
         let mut file = fs::File::open(&path).await.map_err(|e| {
@@ -1279,7 +1412,7 @@ impl StorageBackend for LocalStorage {
         }
 
         let path = self.object_path(bucket, &meta.uuid);
-        let data = fs::read(&path).await.map_err(|e| {
+        let raw_data = fs::read(&path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 Error::s3_with_resource(
                     S3ErrorCode::NoSuchKey,
@@ -1291,7 +1424,33 @@ impl StorageBackend for LocalStorage {
             }
         })?;
 
+        // Decrypt data if the object is encrypted
+        let data = if meta.is_encrypted() {
+            if let Some(ref provider) = self.encryption_provider {
+                let enc_meta = crate::crypto::EncryptionMetadata {
+                    algorithm: crate::crypto::EncryptionAlgorithm::Aes256Gcm,
+                    nonce: meta.encryption_nonce.clone().unwrap_or_default(),
+                };
+                provider.decrypt(meta.uuid, &raw_data, &enc_meta).map_err(|e| {
+                    Error::s3_with_resource(
+                        S3ErrorCode::InternalError,
+                        format!("Decryption failed: {e}"),
+                        key,
+                    )
+                })?
+            } else {
+                return Err(Error::s3_with_resource(
+                    S3ErrorCode::InternalError,
+                    "Object is encrypted but server encryption is not configured",
+                    key,
+                ));
+            }
+        } else {
+            Bytes::from(raw_data)
+        };
+
         // Verify checksum if enabled and checksum is available
+        // Note: CRC32C is computed on original (unencrypted) data
         if self.verify_checksums_on_read {
             if let Some(expected_crc) = meta.crc32c {
                 let actual_crc = compute_crc32c(&data);
@@ -1315,7 +1474,7 @@ impl StorageBackend for LocalStorage {
             }
         }
 
-        Ok((meta, Bytes::from(data)))
+        Ok((meta, data))
     }
 
     async fn head_object_version(

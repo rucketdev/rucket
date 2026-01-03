@@ -20,6 +20,8 @@ pub struct PutObjectResult {
     pub version_id: Option<String>,
     /// The checksum if a checksum algorithm was requested.
     pub checksum: Option<Checksum>,
+    /// Server-side encryption algorithm if encryption was applied.
+    pub server_side_encryption: Option<String>,
 }
 
 /// Result of a delete_object operation.

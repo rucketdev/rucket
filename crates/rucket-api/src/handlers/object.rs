@@ -438,6 +438,11 @@ pub async fn put_object(
         response = response.header(checksum.algorithm().header_name(), checksum.to_base64());
     }
 
+    // Add server-side encryption header if encryption was applied
+    if let Some(ref sse) = result.server_side_encryption {
+        response = response.header("x-amz-server-side-encryption", sse.as_str());
+    }
+
     response
         .body(Body::empty())
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
@@ -691,6 +696,11 @@ pub async fn get_object(
         }
     }
 
+    // Add server-side encryption header if object is encrypted
+    if let Some(ref sse) = meta.server_side_encryption {
+        response = response.header("x-amz-server-side-encryption", sse.as_str());
+    }
+
     response
         .body(Body::from(data))
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
@@ -751,6 +761,11 @@ async fn get_object_range(
     }
     if let Some(cl) = &meta.content_language {
         response = response.header("Content-Language", cl.as_str());
+    }
+
+    // Add server-side encryption header if object is encrypted
+    if let Some(ref sse) = meta.server_side_encryption {
+        response = response.header("x-amz-server-side-encryption", sse.as_str());
     }
 
     response
@@ -864,6 +879,11 @@ fn get_object_version_range(
     }
     if let Some(cl) = &meta.content_language {
         response = response.header("Content-Language", cl.as_str());
+    }
+
+    // Add server-side encryption header if object is encrypted
+    if let Some(ref sse) = meta.server_side_encryption {
+        response = response.header("x-amz-server-side-encryption", sse.as_str());
     }
 
     response
@@ -1038,6 +1058,11 @@ pub async fn head_object(
                 response = response.header(algorithm.header_name(), checksum.to_base64());
             }
         }
+    }
+
+    // Add server-side encryption header if object is encrypted
+    if let Some(ref sse) = meta.server_side_encryption {
+        response = response.header("x-amz-server-side-encryption", sse.as_str());
     }
 
     response

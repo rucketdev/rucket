@@ -136,6 +136,12 @@ struct StoredObjectMetadata {
     /// Legal hold status (prevents deletion until removed).
     #[serde(default)]
     legal_hold: bool,
+    /// Server-side encryption algorithm (e.g., "AES256").
+    #[serde(default)]
+    server_side_encryption: Option<String>,
+    /// Encryption nonce (for AES-GCM).
+    #[serde(default)]
+    encryption_nonce: Option<Vec<u8>>,
 }
 
 fn default_is_latest() -> bool {
@@ -167,6 +173,8 @@ impl StoredObjectMetadata {
             is_latest: meta.is_latest,
             retention: meta.retention.clone(),
             legal_hold: meta.legal_hold,
+            server_side_encryption: meta.server_side_encryption.clone(),
+            encryption_nonce: meta.encryption_nonce.clone(),
         }
     }
 
@@ -208,6 +216,9 @@ impl StoredObjectMetadata {
             // Object Lock fields
             retention: self.retention.clone(),
             legal_hold: self.legal_hold,
+            // Encryption fields
+            server_side_encryption: self.server_side_encryption.clone(),
+            encryption_nonce: self.encryption_nonce.clone(),
         }
     }
 }
