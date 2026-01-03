@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use rucket_core::types::{
-    BucketInfo, CorsConfiguration, MultipartUpload, ObjectMetadata, Part, TagSet, VersioningStatus,
+    BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
+    ObjectRetention, Part, TagSet, VersioningStatus,
 };
 use rucket_core::Result;
 use uuid::Uuid;
@@ -411,4 +412,114 @@ pub trait MetadataBackend: Send + Sync + 'static {
     ///
     /// Returns an error if the bucket does not exist.
     async fn delete_bucket_tagging(&self, bucket: &str) -> Result<()>;
+
+    // === Object Lock Operations ===
+
+    /// Get Object Lock configuration for a bucket.
+    ///
+    /// Returns `None` if Object Lock is not configured.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_bucket_lock_config(&self, bucket: &str) -> Result<Option<ObjectLockConfig>>;
+
+    /// Set Object Lock configuration for a bucket.
+    ///
+    /// Once enabled, Object Lock cannot be disabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_bucket_lock_config(&self, bucket: &str, config: ObjectLockConfig) -> Result<()>;
+
+    /// Get retention for an object.
+    ///
+    /// Returns `None` if no retention is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket or object does not exist.
+    async fn get_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<Option<ObjectRetention>>;
+
+    /// Set retention for an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket or object does not exist,
+    /// or if retention cannot be shortened in Compliance mode.
+    async fn put_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+        retention: ObjectRetention,
+    ) -> Result<()>;
+
+    /// Get retention for a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn get_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<Option<ObjectRetention>>;
+
+    /// Set retention for a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn put_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        retention: ObjectRetention,
+    ) -> Result<()>;
+
+    /// Get legal hold status for an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket or object does not exist.
+    async fn get_object_legal_hold(&self, bucket: &str, key: &str) -> Result<bool>;
+
+    /// Set legal hold status for an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket or object does not exist.
+    async fn put_object_legal_hold(&self, bucket: &str, key: &str, enabled: bool) -> Result<()>;
+
+    /// Get legal hold status for a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn get_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<bool>;
+
+    /// Set legal hold status for a specific version of an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket, object, or version does not exist.
+    async fn put_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        enabled: bool,
+    ) -> Result<()>;
 }

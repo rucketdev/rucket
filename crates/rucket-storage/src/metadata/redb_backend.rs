@@ -52,6 +52,9 @@ struct StoredBucketInfo {
     /// Versioning status: None = never enabled, Some("Enabled") or Some("Suspended").
     #[serde(default)]
     versioning_status: Option<String>,
+    /// Object Lock configuration.
+    #[serde(default)]
+    lock_config: Option<rucket_core::types::ObjectLockConfig>,
 }
 
 impl StoredBucketInfo {
@@ -60,6 +63,7 @@ impl StoredBucketInfo {
             name: info.name.clone(),
             created_at_millis: info.created_at.timestamp_millis(),
             versioning_status: info.versioning_status.map(|s| s.as_str().to_string()),
+            lock_config: info.lock_config.clone(),
         }
     }
 
@@ -76,7 +80,7 @@ impl StoredBucketInfo {
                 .and_then(|s| VersioningStatus::parse(s)),
             // Forward-compatible fields (defaults for Phase 1)
             encryption_config: None,
-            lock_config: None,
+            lock_config: self.lock_config.clone(),
         }
     }
 }
@@ -126,6 +130,12 @@ struct StoredObjectMetadata {
     /// Defaults to true for backward compatibility with pre-versioning data.
     #[serde(default = "default_is_latest")]
     is_latest: bool,
+    /// Object-level retention configuration.
+    #[serde(default)]
+    retention: Option<rucket_core::types::ObjectRetention>,
+    /// Legal hold status (prevents deletion until removed).
+    #[serde(default)]
+    legal_hold: bool,
 }
 
 fn default_is_latest() -> bool {
@@ -155,6 +165,8 @@ impl StoredObjectMetadata {
             version_id: meta.version_id.clone(),
             is_delete_marker: meta.is_delete_marker,
             is_latest: meta.is_latest,
+            retention: meta.retention.clone(),
+            legal_hold: meta.legal_hold,
         }
     }
 
@@ -193,6 +205,9 @@ impl StoredObjectMetadata {
             home_region: "local".to_string(),
             storage_class: rucket_core::types::StorageClass::Standard,
             replication_status: None,
+            // Object Lock fields
+            retention: self.retention.clone(),
+            legal_hold: self.legal_hold,
         }
     }
 }
@@ -2108,6 +2123,302 @@ impl MetadataBackend for RedbMetadataStore {
                 let mut table = txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
                 // Remove if exists, ignore if not
                 let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    // === Object Lock Operations ===
+
+    async fn get_bucket_lock_config(
+        &self,
+        bucket: &str,
+    ) -> Result<Option<rucket_core::types::ObjectLockConfig>> {
+        let bucket_info = self.get_bucket(bucket).await?;
+        Ok(bucket_info.lock_config)
+    }
+
+    async fn put_bucket_lock_config(
+        &self,
+        bucket: &str,
+        config: rucket_core::types::ObjectLockConfig,
+    ) -> Result<()> {
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKETS).map_err(db_err)?;
+
+                // Get existing bucket info - extract data and drop the guard
+                let mut bucket_info = {
+                    let existing = table.get(bucket_name.as_str()).map_err(db_err)?;
+                    match existing {
+                        Some(value) => {
+                            let stored: StoredBucketInfo =
+                                bincode::deserialize(value.value()).map_err(db_err)?;
+                            stored.to_bucket_info()
+                        }
+                        None => {
+                            return Err(Error::s3_with_resource(
+                                S3ErrorCode::NoSuchBucket,
+                                "The specified bucket does not exist",
+                                &bucket_name,
+                            ));
+                        }
+                    }
+                };
+
+                bucket_info.lock_config = Some(config);
+
+                let stored = StoredBucketInfo::from_bucket_info(&bucket_info);
+                let data = bincode::serialize(&stored).map_err(db_err)?;
+                table.insert(bucket_name.as_str(), data.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<Option<rucket_core::types::ObjectRetention>> {
+        let meta = self.get_object(bucket, key).await?;
+        Ok(meta.retention)
+    }
+
+    async fn put_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+        retention: rucket_core::types::ObjectRetention,
+    ) -> Result<()> {
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+        let key_name = key.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(OBJECTS).map_err(db_err)?;
+                let composite_key = format!("{bucket_name}\0{key_name}\0_current");
+
+                // Extract data and drop the guard
+                let mut obj = {
+                    let existing = table.get(composite_key.as_str()).map_err(db_err)?;
+                    match existing {
+                        Some(value) => {
+                            let stored: StoredObjectMetadata =
+                                bincode::deserialize(value.value()).map_err(db_err)?;
+                            stored
+                        }
+                        None => {
+                            return Err(Error::s3_with_resource(
+                                S3ErrorCode::NoSuchKey,
+                                "The specified key does not exist",
+                                &key_name,
+                            ));
+                        }
+                    }
+                };
+
+                obj.retention = Some(retention);
+
+                let data = bincode::serialize(&obj).map_err(db_err)?;
+                table.insert(composite_key.as_str(), data.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<Option<rucket_core::types::ObjectRetention>> {
+        let meta = self.get_object_version(bucket, key, version_id).await?;
+        Ok(meta.retention)
+    }
+
+    async fn put_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        retention: rucket_core::types::ObjectRetention,
+    ) -> Result<()> {
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+        let key_name = key.to_string();
+        let vid = version_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(OBJECTS).map_err(db_err)?;
+                let composite_key = format!("{bucket_name}\0{key_name}\0{vid}");
+
+                // Extract data and drop the guard
+                let mut obj = {
+                    let existing = table.get(composite_key.as_str()).map_err(db_err)?;
+                    match existing {
+                        Some(value) => {
+                            let stored: StoredObjectMetadata =
+                                bincode::deserialize(value.value()).map_err(db_err)?;
+                            stored
+                        }
+                        None => {
+                            return Err(Error::s3_with_resource(
+                                S3ErrorCode::NoSuchVersion,
+                                "The specified version does not exist",
+                                &vid,
+                            ));
+                        }
+                    }
+                };
+
+                obj.retention = Some(retention);
+
+                let data = bincode::serialize(&obj).map_err(db_err)?;
+                table.insert(composite_key.as_str(), data.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_object_legal_hold(&self, bucket: &str, key: &str) -> Result<bool> {
+        let meta = self.get_object(bucket, key).await?;
+        Ok(meta.legal_hold)
+    }
+
+    async fn put_object_legal_hold(&self, bucket: &str, key: &str, enabled: bool) -> Result<()> {
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+        let key_name = key.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(OBJECTS).map_err(db_err)?;
+                let composite_key = format!("{bucket_name}\0{key_name}\0_current");
+
+                // Extract data and drop the guard
+                let mut obj = {
+                    let existing = table.get(composite_key.as_str()).map_err(db_err)?;
+                    match existing {
+                        Some(value) => {
+                            let stored: StoredObjectMetadata =
+                                bincode::deserialize(value.value()).map_err(db_err)?;
+                            stored
+                        }
+                        None => {
+                            return Err(Error::s3_with_resource(
+                                S3ErrorCode::NoSuchKey,
+                                "The specified key does not exist",
+                                &key_name,
+                            ));
+                        }
+                    }
+                };
+
+                obj.legal_hold = enabled;
+
+                let data = bincode::serialize(&obj).map_err(db_err)?;
+                table.insert(composite_key.as_str(), data.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<bool> {
+        let meta = self.get_object_version(bucket, key, version_id).await?;
+        Ok(meta.legal_hold)
+    }
+
+    async fn put_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+        let key_name = key.to_string();
+        let vid = version_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(OBJECTS).map_err(db_err)?;
+                let composite_key = format!("{bucket_name}\0{key_name}\0{vid}");
+
+                // Extract data and drop the guard
+                let mut obj = {
+                    let existing = table.get(composite_key.as_str()).map_err(db_err)?;
+                    match existing {
+                        Some(value) => {
+                            let stored: StoredObjectMetadata =
+                                bincode::deserialize(value.value()).map_err(db_err)?;
+                            stored
+                        }
+                        None => {
+                            return Err(Error::s3_with_resource(
+                                S3ErrorCode::NoSuchVersion,
+                                "The specified version does not exist",
+                                &vid,
+                            ));
+                        }
+                    }
+                };
+
+                obj.legal_hold = enabled;
+
+                let data = bincode::serialize(&obj).map_err(db_err)?;
+                table.insert(composite_key.as_str(), data.as_slice()).map_err(db_err)?;
             }
 
             txn.commit().map_err(db_err)?;

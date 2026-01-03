@@ -263,6 +263,25 @@ impl RetentionMode {
             Self::Compliance => "COMPLIANCE",
         }
     }
+
+    /// Parses a retention mode from a string.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_uppercase().as_str() {
+            "GOVERNANCE" => Some(Self::Governance),
+            "COMPLIANCE" => Some(Self::Compliance),
+            _ => None,
+        }
+    }
+}
+
+/// Object-level retention configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectRetention {
+    /// The retention mode.
+    pub mode: RetentionMode,
+    /// The date until which the object is retained.
+    pub retain_until_date: DateTime<Utc>,
 }
 
 /// Default retention configuration for Object Lock.
@@ -426,6 +445,14 @@ pub struct ObjectMetadata {
     /// Replication status for cross-region replication.
     #[serde(default)]
     pub replication_status: Option<ReplicationStatus>,
+
+    // --- Object Lock fields ---
+    /// Object-level retention configuration.
+    #[serde(default)]
+    pub retention: Option<ObjectRetention>,
+    /// Legal hold status (prevents deletion until removed).
+    #[serde(default)]
+    pub legal_hold: bool,
 }
 
 fn default_is_latest() -> bool {
@@ -467,6 +494,9 @@ impl ObjectMetadata {
             home_region: "local".to_string(),
             storage_class: StorageClass::Standard,
             replication_status: None,
+            // Object Lock fields
+            retention: None,
+            legal_hold: false,
         }
     }
 
@@ -500,6 +530,9 @@ impl ObjectMetadata {
             home_region: "local".to_string(),
             storage_class: StorageClass::Standard,
             replication_status: None,
+            // Object Lock fields
+            retention: None,
+            legal_hold: false,
         }
     }
 
@@ -560,6 +593,62 @@ impl ObjectMetadata {
     ) -> Self {
         self.user_metadata = user_metadata;
         self
+    }
+
+    /// Sets the object retention.
+    #[must_use]
+    pub fn with_retention(mut self, retention: ObjectRetention) -> Self {
+        self.retention = Some(retention);
+        self
+    }
+
+    /// Sets the legal hold status.
+    #[must_use]
+    pub fn with_legal_hold(mut self, enabled: bool) -> Self {
+        self.legal_hold = enabled;
+        self
+    }
+
+    /// Returns true if the object is protected by retention or legal hold.
+    #[must_use]
+    pub fn is_locked(&self) -> bool {
+        self.legal_hold || self.retention.is_some()
+    }
+
+    /// Returns true if the object's retention has expired.
+    #[must_use]
+    pub fn is_retention_expired(&self) -> bool {
+        match &self.retention {
+            Some(retention) => Utc::now() >= retention.retain_until_date,
+            None => true,
+        }
+    }
+
+    /// Returns true if the object can be deleted.
+    /// Objects cannot be deleted if they have legal hold or unexpired retention.
+    #[must_use]
+    pub fn can_delete(&self, bypass_governance: bool) -> bool {
+        // Legal hold always blocks deletion
+        if self.legal_hold {
+            return false;
+        }
+
+        // Check retention
+        match &self.retention {
+            None => true,
+            Some(retention) => {
+                // Expired retention allows deletion
+                if Utc::now() >= retention.retain_until_date {
+                    return true;
+                }
+                // Governance mode can be bypassed with special permission
+                if bypass_governance && retention.mode == RetentionMode::Governance {
+                    return true;
+                }
+                // Compliance mode cannot be bypassed
+                false
+            }
+        }
     }
 }
 
