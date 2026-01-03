@@ -10,6 +10,7 @@
 
 pub mod config;
 pub mod error;
+pub mod hlc;
 pub mod types;
 
 pub use config::{
@@ -17,4 +18,4 @@ pub use config::{
     SyncStrategy, WalConfig, WalSyncMode,
 };
 pub use error::{Error, Result};
-// test
+pub use hlc::{HlcClock, HlcTimestamp, MAX_CLOCK_SKEW_MS};

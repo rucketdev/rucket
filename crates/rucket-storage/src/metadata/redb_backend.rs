@@ -74,6 +74,9 @@ impl StoredBucketInfo {
                 .versioning_status
                 .as_ref()
                 .and_then(|s| VersioningStatus::parse(s)),
+            // Forward-compatible fields (defaults for Phase 1)
+            encryption_config: None,
+            lock_config: None,
         }
     }
 }
@@ -184,6 +187,12 @@ impl StoredObjectMetadata {
             version_id: self.version_id.clone(),
             is_delete_marker: self.is_delete_marker,
             is_latest: self.is_latest,
+            // Forward-compatible fields (defaults for Phase 1)
+            hlc_timestamp: 0,
+            placement_group: 0,
+            home_region: "local".to_string(),
+            storage_class: rucket_core::types::StorageClass::Standard,
+            replication_status: None,
         }
     }
 }
@@ -492,7 +501,6 @@ impl RedbMetadataStore {
 impl MetadataBackend for RedbMetadataStore {
     async fn create_bucket(&self, name: &str) -> Result<BucketInfo> {
         let name = name.to_string();
-        let now = Utc::now();
         let db = Arc::clone(&self.db);
         let durability = self.durability;
 
@@ -511,8 +519,7 @@ impl MetadataBackend for RedbMetadataStore {
                     ));
                 }
 
-                let info =
-                    BucketInfo { name: name.clone(), created_at: now, versioning_status: None };
+                let info = BucketInfo::new(name.clone());
                 let stored = StoredBucketInfo::from_bucket_info(&info);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
 
@@ -522,7 +529,7 @@ impl MetadataBackend for RedbMetadataStore {
             txn.set_durability(durability).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
 
-            Ok(BucketInfo { name, created_at: now, versioning_status: None })
+            Ok(BucketInfo::new(name))
         })
         .await
         .map_err(db_err)?

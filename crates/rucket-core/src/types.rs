@@ -142,6 +142,157 @@ impl VersioningStatus {
     }
 }
 
+/// Storage class for objects, determining durability and access patterns.
+///
+/// These map to S3-compatible storage classes and will be used for
+/// tiered storage in distributed deployments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StorageClass {
+    /// Standard storage with high durability and availability.
+    /// Default for all objects.
+    #[default]
+    Standard,
+    /// Infrequent access storage with lower cost but higher retrieval latency.
+    InfrequentAccess,
+    /// Archive storage for long-term retention with high retrieval latency.
+    Archive,
+}
+
+impl StorageClass {
+    /// Returns the storage class as a string for S3 API responses.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Standard => "STANDARD",
+            Self::InfrequentAccess => "STANDARD_IA",
+            Self::Archive => "GLACIER",
+        }
+    }
+
+    /// Parses a storage class from a string.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_uppercase().as_str() {
+            "STANDARD" => Some(Self::Standard),
+            "STANDARD_IA" | "INFREQUENT_ACCESS" => Some(Self::InfrequentAccess),
+            "GLACIER" | "ARCHIVE" => Some(Self::Archive),
+            _ => None,
+        }
+    }
+}
+
+/// Replication status for an object in geo-distributed deployments.
+///
+/// Tracks the replication state across regions for cross-region replication (CRR).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ReplicationStatus {
+    /// Object has not been replicated (single-region or replication disabled).
+    #[default]
+    None,
+    /// Object is pending replication to target regions.
+    Pending {
+        /// Target regions awaiting replication.
+        target_regions: Vec<String>,
+    },
+    /// Object has been successfully replicated.
+    Replicated {
+        /// Regions where the object is replicated.
+        regions: Vec<String>,
+        /// HLC timestamp when replication completed.
+        hlc: u64,
+    },
+    /// Replication failed.
+    Failed {
+        /// Reason for the failure.
+        reason: String,
+    },
+}
+
+/// Server-side encryption algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EncryptionAlgorithm {
+    /// AES-256 encryption using S3-managed keys (SSE-S3).
+    Aes256,
+    /// AWS KMS encryption (SSE-KMS) - not yet implemented.
+    AwsKms,
+}
+
+impl EncryptionAlgorithm {
+    /// Returns the algorithm as a string for S3 API responses.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Aes256 => "AES256",
+            Self::AwsKms => "aws:kms",
+        }
+    }
+}
+
+/// Bucket-level encryption configuration.
+///
+/// Specifies the default server-side encryption to apply to new objects.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncryptionConfig {
+    /// The encryption algorithm to use.
+    pub algorithm: EncryptionAlgorithm,
+    /// KMS key ID (only for SSE-KMS).
+    pub kms_key_id: Option<String>,
+}
+
+impl Default for EncryptionConfig {
+    fn default() -> Self {
+        Self { algorithm: EncryptionAlgorithm::Aes256, kms_key_id: None }
+    }
+}
+
+/// Object Lock retention mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RetentionMode {
+    /// Governance mode - can be overridden by users with special permissions.
+    Governance,
+    /// Compliance mode - cannot be overridden by any user, including root.
+    Compliance,
+}
+
+impl RetentionMode {
+    /// Returns the mode as a string for S3 API responses.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Governance => "GOVERNANCE",
+            Self::Compliance => "COMPLIANCE",
+        }
+    }
+}
+
+/// Default retention configuration for Object Lock.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DefaultRetention {
+    /// The retention mode.
+    pub mode: RetentionMode,
+    /// Retention period in days (mutually exclusive with years).
+    pub days: Option<u32>,
+    /// Retention period in years (mutually exclusive with days).
+    pub years: Option<u32>,
+}
+
+/// Object Lock configuration for a bucket.
+///
+/// Once enabled on a bucket, Object Lock cannot be disabled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectLockConfig {
+    /// Whether Object Lock is enabled.
+    pub enabled: bool,
+    /// Default retention settings applied to new objects.
+    pub default_retention: Option<DefaultRetention>,
+}
+
+impl Default for ObjectLockConfig {
+    fn default() -> Self {
+        Self { enabled: true, default_retention: None }
+    }
+}
+
 /// Metadata for a bucket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BucketInfo {
@@ -152,19 +303,47 @@ pub struct BucketInfo {
     /// Versioning status (None = never enabled, Some = enabled or suspended).
     #[serde(default)]
     pub versioning_status: Option<VersioningStatus>,
+
+    // --- Forward-compatible fields for distributed deployment ---
+    /// Server-side encryption configuration.
+    #[serde(default)]
+    pub encryption_config: Option<EncryptionConfig>,
+    /// Object Lock configuration (immutability).
+    #[serde(default)]
+    pub lock_config: Option<ObjectLockConfig>,
 }
 
 impl BucketInfo {
     /// Creates a new bucket info.
     #[must_use]
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), created_at: Utc::now(), versioning_status: None }
+        Self {
+            name: name.into(),
+            created_at: Utc::now(),
+            versioning_status: None,
+            encryption_config: None,
+            lock_config: None,
+        }
     }
 
     /// Sets the versioning status.
     #[must_use]
     pub fn with_versioning(mut self, status: VersioningStatus) -> Self {
         self.versioning_status = Some(status);
+        self
+    }
+
+    /// Sets the encryption configuration.
+    #[must_use]
+    pub fn with_encryption(mut self, config: EncryptionConfig) -> Self {
+        self.encryption_config = Some(config);
+        self
+    }
+
+    /// Sets the Object Lock configuration.
+    #[must_use]
+    pub fn with_lock_config(mut self, config: ObjectLockConfig) -> Self {
+        self.lock_config = Some(config);
         self
     }
 }
@@ -227,10 +406,34 @@ pub struct ObjectMetadata {
     /// Whether this is the latest version of the object.
     #[serde(default = "default_is_latest")]
     pub is_latest: bool,
+
+    // --- Forward-compatible fields for distributed deployment ---
+    /// Hybrid logical clock timestamp for causality ordering.
+    /// Default: 0 (will be set by HLC when distributed features are enabled).
+    #[serde(default)]
+    pub hlc_timestamp: u64,
+    /// Placement group for data distribution.
+    /// Default: 0 (single-node deployment uses PG 0 for all objects).
+    #[serde(default)]
+    pub placement_group: u32,
+    /// Home region for geo-distributed deployments.
+    /// Default: "local" (single-region deployment).
+    #[serde(default = "default_home_region")]
+    pub home_region: String,
+    /// Storage class for tiered storage.
+    #[serde(default)]
+    pub storage_class: StorageClass,
+    /// Replication status for cross-region replication.
+    #[serde(default)]
+    pub replication_status: Option<ReplicationStatus>,
 }
 
 fn default_is_latest() -> bool {
     true
+}
+
+fn default_home_region() -> String {
+    "local".to_string()
 }
 
 impl ObjectMetadata {
@@ -258,6 +461,12 @@ impl ObjectMetadata {
             version_id: None,
             is_delete_marker: false,
             is_latest: true,
+            // Forward-compatible fields
+            hlc_timestamp: 0,
+            placement_group: 0,
+            home_region: "local".to_string(),
+            storage_class: StorageClass::Standard,
+            replication_status: None,
         }
     }
 
@@ -285,6 +494,12 @@ impl ObjectMetadata {
             version_id: Some(version_id.into()),
             is_delete_marker: true,
             is_latest: true,
+            // Forward-compatible fields
+            hlc_timestamp: 0,
+            placement_group: 0,
+            home_region: "local".to_string(),
+            storage_class: StorageClass::Standard,
+            replication_status: None,
         }
     }
 
@@ -626,5 +841,81 @@ mod tests {
         assert_eq!(tagset.len(), 2);
         assert_eq!(tagset.tags[0].key, "env");
         assert_eq!(tagset.tags[1].key, "project");
+    }
+
+    // --- Migration tests for backward compatibility ---
+    // These tests verify that old metadata (without new forward-compatible fields)
+    // can be deserialized correctly with appropriate defaults.
+
+    #[test]
+    fn test_bucket_info_backward_compat() {
+        // Old BucketInfo format (without encryption_config and lock_config)
+        let old_json = r#"{
+            "name": "test-bucket",
+            "created_at": "2024-01-01T00:00:00Z",
+            "versioning_status": null
+        }"#;
+
+        let bucket: BucketInfo = serde_json::from_str(old_json).unwrap();
+        assert_eq!(bucket.name, "test-bucket");
+        assert!(bucket.versioning_status.is_none());
+        // New fields should have defaults
+        assert!(bucket.encryption_config.is_none());
+        assert!(bucket.lock_config.is_none());
+    }
+
+    #[test]
+    fn test_object_metadata_backward_compat() {
+        // Old ObjectMetadata format (without forward-compatible fields)
+        let old_json = r#"{
+            "key": "test/key.txt",
+            "uuid": "00000000-0000-0000-0000-000000000000",
+            "size": 1024,
+            "etag": "\"abc123\"",
+            "content_type": "text/plain",
+            "last_modified": "2024-01-01T00:00:00Z"
+        }"#;
+
+        let meta: ObjectMetadata = serde_json::from_str(old_json).unwrap();
+        assert_eq!(meta.key, "test/key.txt");
+        assert_eq!(meta.size, 1024);
+        // New fields should have defaults
+        assert_eq!(meta.hlc_timestamp, 0);
+        assert_eq!(meta.placement_group, 0);
+        assert_eq!(meta.home_region, "local");
+        assert_eq!(meta.storage_class, StorageClass::Standard);
+        assert!(meta.replication_status.is_none());
+    }
+
+    #[test]
+    fn test_storage_class_default() {
+        assert_eq!(StorageClass::default(), StorageClass::Standard);
+    }
+
+    #[test]
+    fn test_storage_class_parsing() {
+        assert_eq!(StorageClass::parse("STANDARD"), Some(StorageClass::Standard));
+        assert_eq!(StorageClass::parse("STANDARD_IA"), Some(StorageClass::InfrequentAccess));
+        assert_eq!(StorageClass::parse("GLACIER"), Some(StorageClass::Archive));
+        assert_eq!(StorageClass::parse("unknown"), None);
+    }
+
+    #[test]
+    fn test_replication_status_default() {
+        assert_eq!(ReplicationStatus::default(), ReplicationStatus::None);
+    }
+
+    #[test]
+    fn test_encryption_config_default() {
+        let config = EncryptionConfig::default();
+        assert_eq!(config.algorithm, EncryptionAlgorithm::Aes256);
+        assert!(config.kms_key_id.is_none());
+    }
+
+    #[test]
+    fn test_object_lock_config_default() {
+        let config = ObjectLockConfig::default();
+        assert!(config.enabled);
+        assert!(config.default_retention.is_none());
     }
 }
