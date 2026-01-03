@@ -362,6 +362,7 @@ impl SigV4Validator {
 
     fn parse_auth_header(&self, header: &str) -> Result<ParsedAuthHeader, ValidationError> {
         // Format: AWS4-HMAC-SHA256 Credential=.../..., SignedHeaders=..., Signature=...
+        // Some clients may omit space after comma, so we split on comma and trim
         let header =
             header.strip_prefix("AWS4-HMAC-SHA256 ").ok_or(ValidationError::InvalidAuthHeader)?;
 
@@ -369,7 +370,8 @@ impl SigV4Validator {
         let mut signed_headers = None;
         let mut signature = None;
 
-        for part in header.split(", ") {
+        for part in header.split(',') {
+            let part = part.trim();
             if let Some(value) = part.strip_prefix("Credential=") {
                 credential = Some(value.to_string());
             } else if let Some(value) = part.strip_prefix("SignedHeaders=") {
@@ -580,9 +582,15 @@ mod tests {
         };
         let validator = SigV4Validator::new(&config);
 
+        // With space after comma (standard format)
         let header = "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let parsed = validator.parse_auth_header(header).unwrap();
+        assert_eq!(parsed.access_key, "AKIAIOSFODNN7EXAMPLE");
+        assert_eq!(parsed.signed_headers, "host;x-amz-date");
 
+        // Without space after comma (some clients)
+        let header_no_space = "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-date,Signature=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let parsed = validator.parse_auth_header(header_no_space).unwrap();
         assert_eq!(parsed.access_key, "AKIAIOSFODNN7EXAMPLE");
         assert_eq!(parsed.signed_headers, "host;x-amz-date");
     }
