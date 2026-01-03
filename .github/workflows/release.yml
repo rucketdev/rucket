@@ -188,15 +188,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download all artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: rucket-*
           path: artifacts
+          merge-multiple: true
 
       - name: Collect release files
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" \) -exec mv {} release/ \;
+          mv artifacts/*.tar.gz artifacts/*.zip artifacts/*.sha256 release/ 2>/dev/null || true
+          ls -la release/
 
       - name: Generate combined checksums
         run: |
