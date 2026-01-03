@@ -1422,6 +1422,86 @@ impl StorageBackend for LocalStorage {
     async fn delete_bucket_tagging(&self, bucket: &str) -> Result<()> {
         self.metadata.delete_bucket_tagging(bucket).await
     }
+
+    // Object Lock operations
+
+    async fn get_bucket_lock_config(
+        &self,
+        bucket: &str,
+    ) -> Result<Option<rucket_core::types::ObjectLockConfig>> {
+        self.metadata.get_bucket_lock_config(bucket).await
+    }
+
+    async fn put_bucket_lock_config(
+        &self,
+        bucket: &str,
+        config: rucket_core::types::ObjectLockConfig,
+    ) -> Result<()> {
+        self.metadata.put_bucket_lock_config(bucket, config).await
+    }
+
+    async fn get_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<Option<rucket_core::types::ObjectRetention>> {
+        self.metadata.get_object_retention(bucket, key).await
+    }
+
+    async fn put_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+        retention: rucket_core::types::ObjectRetention,
+    ) -> Result<()> {
+        self.metadata.put_object_retention(bucket, key, retention).await
+    }
+
+    async fn get_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<Option<rucket_core::types::ObjectRetention>> {
+        self.metadata.get_object_retention_version(bucket, key, version_id).await
+    }
+
+    async fn put_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        retention: rucket_core::types::ObjectRetention,
+    ) -> Result<()> {
+        self.metadata.put_object_retention_version(bucket, key, version_id, retention).await
+    }
+
+    async fn get_object_legal_hold(&self, bucket: &str, key: &str) -> Result<bool> {
+        self.metadata.get_object_legal_hold(bucket, key).await
+    }
+
+    async fn put_object_legal_hold(&self, bucket: &str, key: &str, enabled: bool) -> Result<()> {
+        self.metadata.put_object_legal_hold(bucket, key, enabled).await
+    }
+
+    async fn get_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<bool> {
+        self.metadata.get_object_legal_hold_version(bucket, key, version_id).await
+    }
+
+    async fn put_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        self.metadata.put_object_legal_hold_version(bucket, key, version_id, enabled).await
+    }
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use rucket_core::types::{
     BucketInfo, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag, MultipartUpload,
-    ObjectMetadata, Part, TagSet, VersioningStatus,
+    ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, TagSet, VersioningStatus,
 };
 use rucket_core::Result;
 
@@ -268,6 +268,69 @@ pub trait StorageBackend: Send + Sync {
 
     /// Delete tags for a bucket.
     async fn delete_bucket_tagging(&self, bucket: &str) -> Result<()>;
+
+    // Object Lock operations
+
+    /// Get Object Lock configuration for a bucket.
+    async fn get_bucket_lock_config(&self, bucket: &str) -> Result<Option<ObjectLockConfig>>;
+
+    /// Set Object Lock configuration for a bucket.
+    async fn put_bucket_lock_config(&self, bucket: &str, config: ObjectLockConfig) -> Result<()>;
+
+    /// Get retention for an object.
+    async fn get_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<Option<ObjectRetention>>;
+
+    /// Set retention for an object.
+    async fn put_object_retention(
+        &self,
+        bucket: &str,
+        key: &str,
+        retention: ObjectRetention,
+    ) -> Result<()>;
+
+    /// Get retention for a specific version of an object.
+    async fn get_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<Option<ObjectRetention>>;
+
+    /// Set retention for a specific version of an object.
+    async fn put_object_retention_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        retention: ObjectRetention,
+    ) -> Result<()>;
+
+    /// Get legal hold status for an object.
+    async fn get_object_legal_hold(&self, bucket: &str, key: &str) -> Result<bool>;
+
+    /// Set legal hold status for an object.
+    async fn put_object_legal_hold(&self, bucket: &str, key: &str, enabled: bool) -> Result<()>;
+
+    /// Get legal hold status for a specific version of an object.
+    async fn get_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> Result<bool>;
+
+    /// Set legal hold status for a specific version of an object.
+    async fn put_object_legal_hold_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+        enabled: bool,
+    ) -> Result<()>;
 }
 
 /// Result of listing objects.

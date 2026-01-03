@@ -520,7 +520,7 @@ pub async fn delete_bucket_lifecycle(
 pub async fn set_object_lock_configuration(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
-    _body: Bytes,
+    body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.storage.head_bucket(&bucket).await? {
         return Err(ApiError::new(
@@ -529,6 +529,82 @@ pub async fn set_object_lock_configuration(
         )
         .with_resource(&bucket));
     }
+
+    // Parse the XML body
+    let body_str = std::str::from_utf8(&body).map_err(|_| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::MalformedXML,
+            "The XML provided is not well-formed",
+        )
+    })?;
+
+    // Parse ObjectLockConfiguration XML
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let mut reader = Reader::from_str(body_str);
+    reader.config_mut().trim_text(true);
+
+    let mut enabled = false;
+    let mut mode: Option<rucket_core::types::RetentionMode> = None;
+    let mut days: Option<u32> = None;
+    let mut years: Option<u32> = None;
+    let mut in_default_retention = false;
+    let mut current_element = String::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                current_element = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                if current_element == "DefaultRetention" {
+                    in_default_retention = true;
+                }
+            }
+            Ok(Event::Text(e)) => {
+                let text = String::from_utf8_lossy(&e).to_string();
+                match current_element.as_str() {
+                    "ObjectLockEnabled" => {
+                        enabled = text.eq_ignore_ascii_case("enabled");
+                    }
+                    "Mode" if in_default_retention => {
+                        mode = rucket_core::types::RetentionMode::parse(&text);
+                    }
+                    "Days" if in_default_retention => {
+                        days = text.parse().ok();
+                    }
+                    "Years" if in_default_retention => {
+                        years = text.parse().ok();
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                if name == "DefaultRetention" {
+                    in_default_retention = false;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => {
+                return Err(ApiError::new(
+                    rucket_core::error::S3ErrorCode::MalformedXML,
+                    "The XML provided is not well-formed",
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    // Build the config
+    let default_retention = match (mode, days.is_some() || years.is_some()) {
+        (Some(m), true) => Some(rucket_core::types::DefaultRetention { mode: m, days, years }),
+        _ => None,
+    };
+
+    let config = rucket_core::types::ObjectLockConfig { enabled, default_retention };
+
+    state.storage.put_bucket_lock_config(&bucket, config).await?;
+
     Ok(StatusCode::OK)
 }
 
@@ -544,11 +620,46 @@ pub async fn get_object_lock_configuration(
         )
         .with_resource(&bucket));
     }
-    Err(ApiError::new(
-        rucket_core::error::S3ErrorCode::ObjectLockConfigurationNotFoundError,
-        "Object Lock configuration does not exist for this bucket",
-    )
-    .with_resource(&bucket))
+
+    let config = state.storage.get_bucket_lock_config(&bucket).await?;
+
+    match config {
+        Some(lock_config) => {
+            let mut xml = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+            xml.push_str(
+                r#"<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">"#,
+            );
+            xml.push_str(&format!(
+                "<ObjectLockEnabled>{}</ObjectLockEnabled>",
+                if lock_config.enabled { "Enabled" } else { "Disabled" }
+            ));
+
+            if let Some(retention) = &lock_config.default_retention {
+                xml.push_str("<Rule><DefaultRetention>");
+                xml.push_str(&format!("<Mode>{}</Mode>", retention.mode.as_str()));
+                if let Some(days) = retention.days {
+                    xml.push_str(&format!("<Days>{days}</Days>"));
+                }
+                if let Some(years) = retention.years {
+                    xml.push_str(&format!("<Years>{years}</Years>"));
+                }
+                xml.push_str("</DefaultRetention></Rule>");
+            }
+
+            xml.push_str("</ObjectLockConfiguration>");
+
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/xml")
+                .body(axum::body::Body::from(xml))
+                .unwrap())
+        }
+        None => Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::ObjectLockConfigurationNotFoundError,
+            "Object Lock configuration does not exist for this bucket",
+        )
+        .with_resource(&bucket)),
+    }
 }
 
 /// `PUT /{bucket}?encryption` - Set bucket encryption.
