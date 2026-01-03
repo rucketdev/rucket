@@ -48,7 +48,7 @@ impl S3TestContext {
     /// Create a new test context with an auto-generated bucket.
     pub async fn new() -> Self {
         let bucket = random_bucket_name();
-        let mut ctx = Self::start_server(None).await;
+        let mut ctx = Self::start_server(None, false).await;
         ctx.bucket = bucket.clone();
         ctx.create_bucket_internal(&bucket).await;
         ctx
@@ -58,7 +58,7 @@ impl S3TestContext {
     pub async fn new_with_auth() -> Self {
         let auth = AuthConfig::default();
         let bucket = random_bucket_name();
-        let mut ctx = Self::start_server(Some(auth)).await;
+        let mut ctx = Self::start_server(Some(auth), false).await;
         ctx.bucket = bucket.clone();
         ctx.create_bucket_internal(&bucket).await;
         ctx
@@ -66,7 +66,7 @@ impl S3TestContext {
 
     /// Create a new test context with a specific bucket name.
     pub async fn with_bucket(name: &str) -> Self {
-        let mut ctx = Self::start_server(None).await;
+        let mut ctx = Self::start_server(None, false).await;
         ctx.bucket = name.to_string();
         ctx.create_bucket_internal(name).await;
         ctx
@@ -83,15 +83,24 @@ impl S3TestContext {
     /// Object Lock requires versioning, which is automatically enabled.
     pub async fn with_object_lock() -> Self {
         let bucket = random_bucket_name();
-        let mut ctx = Self::start_server(None).await;
+        let mut ctx = Self::start_server(None, false).await;
         ctx.bucket = bucket.clone();
         ctx.create_bucket_with_object_lock(&bucket).await;
         ctx
     }
 
+    /// Create a new test context with SSE-S3 encryption enabled.
+    pub async fn with_encryption() -> Self {
+        let bucket = random_bucket_name();
+        let mut ctx = Self::start_server(None, true).await;
+        ctx.bucket = bucket.clone();
+        ctx.create_bucket_internal(&bucket).await;
+        ctx
+    }
+
     /// Create a new test context with multiple buckets.
     pub async fn with_buckets(names: &[&str]) -> Self {
-        let mut ctx = Self::start_server(None).await;
+        let mut ctx = Self::start_server(None, false).await;
         if let Some(first) = names.first() {
             ctx.bucket = first.to_string();
         }
@@ -103,17 +112,25 @@ impl S3TestContext {
 
     /// Create a test context without creating any buckets.
     pub async fn without_bucket() -> Self {
-        Self::start_server(None).await
+        Self::start_server(None, false).await
     }
 
     /// Start the test server and return the context.
-    async fn start_server(auth_config: Option<AuthConfig>) -> Self {
+    async fn start_server(auth_config: Option<AuthConfig>, enable_encryption: bool) -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let data_dir = temp_dir.path().join("data");
         let tmp_dir = temp_dir.path().join("tmp");
 
         let storage =
             LocalStorage::new_in_memory(data_dir, tmp_dir).await.expect("Failed to create storage");
+
+        // Enable encryption if requested (32-byte test master key)
+        let storage = if enable_encryption {
+            let test_master_key = [0x42u8; 32]; // Test-only key
+            storage.with_encryption(&test_master_key).expect("Failed to enable encryption")
+        } else {
+            storage
+        };
 
         // 5 GiB max body size (S3 max single PUT)
         let app = create_router(
