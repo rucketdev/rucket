@@ -198,12 +198,28 @@ jobs:
             MINIO_FAILED_TESTS=""
           fi
 
-          # Parse Ceph s3-tests results (placeholder - actual parsing depends on format)
-          CEPH_RESULTS="results/ceph"
-          if [ -d "$CEPH_RESULTS" ]; then
-            CEPH_STATUS="Executed"
+          # Parse Ceph s3-tests results
+          CEPH_RESULTS="results/ceph/ceph-results.json"
+          if [ -f "$CEPH_RESULTS" ]; then
+            CEPH_PASSED=$(jq -r '.summary.passed // 0' "$CEPH_RESULTS" 2>/dev/null || echo "0")
+            CEPH_FAILED=$(jq -r '.summary.failed // 0' "$CEPH_RESULTS" 2>/dev/null || echo "0")
+            CEPH_ERROR=$(jq -r '.summary.error // 0' "$CEPH_RESULTS" 2>/dev/null || echo "0")
+            CEPH_SKIPPED=$(jq -r '.summary.skipped // 0' "$CEPH_RESULTS" 2>/dev/null || echo "0")
+            CEPH_TOTAL=$(jq -r '.summary.total // 0' "$CEPH_RESULTS" 2>/dev/null || echo "0")
+            if [ "$CEPH_TOTAL" -gt 0 ]; then
+              CEPH_PCT=$((CEPH_PASSED * 100 / CEPH_TOTAL))
+            else
+              CEPH_PCT=0
+            fi
+            CEPH_FAILED_TESTS=$(jq -r '.tests[] | select(.outcome == "failed") | "- `\(.nodeid)`"' "$CEPH_RESULTS" 2>/dev/null | head -20 || echo "")
           else
-            CEPH_STATUS="Not available"
+            CEPH_PASSED=0
+            CEPH_FAILED=0
+            CEPH_ERROR=0
+            CEPH_SKIPPED=0
+            CEPH_TOTAL=0
+            CEPH_PCT=0
+            CEPH_FAILED_TESTS=""
           fi
 
           # Generate markdown report
@@ -242,7 +258,29 @@ jobs:
 
           ### Ceph s3-tests Suite
 
-          Status: $CEPH_STATUS
+          | Metric | Value |
+          |--------|-------|
+          | **Passed** | $CEPH_PASSED |
+          | **Failed** | $CEPH_FAILED |
+          | **Error** | $CEPH_ERROR |
+          | **Skipped** | $CEPH_SKIPPED |
+          | **Total** | $CEPH_TOTAL |
+          | **Compatibility** | ${CEPH_PCT}% |
+          EOF
+
+          if [ -n "$CEPH_FAILED_TESTS" ] && [ "$CEPH_FAILED_TESTS" != "null" ]; then
+            cat >> target/s3-compat-reports/compatibility-report.md << EOF
+
+          <details>
+          <summary>Failed Tests ($CEPH_FAILED)</summary>
+
+          $CEPH_FAILED_TESTS
+
+          </details>
+          EOF
+          fi
+
+          cat >> target/s3-compat-reports/compatibility-report.md << EOF
 
           ---
           *Tests run with Rucket in default mode (MinIO) and Ceph compatibility mode.*
