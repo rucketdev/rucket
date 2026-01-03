@@ -65,19 +65,27 @@ Data safety is non-negotiable. Write-ahead logging, crash recovery, no silent da
 
 ### G5: Distributed
 
-Single-node first, distributed later. Design decisions today must not preclude:
+Single-node first, but designed for distributed from the start. No architectural debt.
+
+**Design principle:** Architecture supports geo from day 1, but `rucket serve` remains the simple entry point. Complexity scales with need, not with capability.
+
+```
+rucket serve                    # Single node - just works
+rucket serve --cluster          # Single-site cluster
+rucket serve --cluster --geo    # Multi-region replication
+```
 
 - Erasure coding
 - High availability (automatic failover)
 - Horizontal scaling
 - Storage tiering
+- **Geo-distribution** (cross-region replication, disaster recovery)
 
 ---
 
 ## Non-Goals
 
 - Multi-protocol (POSIX, HDFS, NFS)
-- Geo-distribution
 - Paid enterprise edition
 - Kubernetes-only deployment
 
@@ -101,12 +109,20 @@ Single-node first, distributed later. Design decisions today must not preclude:
 
 ### Phase 3: Distributed
 
+- **Design geo-aware data model from day 1**
 - Erasure coding
 - Storage tiering
 - Active-passive HA
 - Multi-node clustering
 
-### Phase 4: Governance
+### Phase 4: Geo-Distribution
+
+- Cross-region async replication
+- Region-aware placement policies
+- Conflict resolution (vector clocks)
+- S3 Cross-Region Replication (CRR) API
+
+### Phase 5: Governance
 
 - Decision-making process documentation
 - Contributor guide
@@ -120,3 +136,4 @@ Single-node first, distributed later. Design decisions today must not preclude:
 2. **Compatibility is the product.** If an AWS SDK doesn't work, it's a bug.
 3. **Simple over clever.** Readable code wins.
 4. **Community over company.** Decisions benefit users, not a business model.
+5. **Complexity scales with need.** `rucket serve` just works. Advanced features are opt-in.
