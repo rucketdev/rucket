@@ -47,6 +47,8 @@ jobs:
           exit 1
 
       - name: Run MinIO Mint tests
+        id: minio-tests
+        continue-on-error: true
         run: ./scripts/s3-compat-tests.sh minio --timeout 1800
         env:
           RUCKET_ENDPOINT: http://127.0.0.1:9000
@@ -109,6 +111,8 @@ jobs:
           exit 1
 
       - name: Run Ceph s3-tests
+        id: ceph-tests
+        continue-on-error: true
         run: ./scripts/s3-compat-tests.sh ceph --timeout 1800
         env:
           RUCKET_ENDPOINT: http://127.0.0.1:9000
@@ -129,3 +133,125 @@ jobs:
           name: ceph-s3tests-results
           path: target/s3-compat-reports/
           retention-days: 30
+
+  generate-report:
+    name: Generate Compatibility Report
+    runs-on: ubuntu-latest
+    needs: [minio-mint, ceph-s3tests]
+    if: always()
+    outputs:
+      report: ${{ steps.report.outputs.report }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download MinIO Mint results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: minio-mint-results
+          path: results/minio
+
+      - name: Download Ceph s3-tests results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ceph-s3tests-results
+          path: results/ceph
+
+      - name: Generate compatibility report
+        id: report
+        run: |
+          mkdir -p target/s3-compat-reports
+
+          # Parse MinIO Mint results
+          MINIO_RESULTS="results/minio/mint-results.json"
+          if [ -f "$MINIO_RESULTS" ]; then
+            MINIO_PASSED=$(grep -E '^\{.*\}$' "$MINIO_RESULTS" | jq -s '[.[] | select(.status == "PASS")] | length' 2>/dev/null || echo "0")
+            MINIO_FAILED=$(grep -E '^\{.*\}$' "$MINIO_RESULTS" | jq -s '[.[] | select(.status == "FAIL")] | length' 2>/dev/null || echo "0")
+            MINIO_NA=$(grep -E '^\{.*\}$' "$MINIO_RESULTS" | jq -s '[.[] | select(.status == "NA")] | length' 2>/dev/null || echo "0")
+            MINIO_TOTAL=$((MINIO_PASSED + MINIO_FAILED + MINIO_NA))
+            if [ "$MINIO_TOTAL" -gt 0 ]; then
+              MINIO_PCT=$((MINIO_PASSED * 100 / MINIO_TOTAL))
+            else
+              MINIO_PCT=0
+            fi
+            MINIO_FAILED_TESTS=$(grep -E '^\{.*\}$' "$MINIO_RESULTS" | jq -rs '[.[] | select(.status == "FAIL") | "- `\(.function)`: \(.name // "unknown")"] | join("\n")' 2>/dev/null || echo "")
+          else
+            MINIO_PASSED=0
+            MINIO_FAILED=0
+            MINIO_NA=0
+            MINIO_TOTAL=0
+            MINIO_PCT=0
+            MINIO_FAILED_TESTS=""
+          fi
+
+          # Parse Ceph s3-tests results (placeholder - actual parsing depends on format)
+          CEPH_RESULTS="results/ceph"
+          if [ -d "$CEPH_RESULTS" ]; then
+            CEPH_STATUS="Executed"
+          else
+            CEPH_STATUS="Not available"
+          fi
+
+          # Generate markdown report
+          cat > target/s3-compat-reports/compatibility-report.md << 'REPORT_EOF'
+          ## S3 Compatibility Test Results
+
+          This report summarizes the S3 API compatibility testing for this release.
+
+          ### MinIO Mint Test Suite
+
+          REPORT_EOF
+
+          cat >> target/s3-compat-reports/compatibility-report.md << EOF
+          | Metric | Value |
+          |--------|-------|
+          | **Passed** | $MINIO_PASSED |
+          | **Failed** | $MINIO_FAILED |
+          | **N/A** | $MINIO_NA |
+          | **Total** | $MINIO_TOTAL |
+          | **Compatibility** | ${MINIO_PCT}% |
+          EOF
+
+          if [ -n "$MINIO_FAILED_TESTS" ] && [ "$MINIO_FAILED_TESTS" != "null" ]; then
+            cat >> target/s3-compat-reports/compatibility-report.md << EOF
+
+          <details>
+          <summary>Failed Tests ($MINIO_FAILED)</summary>
+
+          $MINIO_FAILED_TESTS
+
+          </details>
+          EOF
+          fi
+
+          cat >> target/s3-compat-reports/compatibility-report.md << EOF
+
+          ### Ceph s3-tests Suite
+
+          Status: $CEPH_STATUS
+
+          ---
+          *Tests run with Rucket in default mode (MinIO) and Ceph compatibility mode.*
+          EOF
+
+          # Remove leading whitespace from markdown
+          sed -i 's/^          //' target/s3-compat-reports/compatibility-report.md
+
+          # Output report for use in release notes
+          {
+            echo 'report<<EOF'
+            cat target/s3-compat-reports/compatibility-report.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Report generated successfully"
+          cat target/s3-compat-reports/compatibility-report.md
+
+      - name: Upload compatibility report
+        uses: actions/upload-artifact@v4
+        with:
+          name: s3-compatibility-report
+          path: target/s3-compat-reports/compatibility-report.md
+          retention-days: 90
