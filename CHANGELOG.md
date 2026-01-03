@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- Fix release workflow version extraction and S3 compat integration by @rucketdev in [#81](https://github.com/rucketdev/rucket/pull/81)
+- Add S3 compatibility report to release notes by @rucketdev in [#80](https://github.com/rucketdev/rucket/pull/80)
+- Fix S3 compatibility test workflow by @rucketdev in [#79](https://github.com/rucketdev/rucket/pull/79)
 - Remove reach from codecov comment layout by @rucketdev in [#74](https://github.com/rucketdev/rucket/pull/74)
 - Make periodic sync test more robust for CI by @rucketdev in [#70](https://github.com/rucketdev/rucket/pull/70)
 - Cleanup roadmap - remove redundant sections by @rucketdev in [#68](https://github.com/rucketdev/rucket/pull/68)
