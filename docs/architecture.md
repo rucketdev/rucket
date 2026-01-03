@@ -705,20 +705,28 @@ Headers provide extension points without breaking existing clients.
   - Surface conflict metadata in admin API
 - **Production validation**: PayPal's Aerospike deployment uses CRDTs with causality for multi-datacenter—our HLC approach is sound.
 
-### ⚠️ Decision 6: Erasure Coding (10+4 RS) — REFINE
-- **Original plan**: Reed-Solomon (10+4), upgrade to LRC.
-- **Research update**: Walrus's RedStuff achieves 4.5× replication with 2D erasure coding and self-healing.
-- **Recommendation**:
-  - Phase 3: Start with (8+4) RS (matches AWS S3)
-  - Phase 3.5: Evaluate LRC vs RedStuff based on:
-    - Repair bandwidth requirements
-    - Cross-rack topology
-    - Async network tolerance
+### ✅ Decision 6: Erasure Coding (8+4 RS) — VALIDATED
+- **Production validation at exabyte scale:**
+  | System | Scheme | Scale |
+  |--------|--------|-------|
+  | AWS S3 | (8+4) RS | 500T objects |
+  | Azure | LRC (12,2,2) | exabytes |
+  | Backblaze | RS (17+3) | billions of files |
+  | Facebook | RS cold storage | exabytes |
+- **Verdict**: Reed-Solomon is THE industry standard. RedStuff (Walrus) is interesting research but has zero production validation at scale.
+- **Our choice**: (8+4) RS matches AWS S3 exactly.
 
-### ⚠️ Decision 7: CRUSH for Placement — REFINE
-- **Original plan**: CRUSH algorithm (from Ceph).
-- **Research update**: MapX extends CRUSH with time-dimension mapping for controlled migration.
-- **Recommendation**: Standard CRUSH is sufficient for Phase 3. Consider MapX for cluster expansion scenarios in Phase 3.5.
+### ✅ Decision 7: CRUSH for Placement — VALIDATED
+- **Production validation at exabyte scale:**
+  | Deployment | Scale |
+  |------------|-------|
+  | Ceph Community | 1+ exabyte across 3,000+ clusters |
+  | CERN Echo | 65 PB (LHC raw data) |
+  | CERN OpenStack | 25 PB, 440k cores |
+  | Bloomberg, Yahoo!, DigitalOcean | petabytes |
+- **2024 milestone**: 1 TB/s throughput achieved ([Ceph blog](https://ceph.io/en/news/blog/2024/ceph-a-journey-to-1tibps/))
+- **Verdict**: CRUSH is THE industry standard for decentralized placement. MapX is a minor optimization with no production validation.
+- **Our choice**: Standard CRUSH algorithm.
 
 ---
 
