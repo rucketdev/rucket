@@ -196,22 +196,25 @@
 
 ### Milestone 1.4: S3 Compatibility Polish
 
-**Deliverable**: Run Ceph s3-tests, fix critical bugs *(Completed in PRs #108-111)*
+**Deliverable**: Fix critical S3 compatibility bugs, document status *(Completed in PRs #109-111)*
 
-**Files to modify**:
-- Various handlers in `crates/rucket-api/src/handlers/`
-- `crates/rucket-storage/src/local.rs`
+**Files modified**:
+- `crates/rucket-storage/src/metadata/redb_backend.rs` (pagination fix)
+- `crates/rucket-storage/src/local.rs` (suspended versioning fix)
+- `docs/s3-compatibility.md` (new documentation)
 
 **Tasks**:
-1. [x] Run full Ceph s3-tests, capture baseline pass rate
+1. [x] Run full Ceph s3-tests, capture baseline pass rate (42.3% initial)
 2. [x] Triage failures into: critical, nice-to-have, won't-fix
-3. [x] Fix critical S3 compatibility issues (36% pass rate achieved - limited by advanced features not yet implemented)
-4. [x] Document known incompatibilities in `docs/s3-compatibility.md`
+3. [x] Fix critical S3 compatibility issues:
+   - Fixed list_object_versions pagination bug (PR #109)
+   - Fixed suspended versioning null version deletion (PR #110)
+4. [x] Document known incompatibilities (PR #111)
 
 **Results**:
-- Pass rate: 36% (305 tests passed)
-- Fixed: suspended versioning null version deletion bug (reduced errors from 476 → 0)
-- Documented: unsupported features (ACLs, object lock, encryption, lifecycle)
+- Initial pass rate: 42.3% (351/829)
+- After fixes: **36% (305/829)** with **0 errors** (down from 476)
+- Note: 90% target not achieved - failures are for unimplemented features (SSE, ACLs, policies) not S3 API bugs
 
 **Testing**:
 - [x] Full Ceph s3-tests run
@@ -745,11 +748,19 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 
 ## Immediate Next Steps
 
-Phase 1 complete. Next priorities for Phase 2:
+**Phase 1 & 2.1-2.2 complete.** Next priorities:
 
-1. **Milestone 2.1**: Object Lock (compliance & governance modes)
-2. **Milestone 2.2**: SSE-S3 encryption at rest
-3. **Milestone 2.3**: Bucket policies for IAM-style access control
-4. **Milestone 2.4**: Hardened WAL recovery with checksums
+1. **Milestone 2.3**: Bucket policies for IAM-style access control
+2. **Milestone 2.4**: Hardened WAL recovery with checksums
+3. **Milestone 2.5**: Production documentation
+
+**Completed milestones**:
+- [x] Milestone 1.1: Forward-compatible data model (HLC, placement_group, etc.)
+- [x] Milestone 1.2: PlacementPolicy trait with SingleNodePlacement
+- [x] Milestone 1.3: StorageEvent enum for future replication
+- [x] Milestone 1.4: S3 compatibility fixes (36% pass rate, 0 errors)
+- [x] Milestone 1.5: Performance benchmarks (5/6 faster than MinIO)
+- [x] Milestone 2.1: Object Lock (compliance & governance modes)
+- [x] Milestone 2.2: SSE-S3 encryption at rest
 
 **Goal**: Production-ready single-node deployment with security features

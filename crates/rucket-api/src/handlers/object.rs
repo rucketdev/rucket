@@ -915,26 +915,56 @@ pub async fn delete_object(
         .unwrap_or(false);
 
     // Check Object Lock retention before deleting
+    // SECURITY: Fail-secure - if we can't verify retention, deny deletion
     if let Some(ref version_id) = query.version_id {
         // Check specific version
-        if let Ok(meta) = state.storage.head_object_version(&bucket, &key, version_id).await {
-            if !meta.can_delete(bypass_governance) {
+        match state.storage.head_object_version(&bucket, &key, version_id).await {
+            Ok(meta) => {
+                if !meta.can_delete(bypass_governance) {
+                    return Err(ApiError::new(
+                        S3ErrorCode::AccessDenied,
+                        "Object is protected by Object Lock",
+                    )
+                    .with_resource(&key));
+                }
+            }
+            Err(rucket_core::Error::S3 {
+                code: S3ErrorCode::NoSuchKey | S3ErrorCode::NoSuchVersion,
+                ..
+            }) => {
+                // Object/version doesn't exist - allow delete (will be no-op or create marker)
+            }
+            Err(e) => {
+                // Any other error - fail secure, deny deletion
+                tracing::error!(error = %e, "Failed to check object lock retention, denying delete");
                 return Err(ApiError::new(
-                    S3ErrorCode::AccessDenied,
-                    "Object is protected by Object Lock",
-                )
-                .with_resource(&key));
+                    S3ErrorCode::InternalError,
+                    "Could not verify Object Lock status",
+                ));
             }
         }
     } else {
         // Check current version
-        if let Ok(meta) = state.storage.head_object(&bucket, &key).await {
-            if !meta.can_delete(bypass_governance) {
+        match state.storage.head_object(&bucket, &key).await {
+            Ok(meta) => {
+                if !meta.can_delete(bypass_governance) {
+                    return Err(ApiError::new(
+                        S3ErrorCode::AccessDenied,
+                        "Object is protected by Object Lock",
+                    )
+                    .with_resource(&key));
+                }
+            }
+            Err(rucket_core::Error::S3 { code: S3ErrorCode::NoSuchKey, .. }) => {
+                // Object doesn't exist - allow delete (will be no-op or create marker)
+            }
+            Err(e) => {
+                // Any other error - fail secure, deny deletion
+                tracing::error!(error = %e, "Failed to check object lock retention, denying delete");
                 return Err(ApiError::new(
-                    S3ErrorCode::AccessDenied,
-                    "Object is protected by Object Lock",
-                )
-                .with_resource(&key));
+                    S3ErrorCode::InternalError,
+                    "Could not verify Object Lock status",
+                ));
             }
         }
     }

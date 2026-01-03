@@ -1208,11 +1208,21 @@ impl StorageBackend for LocalStorage {
         let part_path = self.part_path(&uuid);
         let data_len = data.len() as u64;
 
-        // Write part to file and compute hash
+        // Encrypt part data if encryption is enabled
+        let data_to_write = if let Some(ref provider) = self.encryption_provider {
+            provider.encrypt_part(uuid, &data).map_err(|e| {
+                Error::s3(S3ErrorCode::InternalError, format!("Part encryption failed: {e}"))
+            })?
+        } else {
+            data
+        };
+
+        // Write part to file and compute hash (hash is of encrypted data if encrypted)
         let write_result =
-            write_and_hash_with_strategy(&part_path, &data, SyncStrategy::None).await?;
+            write_and_hash_with_strategy(&part_path, &data_to_write, SyncStrategy::None).await?;
 
         // Store part metadata
+        // Note: If encryption is enabled, all parts are encrypted (server-side encryption)
         self.metadata
             .put_part(upload_id, part_number, uuid, data_len, write_result.etag.as_str())
             .await?;
@@ -1227,8 +1237,6 @@ impl StorageBackend for LocalStorage {
         upload_id: &str,
         parts: &[(u32, String)],
     ) -> Result<ETag> {
-        use tokio::io::AsyncWriteExt;
-
         // Check bucket exists
         if !self.metadata.bucket_exists(bucket).await? {
             return Err(Error::s3_with_resource(
@@ -1279,14 +1287,15 @@ impl StorageBackend for LocalStorage {
         let final_uuid = Uuid::new_v4();
         let temp_path = self.temp_path(&final_uuid);
 
-        let mut final_file = fs::File::create(&temp_path).await?;
-        let mut total_size = 0u64;
+        // Collect all part data (decrypting if necessary)
+        let mut concatenated_data = Vec::new();
         let mut md5_concat = Vec::new();
         let mut part_count = 0u32;
+        let mut plaintext_size = 0u64;
 
         for (_part_num, part, uuid) in &ordered_parts {
             let part_path = self.part_path(uuid);
-            let part_data = fs::read(&part_path).await?;
+            let raw_part_data = fs::read(&part_path).await?;
 
             // Accumulate part MD5 hashes for multipart ETag computation
             // The part ETag is the hex-encoded MD5, so we decode it back to bytes
@@ -1294,13 +1303,37 @@ impl StorageBackend for LocalStorage {
                 md5_concat.extend_from_slice(&part_md5);
             }
 
-            final_file.write_all(&part_data).await?;
-            total_size += part.size;
+            // Decrypt part if encryption is enabled
+            let part_data = if let Some(ref provider) = self.encryption_provider {
+                provider.decrypt_part(*uuid, &raw_part_data).map_err(|e| {
+                    Error::s3(S3ErrorCode::InternalError, format!("Part decryption failed: {e}"))
+                })?
+            } else {
+                Bytes::from(raw_part_data)
+            };
+
+            plaintext_size += part_data.len() as u64;
+            concatenated_data.extend_from_slice(&part_data);
             part_count += 1;
         }
 
-        final_file.flush().await?;
-        drop(final_file);
+        // Encrypt the final concatenated data if encryption is enabled
+        let (final_data, encryption_metadata) = if let Some(ref provider) = self.encryption_provider
+        {
+            let (encrypted, enc_meta) =
+                provider.encrypt(final_uuid, &concatenated_data).map_err(|e| {
+                    Error::s3(
+                        S3ErrorCode::InternalError,
+                        format!("Final object encryption failed: {e}"),
+                    )
+                })?;
+            (encrypted, Some(enc_meta))
+        } else {
+            (Bytes::from(concatenated_data), None)
+        };
+
+        // Write final file
+        fs::write(&temp_path, &final_data).await?;
 
         // Move to final location
         let final_path = self.object_path(bucket, &final_uuid);
@@ -1321,8 +1354,8 @@ impl StorageBackend for LocalStorage {
             }
         }
 
-        // Store final object metadata with headers and user_metadata from the upload
-        let mut meta = ObjectMetadata::new(key, final_uuid, total_size, etag.clone())
+        // Store final object metadata with headers, user_metadata, and encryption info
+        let mut meta = ObjectMetadata::new(key, final_uuid, plaintext_size, etag.clone())
             .with_user_metadata(upload.user_metadata);
         if let Some(ct) = upload.content_type {
             meta = meta.with_content_type(&ct);
@@ -1332,6 +1365,12 @@ impl StorageBackend for LocalStorage {
         meta.content_encoding = upload.content_encoding;
         meta.content_language = upload.content_language;
         meta.expires = upload.expires;
+
+        // Store encryption metadata if encryption was used
+        if let Some(ref enc_meta) = encryption_metadata {
+            meta = meta.with_encryption(enc_meta.algorithm.as_s3_header(), enc_meta.nonce.clone());
+        }
+
         self.metadata.put_object(bucket, meta).await?;
 
         // Clean up parts

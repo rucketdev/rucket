@@ -23,6 +23,7 @@ use rand::RngCore;
 use sha2::Sha256;
 use thiserror::Error;
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 /// AES-256-GCM nonce size (96 bits = 12 bytes).
 const NONCE_SIZE: usize = 12;
@@ -84,9 +85,18 @@ impl EncryptionAlgorithm {
 ///
 /// Manages encryption/decryption using a master key with per-object
 /// key derivation via HKDF-SHA256.
+///
+/// The master key is securely zeroed from memory when this provider is dropped.
 #[derive(Clone)]
 pub struct SseS3Provider {
     master_key: [u8; KEY_SIZE],
+}
+
+/// Securely zero the master key when the provider is dropped.
+impl Drop for SseS3Provider {
+    fn drop(&mut self) {
+        self.master_key.zeroize();
+    }
 }
 
 impl SseS3Provider {
@@ -124,21 +134,39 @@ impl SseS3Provider {
     ///
     /// Uses HKDF-SHA256 with the object UUID as info to derive a unique
     /// 256-bit key for each object.
-    fn derive_object_key(&self, object_uuid: Uuid) -> [u8; KEY_SIZE] {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if key derivation fails (should never happen with valid parameters).
+    fn derive_object_key(&self, object_uuid: Uuid) -> CryptoResult<[u8; KEY_SIZE]> {
         let hk = Hkdf::<Sha256>::new(None, &self.master_key);
         let info = object_uuid.as_bytes();
 
         let mut okm = [0u8; KEY_SIZE];
-        // HKDF expand cannot fail with valid parameters
-        hk.expand(info, &mut okm).expect("HKDF expand failed - this should never happen");
+        hk.expand(info, &mut okm)
+            .map_err(|_| CryptoError::EncryptionFailed("HKDF key derivation failed".to_string()))?;
 
-        okm
+        Ok(okm)
     }
 
     /// Generates a random nonce for encryption.
     fn generate_nonce() -> [u8; NONCE_SIZE] {
         let mut nonce = [0u8; NONCE_SIZE];
         rand::thread_rng().fill_bytes(&mut nonce);
+        nonce
+    }
+
+    /// Derives a deterministic nonce from a UUID.
+    ///
+    /// Used for multipart upload parts where we can't store the nonce separately.
+    /// Safety: Since each part has a unique UUID and its own derived key,
+    /// using a deterministic nonce per UUID is safe (no key+nonce reuse).
+    fn derive_nonce_from_uuid(uuid: Uuid) -> [u8; NONCE_SIZE] {
+        // Use first 12 bytes of UUID as nonce
+        // UUIDs are 16 bytes, we need 12 for AES-GCM nonce
+        let uuid_bytes = uuid.as_bytes();
+        let mut nonce = [0u8; NONCE_SIZE];
+        nonce.copy_from_slice(&uuid_bytes[..NONCE_SIZE]);
         nonce
     }
 
@@ -161,7 +189,7 @@ impl SseS3Provider {
         object_uuid: Uuid,
         plaintext: &[u8],
     ) -> CryptoResult<(Bytes, EncryptionMetadata)> {
-        let dek = self.derive_object_key(object_uuid);
+        let dek = self.derive_object_key(object_uuid)?;
         let nonce_bytes = Self::generate_nonce();
         let nonce = Nonce::from_slice(&nonce_bytes);
 
@@ -178,6 +206,39 @@ impl SseS3Provider {
         };
 
         Ok((Bytes::from(ciphertext), metadata))
+    }
+
+    /// Encrypts data using a deterministic nonce derived from the UUID.
+    ///
+    /// Used for multipart upload parts where nonce cannot be stored separately.
+    /// Safe because each part has a unique UUID and unique derived key.
+    pub fn encrypt_part(&self, part_uuid: Uuid, plaintext: &[u8]) -> CryptoResult<Bytes> {
+        let dek = self.derive_object_key(part_uuid)?;
+        let nonce_bytes = Self::derive_nonce_from_uuid(part_uuid);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let cipher = Aes256Gcm::new_from_slice(&dek)
+            .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+        Ok(Bytes::from(ciphertext))
+    }
+
+    /// Decrypts data that was encrypted with `encrypt_part`.
+    pub fn decrypt_part(&self, part_uuid: Uuid, ciphertext: &[u8]) -> CryptoResult<Bytes> {
+        let dek = self.derive_object_key(part_uuid)?;
+        let nonce_bytes = Self::derive_nonce_from_uuid(part_uuid);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let cipher = Aes256Gcm::new_from_slice(&dek).map_err(|_| CryptoError::DecryptionFailed)?;
+
+        let plaintext =
+            cipher.decrypt(nonce, ciphertext).map_err(|_| CryptoError::DecryptionFailed)?;
+
+        Ok(Bytes::from(plaintext))
     }
 
     /// Decrypts object data.
@@ -205,7 +266,7 @@ impl SseS3Provider {
             return Err(CryptoError::InvalidNonce);
         }
 
-        let dek = self.derive_object_key(object_uuid);
+        let dek = self.derive_object_key(object_uuid)?;
         let nonce = Nonce::from_slice(&metadata.nonce);
 
         let cipher = Aes256Gcm::new_from_slice(&dek).map_err(|_| CryptoError::DecryptionFailed)?;
