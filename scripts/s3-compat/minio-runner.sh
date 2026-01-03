@@ -185,11 +185,12 @@ run_tests() {
     fi
 
     # Parse and display summary
+    # Filter to only JSON lines (skip non-JSON output like "Dependency validation complete")
     if command -v jq &> /dev/null && [[ -f "$results_file" ]]; then
         local passed failed na total
-        passed=$(jq -s '[.[] | select(.status == "PASS")] | length' "$results_file" 2>/dev/null || echo "0")
-        failed=$(jq -s '[.[] | select(.status == "FAIL")] | length' "$results_file" 2>/dev/null || echo "0")
-        na=$(jq -s '[.[] | select(.status == "NA")] | length' "$results_file" 2>/dev/null || echo "0")
+        passed=$(grep -E '^\{.*\}$' "$results_file" | jq -s '[.[] | select(.status == "PASS")] | length' 2>/dev/null || echo "0")
+        failed=$(grep -E '^\{.*\}$' "$results_file" | jq -s '[.[] | select(.status == "FAIL")] | length' 2>/dev/null || echo "0")
+        na=$(grep -E '^\{.*\}$' "$results_file" | jq -s '[.[] | select(.status == "NA")] | length' 2>/dev/null || echo "0")
         total=$((passed + failed + na))
 
         echo ""
@@ -214,7 +215,7 @@ run_tests() {
         if [[ "$failed" -gt 0 ]]; then
             echo ""
             log_warn "Failed tests:"
-            jq -rs '.[] | select(.status == "FAIL") | "  [\(.function)] \(.name // "unknown")"' "$results_file" 2>/dev/null | head -20 || true
+            grep -E '^\{.*\}$' "$results_file" | jq -rs '.[] | select(.status == "FAIL") | "  [\(.function)] \(.name // "unknown")"' 2>/dev/null | head -20 || true
         fi
     fi
 

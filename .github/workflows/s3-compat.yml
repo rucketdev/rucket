@@ -90,8 +90,10 @@ jobs:
 
       - name: Start rucket (Ceph compatibility mode)
         run: |
-          ./target/release/rucket serve --bind 127.0.0.1:9000 --ceph-compat &
+          ./target/release/rucket serve --bind 127.0.0.1:9000 &
           echo $! > /tmp/rucket.pid
+        env:
+          RUCKET__API__COMPATIBILITY_MODE: ceph
 
       - name: Wait for rucket
         run: |
