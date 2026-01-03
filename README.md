@@ -27,8 +27,8 @@ S3-compatible object storage server written in Rust.
 
 **Binary releases**:
 ```bash
-curl -LO https://github.com/rucketdev/rucket/releases/latest/download/rucket-x86_64-unknown-linux-gnu.tar.gz
-tar -xzf rucket-*.tar.gz
+curl -LO https://github.com/rucketdev/rucket/releases/download/v0.1.1/rucket-v0.1.1-linux-amd64.tar.gz
+tar -xzf rucket-v0.1.1-linux-amd64.tar.gz
 ./rucket serve
 ```
 

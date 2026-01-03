@@ -101,17 +101,17 @@ jobs:
         if: "!contains(matrix.target, 'windows')"
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ../../../rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.tar.gz rucket
+          tar -czvf ../../../rucket-${{ matrix.name }}.tar.gz rucket
           cd ../../..
-          sha256sum rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.tar.gz > rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+          sha256sum rucket-${{ matrix.name }}.tar.gz > rucket-${{ matrix.name }}.tar.gz.sha256
 
       - name: Create archive (Windows)
         if: contains(matrix.target, 'windows')
         shell: pwsh
         run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/rucket.exe" -DestinationPath "rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.zip"
-          $hash = (Get-FileHash "rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.zip" | Out-File -FilePath "rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.zip.sha256" -Encoding ASCII
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rucket.exe" -DestinationPath "rucket-${{ matrix.name }}.zip"
+          $hash = (Get-FileHash "rucket-${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  rucket-${{ matrix.name }}.zip" | Out-File -FilePath "rucket-${{ matrix.name }}.zip.sha256" -Encoding ASCII
 
       - name: Upload artifact (Unix)
         if: "!contains(matrix.target, 'windows')"
@@ -119,8 +119,8 @@ jobs:
         with:
           name: rucket-${{ matrix.name }}
           path: |
-            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.tar.gz
-            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+            rucket-${{ matrix.name }}.tar.gz
+            rucket-${{ matrix.name }}.tar.gz.sha256
 
       - name: Upload artifact (Windows)
         if: contains(matrix.target, 'windows')
@@ -128,8 +128,8 @@ jobs:
         with:
           name: rucket-${{ matrix.name }}
           path: |
-            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.zip
-            rucket-v${{ needs.setup.outputs.version }}-${{ matrix.name }}.zip.sha256
+            rucket-${{ matrix.name }}.zip
+            rucket-${{ matrix.name }}.zip.sha256
 
   s3-compat:
     name: S3 Compatibility Tests
