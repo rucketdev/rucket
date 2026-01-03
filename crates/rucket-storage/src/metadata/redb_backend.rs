@@ -1666,7 +1666,15 @@ impl MetadataBackend for RedbMetadataStore {
             let (next_key_marker, next_version_id_marker) = if is_truncated {
                 versions
                     .last()
-                    .map(|v| (Some(v.metadata.key.clone()), v.metadata.version_id.clone()))
+                    .map(|v| {
+                        (
+                            Some(v.metadata.key.clone()),
+                            // S3 uses "null" as version ID for non-versioned objects
+                            Some(
+                                v.metadata.version_id.clone().unwrap_or_else(|| "null".to_string()),
+                            ),
+                        )
+                    })
                     .unwrap_or((None, None))
             } else {
                 (None, None)
