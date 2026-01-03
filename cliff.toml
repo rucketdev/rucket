@@ -34,6 +34,10 @@ body = """
 """
 
 footer = """
+{%- macro remote_url() -%}
+  https://github.com/rucketdev/rucket
+{%- endmacro -%}
+
 {% for release in releases -%}
     {% if release.version -%}
         {% if release.previous.version -%}
