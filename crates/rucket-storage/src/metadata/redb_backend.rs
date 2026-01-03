@@ -1382,7 +1382,12 @@ impl MetadataBackend for RedbMetadataStore {
     ) -> Result<Option<Uuid>> {
         let bucket = bucket.to_string();
         let key_str = key.to_string();
-        let version_id = version_id.to_string();
+        // Map "null" version ID to internal _current for non-versioned objects
+        let version_id = if version_id == "null" {
+            Self::CURRENT_VERSION.to_string()
+        } else {
+            version_id.to_string()
+        };
         let db = Arc::clone(&self.db);
         let durability = self.durability;
 

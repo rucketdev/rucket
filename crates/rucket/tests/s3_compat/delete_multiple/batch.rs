@@ -405,3 +405,54 @@ async fn test_delete_objects_concurrent() {
     let list = ctx.list_objects().await;
     assert!(list.contents().is_empty());
 }
+
+/// Test delete objects using "null" version ID as returned by list_object_versions
+/// for non-versioned buckets. This is the flow used by Ceph s3-tests cleanup.
+///
+/// Regression test for version ID mismatch bug where storage uses "_current"
+/// internally but API returns "null", causing delete_object_version to fail.
+#[tokio::test]
+async fn test_delete_objects_null_version_id() {
+    let ctx = S3TestContext::new().await;
+
+    // Create an object in a non-versioned bucket
+    ctx.put("file.txt", b"content").await;
+
+    // List versions - for non-versioned buckets, version_id will be "null"
+    let versions = ctx.list_versions().await;
+    assert_eq!(versions.versions().len(), 1);
+
+    let version = &versions.versions()[0];
+    let version_id = version.version_id().unwrap_or("null");
+
+    // The version_id should be "null" for non-versioned buckets
+    assert_eq!(version_id, "null", "Non-versioned bucket should return 'null' version ID");
+
+    // Delete using the version_id from list_versions (which is "null")
+    // This is exactly what Ceph s3-tests cleanup does
+    let delete = Delete::builder()
+        .objects(
+            ObjectIdentifier::builder().key("file.txt").version_id(version_id).build().unwrap(),
+        )
+        .build()
+        .unwrap();
+
+    let response = ctx
+        .client
+        .delete_objects()
+        .bucket(&ctx.bucket)
+        .delete(delete)
+        .send()
+        .await
+        .expect("Should delete object with 'null' version ID");
+
+    assert_eq!(response.deleted().len(), 1);
+
+    // Verify object is actually deleted
+    let list = ctx.list_objects().await;
+    assert!(list.contents().is_empty(), "Object should be deleted");
+
+    // Verify versions list is also empty
+    let versions = ctx.list_versions().await;
+    assert!(versions.versions().is_empty(), "No versions should remain");
+}
