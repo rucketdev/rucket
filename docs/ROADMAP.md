@@ -708,62 +708,8 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 
 ---
 
-## Pre-Sprint: Documentation Cleanup
+## Immediate Next Steps
 
-Before starting implementation, fix cosmetic issues in architecture document.
-
-### Task 0.1: Fix Diagram Layout Issues in architecture.md
-
-**File**: `docs/architecture.md`
-
-**Issue found at lines 991-992**: Phase 3 Architecture diagram has word-wrap issue:
-```
-│  │ PlacementPo │  │   Route to  │  │  Aggregate  │     │
-│  │    licy     │→ │  PG Owner   │→ │  Response   │     │
-```
-
-**Fix**: Redraw the diagram with proper box sizing and ASCII arrows:
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                           Client Request                             │
-└──────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  v
-┌──────────────────────────────────────────────────────────────────────┐
-│                          API Gateway Node                            │
-│                                                                      │
-│   ┌────────────────┐   ┌────────────────┐   ┌────────────────┐       │
-│   │   Placement    │   │   Route to     │   │   Aggregate    │       │
-│   │     Policy     │-->│   PG Owner     │-->│    Response    │       │
-│   └────────────────┘   └────────────────┘   └────────────────┘       │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-                                  │
-             ┌────────────────────┼────────────────────┐
-             v                    v                    v
-  ┌────────────────┐   ┌────────────────┐   ┌────────────────┐
-  │     Node 1     │   │     Node 2     │   │     Node 3     │
-  │   PG 0, 3, 6   │   │   PG 1, 4, 7   │   │   PG 2, 5, 8   │
-  │  ┌──────────┐  │   │  ┌──────────┐  │   │  ┌──────────┐  │
-  │  │   Raft   │<-┼---┼->│   Raft   │<-┼---┼->│   Raft   │  │
-  │  │  Leader  │  │   │  │ Follower │  │   │  │ Follower │  │
-  │  └──────────┘  │   │  └──────────┘  │   │  └──────────┘  │
-  └────────────────┘   └────────────────┘   └────────────────┘
-```
-
-### Task 0.2: Commit Master Roadmap
-
-**Create PR**: Commit this roadmap plan to `docs/ROADMAP.md` for visibility.
-
----
-
-## Immediate Next Steps (First Sprint)
-
-**Sprint 0** (Pre-work):
-1. Fix architecture.md diagram layout
-2. Commit roadmap to docs/
-
-**Sprint 1** (Implementation):
 1. **Milestone 1.1**: Add forward-compatible fields to ObjectMetadata
 2. **Milestone 1.1**: Implement HLC in rucket-core
 3. **Milestone 1.2**: Create PlacementPolicy trait with SingleNodePlacement
