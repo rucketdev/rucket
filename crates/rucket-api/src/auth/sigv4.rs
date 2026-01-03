@@ -470,8 +470,18 @@ impl SigV4Validator {
             return "/".to_string();
         }
 
+        // The path from HTTP is already URL-encoded. We need to decode first,
+        // then re-encode according to SigV4 rules to ensure consistent encoding
+        // with what the client calculated. Without this, special characters get
+        // double-encoded (e.g., %20 becomes %2520) causing signature mismatches.
         let segments: Vec<&str> = path.split('/').collect();
-        let encoded: Vec<String> = segments.iter().map(|s| Self::uri_encode(s, false)).collect();
+        let encoded: Vec<String> = segments
+            .iter()
+            .map(|s| {
+                let decoded = percent_encoding::percent_decode_str(s).decode_utf8_lossy();
+                Self::uri_encode(&decoded, false)
+            })
+            .collect();
 
         encoded.join("/")
     }
@@ -670,6 +680,36 @@ mod tests {
         assert_eq!(SigV4Validator::uri_encode("test/path", true), "test%2Fpath");
         assert_eq!(SigV4Validator::uri_encode("test/path", false), "test/path");
         assert_eq!(SigV4Validator::uri_encode("a-b_c.d~e", true), "a-b_c.d~e");
+    }
+
+    #[test]
+    fn test_normalize_uri_path_already_encoded() {
+        // Regression test: paths from HTTP are already URL-encoded.
+        // normalize_uri_path must decode first to avoid double-encoding.
+        // Example: %20 should NOT become %2520
+        let config = AuthConfig { access_key: "test".to_string(), secret_key: "test".to_string() };
+        let validator = SigV4Validator::new(&config);
+
+        // Path with already-encoded space (%20) - should decode and re-encode correctly
+        let result = validator.normalize_uri_path("/bucket/file%20name.txt");
+        assert_eq!(result, "/bucket/file%20name.txt");
+
+        // Path with already-encoded special chars
+        let result = validator.normalize_uri_path("/bucket/path%2Fwith%2Fslashes");
+        // After decode: /bucket/path/with/slashes, after re-encode with slash preserved
+        assert_eq!(result, "/bucket/path/with/slashes");
+
+        // Path with plus sign (different from space in URL encoding)
+        let result = validator.normalize_uri_path("/bucket/file%2B1.txt");
+        assert_eq!(result, "/bucket/file%2B1.txt");
+
+        // Mixed: already-encoded and plain characters
+        let result = validator.normalize_uri_path("/bucket/hello%20world/test.txt");
+        assert_eq!(result, "/bucket/hello%20world/test.txt");
+
+        // Unicode characters (e.g., é encoded as %C3%A9)
+        let result = validator.normalize_uri_path("/bucket/caf%C3%A9.txt");
+        assert_eq!(result, "/bucket/caf%C3%A9.txt");
     }
 
     #[test]
