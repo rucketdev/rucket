@@ -523,6 +523,7 @@ async fn handle_object_delete(
     state: State<AppState>,
     path: Path<(String, String)>,
     Query(query): Query<RequestQuery>,
+    headers: HeaderMap,
 ) -> Response {
     // Check for ?uploadId (abort multipart upload)
     if query.upload_id.is_some() {
@@ -545,7 +546,7 @@ async fn handle_object_delete(
     }
 
     // Default: DeleteObject
-    object::delete_object(state, path, Query(query)).await.into_response()
+    object::delete_object(state, path, headers, Query(query)).await.into_response()
 }
 
 /// Handle POST requests to object (initiate or complete multipart).

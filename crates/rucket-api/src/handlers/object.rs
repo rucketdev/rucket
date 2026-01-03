@@ -873,6 +873,7 @@ fn get_object_version_range(
 pub async fn delete_object(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
     // Check bucket exists first to return proper error code
@@ -882,6 +883,38 @@ pub async fn delete_object(
             "The specified bucket does not exist",
         )
         .with_resource(&bucket));
+    }
+
+    // Check for bypass governance header
+    let bypass_governance = headers
+        .get("x-amz-bypass-governance-retention")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    // Check Object Lock retention before deleting
+    if let Some(ref version_id) = query.version_id {
+        // Check specific version
+        if let Ok(meta) = state.storage.head_object_version(&bucket, &key, version_id).await {
+            if !meta.can_delete(bypass_governance) {
+                return Err(ApiError::new(
+                    S3ErrorCode::AccessDenied,
+                    "Object is protected by Object Lock",
+                )
+                .with_resource(&key));
+            }
+        }
+    } else {
+        // Check current version
+        if let Ok(meta) = state.storage.head_object(&bucket, &key).await {
+            if !meta.can_delete(bypass_governance) {
+                return Err(ApiError::new(
+                    S3ErrorCode::AccessDenied,
+                    "Object is protected by Object Lock",
+                )
+                .with_resource(&key));
+            }
+        }
     }
 
     let result = if let Some(ref version_id) = query.version_id {
