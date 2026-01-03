@@ -13,16 +13,22 @@ pub mod direct_io;
 
 pub mod backend;
 pub mod batch;
+pub mod events;
 pub mod local;
 pub mod metadata;
 pub mod metrics;
+pub mod placement;
 pub mod streaming;
 pub mod sync;
 pub mod wal;
 
 pub use backend::{DeleteObjectResult, ObjectHeaders, PutObjectResult, StorageBackend};
 pub use batch::{BatchConfig, BatchWriter};
+pub use events::{CollectingEventSink, EventHandler, NoOpEventSink, StorageEvent};
 pub use local::LocalStorage;
 pub use metadata::{MetadataBackend, RedbMetadataStore};
+pub use placement::{
+    NodeId, PlacementPolicy, PlacementResult, SharedPlacementPolicy, SingleNodePlacement,
+};
 pub use sync::SyncManager;
 pub use wal::{RecoveryManager, RecoveryStats, WalEntry, WalReader, WalWriter, WalWriterConfig};
