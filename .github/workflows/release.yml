@@ -209,7 +209,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.setup.outputs.version }}
-          body: ${{ steps.changelog.outputs.content }}
+          body: |
+            ${{ steps.changelog.outputs.content }}
+
+            ## S3 Compatibility
+            [View S3 Compatibility Test Results](https://github.com/${{ github.repository }}/actions/workflows/s3-compat.yml)
           files: release/*
           fail_on_unmatched_files: true
         env:
