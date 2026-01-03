@@ -77,6 +77,11 @@ pub struct RequestQuery {
     /// Object lock configuration.
     #[serde(rename = "object-lock")]
     object_lock: Option<String>,
+    /// Object retention configuration.
+    retention: Option<String>,
+    /// Object legal hold status.
+    #[serde(rename = "legal-hold")]
+    legal_hold: Option<String>,
     /// Bucket encryption.
     encryption: Option<String>,
     /// Bucket notification.
@@ -453,6 +458,16 @@ async fn handle_object_get(
             .into_response();
     }
 
+    // Check for ?retention (GetObjectRetention)
+    if query.retention.is_some() {
+        return object::get_object_retention(state, path, Query(query)).await.into_response();
+    }
+
+    // Check for ?legal-hold (GetObjectLegalHold)
+    if query.legal_hold.is_some() {
+        return object::get_object_legal_hold(state, path, Query(query)).await.into_response();
+    }
+
     // Build response header overrides
     let overrides = object::ResponseHeaderOverrides {
         content_type: query.response_content_type,
@@ -499,6 +514,20 @@ async fn handle_object_put(
         let tagging_query =
             RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
         return object::put_object_tagging(state, path, Query(tagging_query), body)
+            .await
+            .into_response();
+    }
+
+    // Check for ?retention (PutObjectRetention)
+    if query.retention.is_some() {
+        return object::put_object_retention(state, path, Query(query), headers, body)
+            .await
+            .into_response();
+    }
+
+    // Check for ?legal-hold (PutObjectLegalHold)
+    if query.legal_hold.is_some() {
+        return object::put_object_legal_hold(state, path, Query(query), body)
             .await
             .into_response();
     }
