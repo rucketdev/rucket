@@ -6,6 +6,16 @@ on:
     types: [labeled]
   schedule:
     - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version (for report labeling)'
+        type: string
+        required: false
+    outputs:
+      report:
+        description: 'Markdown compatibility report for release notes'
+        value: ${{ jobs.generate-report.outputs.report }}
 
 jobs:
   minio-mint:
@@ -13,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' ||
       github.event_name == 'schedule' ||
       contains(github.event.pull_request.labels.*.name, 'release')
 
@@ -75,6 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' ||
       github.event_name == 'schedule' ||
       contains(github.event.pull_request.labels.*.name, 'release')
 

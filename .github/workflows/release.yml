@@ -25,7 +25,7 @@ jobs:
 
       - name: Get version from Cargo.toml
         id: version
-        run: echo "version=$(grep '^version' Cargo.toml | head -1 | cut -d'\"' -f2)" >> $GITHUB_OUTPUT
+        run: echo "version=$(awk -F'"' '/^version/ {print $2; exit}' Cargo.toml)" >> $GITHUB_OUTPUT
 
       - name: Create and push tag
         run: |
@@ -124,6 +124,13 @@ jobs:
             rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip
             rucket-v${{ needs.setup.outputs.version }}-${{ matrix.target }}.zip.sha256
 
+  s3-compat:
+    name: S3 Compatibility Tests
+    needs: [setup]
+    uses: ./.github/workflows/s3-compat.yml
+    with:
+      version: ${{ needs.setup.outputs.version }}
+
   docker:
     name: Build Docker Image
     needs: [setup]
@@ -174,7 +181,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [setup, build, docker]
+    needs: [setup, build, docker, s3-compat]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -197,48 +204,6 @@ jobs:
           cat *.sha256 > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Download S3 compatibility report
-        id: s3-compat
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Find the S3 compat workflow run for the PR head commit
-          PR_HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          echo "Looking for S3 compat run for commit: $PR_HEAD_SHA"
-
-          # Get the latest S3 compat workflow run for this PR
-          RUN_ID=$(gh api repos/${{ github.repository }}/actions/workflows/s3-compat.yml/runs \
-            --jq ".workflow_runs[] | select(.head_sha == \"$PR_HEAD_SHA\") | .id" \
-            | head -1)
-
-          if [ -z "$RUN_ID" ]; then
-            echo "No S3 compat workflow run found for commit $PR_HEAD_SHA"
-            echo "report=" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "Found workflow run: $RUN_ID"
-
-          # Download the compatibility report artifact
-          mkdir -p s3-compat-report
-          if gh run download "$RUN_ID" -n s3-compatibility-report -D s3-compat-report 2>/dev/null; then
-            if [ -f "s3-compat-report/compatibility-report.md" ]; then
-              echo "Successfully downloaded S3 compatibility report"
-              # Read report content for release notes
-              {
-                echo 'report<<EOF'
-                cat s3-compat-report/compatibility-report.md
-                echo 'EOF'
-              } >> $GITHUB_OUTPUT
-            else
-              echo "Report file not found in artifact"
-              echo "report=" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "Failed to download S3 compatibility report artifact"
-            echo "report=" >> $GITHUB_OUTPUT
-          fi
-
       - name: Generate changelog
         id: changelog
         uses: orhun/git-cliff-action@v4
@@ -250,23 +215,23 @@ jobs:
 
       - name: Prepare release body
         id: release-body
+        env:
+          S3_COMPAT_REPORT: ${{ needs.s3-compat.outputs.report }}
+          CHANGELOG: ${{ steps.changelog.outputs.content }}
+          REPO: ${{ github.repository }}
         run: |
-          # Start with changelog (content comes from git-cliff, already formatted)
-          echo '${{ steps.changelog.outputs.content }}' > release-body.md
+          # Start with changelog
+          echo "$CHANGELOG" > release-body.md
 
-          # Add S3 compatibility section
-          if [ -n "${{ steps.s3-compat.outputs.report }}" ]; then
+          # Add S3 compatibility section from the s3-compat job output
+          if [ -n "$S3_COMPAT_REPORT" ]; then
             echo "" >> release-body.md
-            echo '${{ steps.s3-compat.outputs.report }}' >> release-body.md
+            echo "$S3_COMPAT_REPORT" >> release-body.md
           else
-            cat >> release-body.md << 'EOF'
-
-          ## S3 Compatibility
-
-          [View S3 Compatibility Test Results](https://github.com/${{ github.repository }}/actions/workflows/s3-compat.yml)
-          EOF
-            # Fix indentation
-            sed -i 's/^          //' release-body.md
+            echo "" >> release-body.md
+            echo "## S3 Compatibility" >> release-body.md
+            echo "" >> release-body.md
+            echo "[View S3 Compatibility Test Results](https://github.com/${REPO}/actions/workflows/s3-compat.yml)" >> release-body.md
           fi
 
           # Output for release action
