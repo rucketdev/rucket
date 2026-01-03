@@ -1580,12 +1580,17 @@ impl MetadataBackend for RedbMetadataStore {
             let table = txn.open_table(OBJECTS).map_err(db_err)?;
 
             // Build range bounds
+            // We use an exclusive start for pagination: start AFTER the marker position
             let start_key = match (&key_marker, &version_id_marker) {
                 (Some(km), Some(vm)) => {
-                    // Start after this specific version
+                    // Start after this specific version by appending \0 to make it exclusive
+                    // Key format is bucket\0key\0version_id, so bucket\0key\0version_id\0 comes after
                     format!("{}\0{}\0{}\0", bucket, km, vm)
                 }
-                (Some(km), None) => format!("{}\0{}\0", bucket, km),
+                (Some(km), None) => {
+                    // Start after all versions of this key
+                    format!("{}\0{}\x01", bucket, km)
+                }
                 _ => match &prefix {
                     Some(p) => format!("{}\0{}", bucket, p),
                     None => format!("{}\0", bucket),
@@ -1603,20 +1608,27 @@ impl MetadataBackend for RedbMetadataStore {
             for entry in range {
                 let (composite_key, value) = entry.map_err(db_err)?;
 
-                // Parse the key to get object key
-                let obj_key = if let Some((_, key, _)) =
+                // Parse the key to get object key and version
+                let (obj_key, obj_version) = if let Some((_, key, ver)) =
                     Self::parse_object_version_key(composite_key.value())
                 {
-                    key.to_string()
+                    (key.to_string(), ver.to_string())
                 } else if let Some((_, key)) = Self::parse_legacy_object_key(composite_key.value())
                 {
-                    key.to_string()
+                    (key.to_string(), Self::CURRENT_VERSION.to_string())
                 } else {
                     continue;
                 };
 
-                // Skip entries at or before the key_marker
-                if let Some(ref km) = key_marker {
+                // Skip entries at or before the marker position
+                // When both markers are set, we need to compare (key, version) pairs
+                // We should have already excluded these via range start, but this is a safety check
+                if let (Some(ref km), Some(ref vm)) = (&key_marker, &version_id_marker) {
+                    if obj_key < *km || (obj_key == *km && obj_version <= *vm) {
+                        continue;
+                    }
+                } else if let Some(ref km) = key_marker {
+                    // When only key marker is set, skip entries with key <= key_marker
                     if obj_key <= *km {
                         continue;
                     }
