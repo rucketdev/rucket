@@ -79,3 +79,36 @@ Three representative object sizes are tested:
 | 1KB | Small objects, metadata-heavy workloads |
 | 64KB | Medium objects, typical API payloads |
 | 1MB | Large objects, file storage |
+
+## Comparison: Rucket vs MinIO
+
+Single-node throughput comparison using identical S3 API operations via boto3.
+
+### Test Configuration
+
+- **Client**: boto3 with S3v4 signatures
+- **Iterations**: 30 (PUT), 50 (GET) per size
+- **MinIO**: `quay.io/minio/minio:latest` in Docker
+- **Rucket**: Native binary with `periodic` sync profile
+
+### Results
+
+| Operation | Size | Rucket | MinIO | Ratio |
+|-----------|------|--------|-------|-------|
+| PUT | 1KB | 0.10 MB/s | 0.11 MB/s | 0.87x |
+| GET | 1KB | 0.84 MB/s | 0.58 MB/s | **1.46x** |
+| PUT | 64KB | 6.07 MB/s | 3.99 MB/s | **1.52x** |
+| GET | 64KB | 45.05 MB/s | 34.08 MB/s | **1.32x** |
+| PUT | 1MB | 55.16 MB/s | 30.52 MB/s | **1.81x** |
+| GET | 1MB | 576.76 MB/s | 382.46 MB/s | **1.51x** |
+
+### Analysis
+
+Rucket outperforms MinIO in 5 of 6 benchmarks:
+
+- **Small object PUT (1KB)**: MinIO is ~13% faster, likely due to optimized small-object handling
+- **GET operations**: Rucket is 32-51% faster across all sizes
+- **Large object PUT (1MB)**: Rucket is 81% faster, benefiting from efficient redb transactions
+- **Overall**: Rucket shows strong single-node performance with its embedded storage design
+
+Note: These benchmarks measure single-node, single-client performance. Production deployments should consider factors like concurrent clients, network latency, and durability guarantees.

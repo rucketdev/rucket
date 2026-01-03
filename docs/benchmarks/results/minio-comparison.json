@@ -1,0 +1,86 @@
+[
+  {
+    "name": "Rucket",
+    "endpoint": "http://127.0.0.1:9000",
+    "tests": [
+      {
+        "operation": "PUT",
+        "size": "1KB",
+        "mean_ms": 10.233514532834912,
+        "throughput_mbs": 0.09542787053916171
+      },
+      {
+        "operation": "GET",
+        "size": "1KB",
+        "mean_ms": 1.1586982966400683,
+        "throughput_mbs": 0.8428099901689543
+      },
+      {
+        "operation": "PUT",
+        "size": "64KB",
+        "mean_ms": 10.301294466868665,
+        "throughput_mbs": 6.0671986613929345
+      },
+      {
+        "operation": "GET",
+        "size": "64KB",
+        "mean_ms": 1.3872611231636256,
+        "throughput_mbs": 45.052801492389406
+      },
+      {
+        "operation": "PUT",
+        "size": "1MB",
+        "mean_ms": 18.127757200272754,
+        "throughput_mbs": 55.16402216513325
+      },
+      {
+        "operation": "GET",
+        "size": "1MB",
+        "mean_ms": 1.7338326817844063,
+        "throughput_mbs": 576.7569215334154
+      }
+    ]
+  },
+  {
+    "name": "MinIO",
+    "endpoint": "http://127.0.0.1:9002",
+    "tests": [
+      {
+        "operation": "PUT",
+        "size": "1KB",
+        "mean_ms": 8.895836008014157,
+        "throughput_mbs": 0.10977748455796914
+      },
+      {
+        "operation": "GET",
+        "size": "1KB",
+        "mean_ms": 1.6865307604894042,
+        "throughput_mbs": 0.5790362813878457
+      },
+      {
+        "operation": "PUT",
+        "size": "64KB",
+        "mean_ms": 15.681847099525234,
+        "throughput_mbs": 3.985499897004619
+      },
+      {
+        "operation": "GET",
+        "size": "64KB",
+        "mean_ms": 1.8338280578609556,
+        "throughput_mbs": 34.08171214966702
+      },
+      {
+        "operation": "PUT",
+        "size": "1MB",
+        "mean_ms": 32.76542980456725,
+        "throughput_mbs": 30.519971993793526
+      },
+      {
+        "operation": "GET",
+        "size": "1MB",
+        "mean_ms": 2.6146865193732083,
+        "throughput_mbs": 382.4550257136445
+      }
+    ]
+  }
+]
