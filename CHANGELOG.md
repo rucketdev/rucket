@@ -5,14 +5,26 @@ All notable changes to Rucket will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-01-03
+
+### Bug Fixes
+
+- Define remote_url macro in footer template by @rucketdev in [#92](https://github.com/rucketdev/rucket/pull/92)
+- Map "null" version ID to internal _current for non-versioned objects by @rucketdev in [#89](https://github.com/rucketdev/rucket/pull/89)
+- Parse Ceph s3-tests results in compatibility report by @rucketdev in [#88](https://github.com/rucketdev/rucket/pull/88)
+
+### Miscellaneous
+
+- Remove 'current' release option by @rucketdev in [#91](https://github.com/rucketdev/rucket/pull/91)
+- Use friendly names for release binaries by @rucketdev in [#90](https://github.com/rucketdev/rucket/pull/90)
 ## [0.1.0] - 2026-01-03
 
 ### Bug Fixes
 
+- Download only build artifacts in release workflow by @rucketdev in [#87](https://github.com/rucketdev/rucket/pull/87)
 - Use latest Rust Docker image by @rucketdev in [#84](https://github.com/rucketdev/rucket/pull/84)
-- Update Dockerfile Rust version for redb compatibility by @rucketdev in [#83](https://github.com/rucketdev/rucket/pull/83)
-- Fix release workflow version extraction and S3 compat integration by @rucketdev in [#81](https://github.com/rucketdev/rucket/pull/81)
-- Add S3 compatibility report to release notes by @rucketdev in [#80](https://github.com/rucketdev/rucket/pull/80)
+- Update Dockerfile to Rust 1.92 for redb 3.1.0 compatibility by @rucketdev in [#83](https://github.com/rucketdev/rucket/pull/83)
+- Release workflow version extraction and S3 compat integration by @rucketdev in [#81](https://github.com/rucketdev/rucket/pull/81)
 - Fix S3 compatibility test workflow by @rucketdev in [#79](https://github.com/rucketdev/rucket/pull/79)
 - Remove reach from codecov comment layout by @rucketdev in [#74](https://github.com/rucketdev/rucket/pull/74)
 - Make periodic sync test more robust for CI by @rucketdev in [#70](https://github.com/rucketdev/rucket/pull/70)
@@ -36,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### CI/CD
 
+- Trigger CI on labeled PRs by @rucketdev in [#78](https://github.com/rucketdev/rucket/pull/78)
 - Run CI jobs on release PRs and add S3 compat link by @rucketdev in [#76](https://github.com/rucketdev/rucket/pull/76)
 - Add Codecov integration for code coverage reporting by @rucketdev in [#39](https://github.com/rucketdev/rucket/pull/39)
 - Bump actions/upload-artifact from 4 to 6 by @dependabot[bot]
@@ -51,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
+- Add S3 compatibility report to release notes by @rucketdev in [#80](https://github.com/rucketdev/rucket/pull/80)
 - Add 12-factor app environment variable configuration by @rucketdev in [#72](https://github.com/rucketdev/rucket/pull/72)
 - Enable 11 more S3 compatibility tests (quick wins) by @rucketdev in [#64](https://github.com/rucketdev/rucket/pull/64)
 - Complete Phase 1 quick wins by @rucketdev in [#62](https://github.com/rucketdev/rucket/pull/62)
@@ -113,4 +127,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump quick-xml from 0.37.5 to 0.38.4 by @dependabot[bot]
 - Bump criterion from 0.5.1 to 0.8.1 by @dependabot[bot]
 - Bump directories from 5.0.1 to 6.0.0 by @dependabot[bot]
+[0.1.1]: https://github.com/rucketdev/rucket/compare/v0.1.0...v0.1.1
 
