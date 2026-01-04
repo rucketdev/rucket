@@ -34,38 +34,10 @@ jobs:
               - '.github/workflows/**'
 
   # ==========================================================================
-  # Linting (runs in parallel)
+  # Linting (single job for all lint checks)
   # ==========================================================================
-  check:
-    name: Check
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: ${{ env.PROTOC_VERSION }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: make check
-
-  fmt:
-    name: Format
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: make fmt-check
-
-  clippy:
-    name: Clippy
+  lint:
+    name: Lint
     needs: [changes]
     if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
@@ -78,19 +50,21 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: make clippy
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Check dependencies
+        uses: EmbarkStudios/cargo-deny-action@v2
 
-  deny:
-    name: Dependency Check
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
-
+  # ==========================================================================
+  # Documentation
+  # ==========================================================================
   docs:
     name: Documentation
     needs: [changes]
@@ -105,14 +79,19 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: make doc
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo doc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   # ==========================================================================
-  # Unit Tests (runs first, required by all other test jobs)
+  # Tests (all run in parallel)
   # ==========================================================================
   unit-tests:
     name: Unit Tests
-    needs: [changes, check, fmt, clippy]
+    needs: [changes]
     if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
@@ -124,15 +103,16 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run unit tests
         run: cargo test --all-features --lib --bins
 
-  # ==========================================================================
-  # Test Groups (run in parallel after unit tests pass)
-  # ==========================================================================
   integration-tests:
     name: Integration Tests
-    needs: [unit-tests]
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -143,12 +123,16 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run cluster integration tests
         run: cargo test --all-features --test cluster_integration -- --test-threads=1
 
   chaos-tests:
     name: Chaos Tests
-    needs: [unit-tests]
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -159,12 +143,16 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run chaos tests
         run: cargo test --features chaos-testing --package rucket-consensus --test chaos_tests
 
   simulation-tests:
     name: Simulation Tests
-    needs: [unit-tests]
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,12 +163,16 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run Turmoil simulation tests
         run: cargo test --package rucket-consensus --test simulation_tests
 
   cloud-discovery-tests:
     name: Cloud Discovery Tests
-    needs: [unit-tests]
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -191,12 +183,16 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run cloud discovery tests
         run: cargo test --features aws --package rucket-consensus --test cloud_discovery_tests
 
   api-tests:
     name: API Tests
-    needs: [unit-tests]
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -207,27 +203,34 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run API handler tests
         run: cargo test --package rucket-api --all-features
 
   storage-tests:
     name: Storage Tests
-    needs: [unit-tests]
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run storage tests
         run: cargo test --package rucket-storage --all-features
 
   # ==========================================================================
-  # Code Coverage (runs after all tests pass)
+  # Code Coverage (main branch only)
   # ==========================================================================
   coverage:
     name: Code Coverage
-    needs: [unit-tests, integration-tests, chaos-tests, simulation-tests]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [changes]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -240,6 +243,9 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate coverage
@@ -260,10 +266,7 @@ jobs:
   ci-success:
     name: CI Success
     needs:
-      - check
-      - fmt
-      - clippy
-      - deny
+      - lint
       - docs
       - unit-tests
       - integration-tests
@@ -277,10 +280,7 @@ jobs:
     steps:
       - name: Check all jobs passed
         run: |
-          if [[ "${{ needs.check.result }}" == "failure" ]] || \
-             [[ "${{ needs.fmt.result }}" == "failure" ]] || \
-             [[ "${{ needs.clippy.result }}" == "failure" ]] || \
-             [[ "${{ needs.deny.result }}" == "failure" ]] || \
+          if [[ "${{ needs.lint.result }}" == "failure" ]] || \
              [[ "${{ needs.docs.result }}" == "failure" ]] || \
              [[ "${{ needs.unit-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.integration-tests.result }}" == "failure" ]] || \
