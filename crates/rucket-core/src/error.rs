@@ -41,6 +41,8 @@ pub enum S3ErrorCode {
     ObjectLockConfigurationNotFoundError,
     /// The server-side encryption configuration was not found.
     ServerSideEncryptionConfigurationNotFoundError,
+    /// The public access block configuration was not found.
+    NoSuchPublicAccessBlockConfiguration,
     /// Your proposed upload is smaller than the minimum allowed object size.
     EntityTooSmall,
     /// Your proposed upload exceeds the maximum allowed object size.
@@ -71,6 +73,8 @@ pub enum S3ErrorCode {
     MalformedXML,
     /// The specified tag is not valid.
     InvalidTag,
+    /// The bucket policy is malformed.
+    MalformedPolicy,
 }
 
 impl S3ErrorCode {
@@ -87,7 +91,8 @@ impl S3ErrorCode {
             | Self::NoSuchLifecycleConfiguration
             | Self::NoSuchCORSConfiguration
             | Self::ObjectLockConfigurationNotFoundError
-            | Self::ServerSideEncryptionConfigurationNotFoundError => 404,
+            | Self::ServerSideEncryptionConfigurationNotFoundError
+            | Self::NoSuchPublicAccessBlockConfiguration => 404,
             Self::BucketAlreadyExists | Self::BucketNotEmpty => 409,
             Self::MethodNotAllowed => 405,
             Self::EntityTooSmall
@@ -101,7 +106,8 @@ impl S3ErrorCode {
             | Self::InvalidRequest
             | Self::InvalidBucketName
             | Self::MalformedXML
-            | Self::InvalidTag => 400,
+            | Self::InvalidTag
+            | Self::MalformedPolicy => 400,
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
@@ -138,6 +144,7 @@ impl S3ErrorCode {
             Self::ServerSideEncryptionConfigurationNotFoundError => {
                 "ServerSideEncryptionConfigurationNotFoundError"
             }
+            Self::NoSuchPublicAccessBlockConfiguration => "NoSuchPublicAccessBlockConfiguration",
             Self::EntityTooSmall => "EntityTooSmall",
             Self::EntityTooLarge => "EntityTooLarge",
             Self::InvalidPart => "InvalidPart",
@@ -153,6 +160,7 @@ impl S3ErrorCode {
             Self::InvalidBucketName => "InvalidBucketName",
             Self::MalformedXML => "MalformedXML",
             Self::InvalidTag => "InvalidTag",
+            Self::MalformedPolicy => "MalformedPolicy",
         }
     }
 }

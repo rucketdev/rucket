@@ -1,5 +1,6 @@
 //! Command line interface definition.
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
@@ -37,6 +38,70 @@ pub struct ServeArgs {
     /// Data directory (overrides config).
     #[arg(short, long)]
     pub data_dir: Option<PathBuf>,
+
+    // ========================================================================
+    // Cluster options
+    // ========================================================================
+    /// Enable cluster mode.
+    ///
+    /// When enabled, this node will participate in a Raft cluster for
+    /// distributed metadata operations.
+    #[arg(long)]
+    pub cluster: bool,
+
+    /// Node ID for cluster mode.
+    ///
+    /// Must be unique across the cluster and stable across restarts.
+    /// Defaults to 1.
+    #[arg(long, default_value = "1")]
+    pub node_id: u64,
+
+    /// Bind address for Raft cluster communication.
+    ///
+    /// This is the address other nodes use to reach this node.
+    /// Defaults to 127.0.0.1:9001.
+    #[arg(long, default_value = "127.0.0.1:9001")]
+    pub cluster_bind: SocketAddr,
+
+    /// Peer addresses for cluster formation.
+    ///
+    /// Specify as comma-separated host:port pairs.
+    /// Example: --peers node2:9001,node3:9001
+    #[arg(long, value_delimiter = ',')]
+    pub peers: Vec<String>,
+
+    /// Bootstrap a new cluster.
+    ///
+    /// Only use this on the first node of a new cluster.
+    /// Other nodes should start without this flag and be added via
+    /// add_learner/change_membership from the leader.
+    #[arg(long)]
+    pub bootstrap: bool,
+
+    /// Service discovery URI for automatic peer discovery.
+    ///
+    /// Formats:
+    ///   - dns://hostname:port       - DNS A record discovery
+    ///   - dns-srv://service.domain  - DNS SRV record discovery
+    ///   - gossip://peer1:port,peer2:port - Gossip-based (SPOF-free)
+    ///   - cloud://tag:value         - Auto-detect cloud (AWS/GCP/Azure)
+    ///   - mdns://service-name       - mDNS for LAN discovery
+    ///
+    /// Example: --discover dns://rucket.local:9001
+    /// Example: --discover gossip://seed1:9002,seed2:9002
+    /// Example: --discover cloud://rucket:cluster=production
+    #[arg(long)]
+    pub discover: Option<String>,
+
+    /// Expected number of nodes for bootstrap coordination.
+    ///
+    /// When set with --bootstrap, waits for this many nodes to be
+    /// discovered before forming the cluster. Enables coordinated
+    /// multi-node bootstrap.
+    ///
+    /// Example: --bootstrap --expect-nodes 3
+    #[arg(long, default_value = "1")]
+    pub expect_nodes: u32,
 }
 
 #[cfg(test)]

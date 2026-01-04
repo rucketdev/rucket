@@ -13,7 +13,9 @@ use tokio::sync::Mutex;
 use super::entry::WalEntry;
 
 /// WAL file format version.
-const WAL_VERSION: u32 = 1;
+/// Version 1: seq (8B) + len (4B) + data
+/// Version 2: seq (8B) + len (4B) + crc32 (4B) + data
+const WAL_VERSION: u32 = 2;
 
 /// Magic bytes for WAL file header.
 const WAL_MAGIC: &[u8; 4] = b"RWAL";
@@ -109,6 +111,7 @@ impl WalWriter {
     }
 
     /// Recover the last sequence number from an existing WAL file.
+    /// Handles both v1 (no CRC) and v2 (with CRC) formats.
     fn recover_sequence(path: &Path) -> std::io::Result<u64> {
         use std::io::{BufReader, Read};
 
@@ -125,7 +128,9 @@ impl WalWriter {
         let mut version_bytes = [0u8; 4];
         reader.read_exact(&mut version_bytes)?;
         let version = u32::from_le_bytes(version_bytes);
-        if version != WAL_VERSION {
+
+        // Accept both v1 and v2 for backward compatibility
+        if version != 1 && version != 2 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("Unsupported WAL version: {version}"),
@@ -153,6 +158,16 @@ impl WalWriter {
             }
             let len = u32::from_le_bytes(len_bytes) as usize;
 
+            // Skip CRC32 field for v2
+            if version >= 2 {
+                let mut crc_bytes = [0u8; 4];
+                match reader.read_exact(&mut crc_bytes) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                    Err(e) => return Err(e),
+                }
+            }
+
             // Skip the entry data
             let mut skip_buf = vec![0u8; len];
             match reader.read_exact(&mut skip_buf) {
@@ -170,6 +185,8 @@ impl WalWriter {
     /// Append an entry to the WAL.
     ///
     /// Returns the sequence number assigned to this entry.
+    /// Entry format (v2): seq (8B) + len (4B) + crc32 (4B) + data
+    /// CRC32 covers: seq + len + data
     pub async fn append(&self, entry: WalEntry) -> std::io::Result<u64> {
         let seq = self.sequence.fetch_add(1, Ordering::SeqCst) + 1;
 
@@ -177,17 +194,30 @@ impl WalWriter {
         let data = bincode::serialize(&entry)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-        let entry_size = 8 + 4 + data.len(); // seq + len + data
+        let seq_bytes = seq.to_le_bytes();
+        let len_bytes = (data.len() as u32).to_le_bytes();
+
+        // Compute CRC32 over: seq + len + data
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(&seq_bytes);
+        hasher.update(&len_bytes);
+        hasher.update(&data);
+        let crc = hasher.finalize();
+
+        let entry_size = 8 + 4 + 4 + data.len(); // seq + len + crc32 + data
 
         // Write to file
         {
             let mut file = self.file.lock().await;
 
             // Write sequence number
-            file.write_all(&seq.to_le_bytes())?;
+            file.write_all(&seq_bytes)?;
 
             // Write length
-            file.write_all(&(data.len() as u32).to_le_bytes())?;
+            file.write_all(&len_bytes)?;
+
+            // Write CRC32 checksum
+            file.write_all(&crc.to_le_bytes())?;
 
             // Write entry data
             file.write_all(&data)?;

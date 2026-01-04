@@ -2131,6 +2131,68 @@ pub async fn put_object_legal_hold(
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
+/// `GET /{bucket}/{key}?acl` - Get object ACL.
+///
+/// Returns a minimal ACL with owner having FULL_CONTROL.
+/// This is a simplified implementation for single-tenant mode.
+pub async fn get_object_acl(
+    State(state): State<AppState>,
+    Path((bucket, key)): Path<(String, String)>,
+    Query(query): Query<crate::router::RequestQuery>,
+) -> Result<Response, ApiError> {
+    // Get object metadata to verify it exists
+    let _metadata = if let Some(ref version_id) = query.version_id {
+        state.storage.head_object_version(&bucket, &key, version_id).await?
+    } else {
+        state.storage.head_object(&bucket, &key).await?
+    };
+
+    // Return minimal ACL with owner having FULL_CONTROL
+    let response = crate::xml::response::AccessControlPolicy::owner_full_control();
+    let xml = crate::xml::response::to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    let mut response_builder =
+        Response::builder().status(StatusCode::OK).header("Content-Type", "application/xml");
+
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
+    }
+
+    response_builder
+        .body(Body::from(xml))
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+}
+
+/// `PUT /{bucket}/{key}?acl` - Set object ACL.
+///
+/// Accepts but ignores ACL changes in single-tenant mode.
+pub async fn put_object_acl(
+    State(state): State<AppState>,
+    Path((bucket, key)): Path<(String, String)>,
+    Query(query): Query<crate::router::RequestQuery>,
+    _body: Bytes,
+) -> Result<Response, ApiError> {
+    // Get object metadata to verify it exists
+    let _metadata = if let Some(ref version_id) = query.version_id {
+        state.storage.head_object_version(&bucket, &key, version_id).await?
+    } else {
+        state.storage.head_object(&bucket, &key).await?
+    };
+
+    // Accept but ignore ACL changes (single-tenant mode)
+    let mut response_builder = Response::builder().status(StatusCode::OK);
+
+    if let Some(ref version_id) = query.version_id {
+        response_builder = response_builder.header("x-amz-version-id", version_id.as_str());
+    }
+
+    response_builder
+        .body(Body::empty())
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

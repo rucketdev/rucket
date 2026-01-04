@@ -9,9 +9,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  PROTOC_VERSION: "25.1"
 
 jobs:
-  # Detect which files changed to skip unnecessary jobs on docs-only changes
+  # ==========================================================================
+  # Change Detection
+  # ==========================================================================
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
@@ -30,17 +33,9 @@ jobs:
               - 'Makefile'
               - '.github/workflows/**'
 
-  check:
-    name: Check
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: make check
-
+  # ==========================================================================
+  # Fast Checks (no compilation, run immediately in parallel)
+  # ==========================================================================
   fmt:
     name: Format
     needs: [changes]
@@ -52,32 +47,6 @@ jobs:
         with:
           components: rustfmt
       - run: make fmt-check
-
-  clippy:
-    name: Clippy
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: make clippy
-
-  test:
-    name: Test
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: make test
-      - name: Run integration tests
-        run: make test-integration
 
   deny:
     name: Dependency Check
@@ -95,30 +64,253 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - run: make doc
+        env:
+          RUSTDOCFLAGS: -D warnings
 
-  coverage:
-    name: Code Coverage
+  # ==========================================================================
+  # Build (compiles once, saves cache for other jobs)
+  # ==========================================================================
+  build:
+    name: Build
     needs: [changes]
     if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+      - run: make build-all
+      - run: make build-tests
+
+  # ==========================================================================
+  # Clippy (runs after build to reuse compiled artifacts)
+  # ==========================================================================
+  clippy:
+    name: Clippy
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make clippy
+
+  # ==========================================================================
+  # Unit Tests (gate for all other tests - fail fast on basic issues)
+  # ==========================================================================
+  unit-tests:
+    name: Unit Tests
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-unit
+
+  # ==========================================================================
+  # Integration & System Tests (run after unit tests pass)
+  # ==========================================================================
+  integration-tests:
+    name: Integration Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-integration
+
+  chaos-tests:
+    name: Chaos Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-chaos
+
+  simulation-tests:
+    name: Simulation Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-simulation
+
+  cloud-discovery-tests:
+    name: Cloud Discovery Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-cloud-discovery
+
+  api-tests:
+    name: API Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-api
+
+  storage-tests:
+    name: Storage Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-storage
+
+  # ==========================================================================
+  # Code Coverage (main branch only)
+  # ==========================================================================
+  coverage:
+    name: Code Coverage
+    needs: [changes]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Generate coverage
+      - run: make coverage
+
+  # ==========================================================================
+  # CI Success (single required check for branch protection)
+  # ==========================================================================
+  ci-success:
+    name: CI Success
+    needs:
+      - fmt
+      - deny
+      - docs
+      - clippy
+      - unit-tests
+      - integration-tests
+      - chaos-tests
+      - simulation-tests
+      - cloud-discovery-tests
+      - api-tests
+      - storage-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs passed
         run: |
-          cargo llvm-cov --all-features --workspace \
-            --ignore-filename-regex='benches/|tests/' \
-            --lcov --output-path lcov.info
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-          fail_ci_if_error: true
+          if [[ "${{ needs.fmt.result }}" == "failure" ]] || \
+             [[ "${{ needs.deny.result }}" == "failure" ]] || \
+             [[ "${{ needs.docs.result }}" == "failure" ]] || \
+             [[ "${{ needs.clippy.result }}" == "failure" ]] || \
+             [[ "${{ needs.unit-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.integration-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.chaos-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.simulation-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.cloud-discovery-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.api-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.storage-tests.result }}" == "failure" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
+          echo "All required jobs passed!"

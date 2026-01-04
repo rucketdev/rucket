@@ -3,6 +3,9 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
+use rucket_core::encryption::ServerSideEncryptionConfiguration;
+use rucket_core::lifecycle::LifecycleConfiguration;
+use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::types::{
     BucketInfo, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag, MultipartUpload,
     ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, TagSet, VersioningStatus,
@@ -85,6 +88,72 @@ pub trait StorageBackend: Send + Sync {
 
     /// Delete CORS configuration for a bucket.
     async fn delete_bucket_cors(&self, name: &str) -> Result<()>;
+
+    // Bucket policy operations
+
+    /// Get bucket policy for a bucket.
+    /// Returns the raw JSON policy string, or None if no policy is set.
+    async fn get_bucket_policy(&self, name: &str) -> Result<Option<String>>;
+
+    /// Set bucket policy for a bucket.
+    async fn put_bucket_policy(&self, name: &str, policy_json: &str) -> Result<()>;
+
+    /// Delete bucket policy for a bucket.
+    async fn delete_bucket_policy(&self, name: &str) -> Result<()>;
+
+    // Public Access Block operations
+
+    /// Get Public Access Block configuration for a bucket.
+    async fn get_public_access_block(
+        &self,
+        name: &str,
+    ) -> Result<Option<PublicAccessBlockConfiguration>>;
+
+    /// Set Public Access Block configuration for a bucket.
+    async fn put_public_access_block(
+        &self,
+        name: &str,
+        config: PublicAccessBlockConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Public Access Block configuration for a bucket.
+    async fn delete_public_access_block(&self, name: &str) -> Result<()>;
+
+    // Lifecycle Configuration operations
+
+    /// Get Lifecycle Configuration for a bucket.
+    async fn get_lifecycle_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<LifecycleConfiguration>>;
+
+    /// Set Lifecycle Configuration for a bucket.
+    async fn put_lifecycle_configuration(
+        &self,
+        name: &str,
+        config: LifecycleConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Lifecycle Configuration for a bucket.
+    async fn delete_lifecycle_configuration(&self, name: &str) -> Result<()>;
+
+    // Server-Side Encryption Configuration operations
+
+    /// Get Server-Side Encryption Configuration for a bucket.
+    async fn get_encryption_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<ServerSideEncryptionConfiguration>>;
+
+    /// Set Server-Side Encryption Configuration for a bucket.
+    async fn put_encryption_configuration(
+        &self,
+        name: &str,
+        config: ServerSideEncryptionConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Server-Side Encryption Configuration for a bucket.
+    async fn delete_encryption_configuration(&self, name: &str) -> Result<()>;
 
     // Object operations
 

@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use dashmap::DashMap;
+use rucket_core::encryption::ServerSideEncryptionConfiguration;
 use rucket_core::error::{Error, S3ErrorCode};
+use rucket_core::lifecycle::LifecycleConfiguration;
+use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, ETag, MultipartUpload, ObjectMetadata, Part, TagSet,
     VersioningStatus,
@@ -268,6 +271,155 @@ impl LocalStorage {
         Ok(storage)
     }
 
+    /// Create a new local storage backend with an externally provided metadata backend.
+    ///
+    /// This constructor is used in cluster mode to inject a `RaftMetadataBackend`
+    /// that routes metadata operations through Raft consensus.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directories cannot be created or WAL recovery fails.
+    pub async fn with_metadata_backend(
+        metadata: Arc<dyn MetadataBackend>,
+        data_dir: PathBuf,
+        temp_dir: PathBuf,
+        sync_config: SyncConfig,
+        wal_config: WalConfig,
+    ) -> Result<Self> {
+        // Create directories if they don't exist
+        fs::create_dir_all(&data_dir).await?;
+        fs::create_dir_all(&temp_dir).await?;
+
+        // Open WAL and run recovery if enabled
+        let mut last_recovery_stats = None;
+        let wal = if wal_config.enabled {
+            let wal_dir = data_dir.join("wal");
+
+            // Run recovery before opening WAL for writes
+            let recovery = RecoveryManager::new(wal_dir.clone(), data_dir.clone());
+            match recovery.recover().await {
+                Ok(mut stats) => {
+                    if stats.recovery_needed {
+                        tracing::info!(
+                            puts_rolled_back = stats.puts_rolled_back,
+                            deletes_rolled_back = stats.deletes_rolled_back,
+                            "WAL recovery complete (crash detected)"
+                        );
+                    }
+
+                    // Full recovery: scan orphans and verify checksums
+                    if wal_config.recovery_mode == RecoveryMode::Full {
+                        tracing::info!(
+                            "Running full recovery with orphan scan and checksum verification"
+                        );
+
+                        // Scan for orphaned files
+                        let metadata_ref = Arc::clone(&metadata);
+                        match recovery
+                            .scan_orphans(|bucket, uuid| {
+                                metadata_ref.uuid_exists_sync(bucket, uuid)
+                            })
+                            .await
+                        {
+                            Ok(orphans) => {
+                                stats.orphans_found = orphans.len();
+                                if !orphans.is_empty() {
+                                    tracing::warn!(
+                                        count = orphans.len(),
+                                        "Found orphaned files (files without metadata)"
+                                    );
+                                    for path in &orphans {
+                                        tracing::warn!(path = %path.display(), "Orphaned file found");
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to scan for orphans");
+                                stats.errors += 1;
+                            }
+                        }
+
+                        // Verify checksums of all objects
+                        match Self::verify_all_checksums(&data_dir, &metadata).await {
+                            Ok((verified, mismatches)) => {
+                                stats.objects_verified = verified;
+                                stats.checksum_mismatches = mismatches;
+                                if mismatches > 0 {
+                                    tracing::error!(
+                                        objects_verified = verified,
+                                        checksum_mismatches = mismatches,
+                                        "DATA CORRUPTION DETECTED: {} objects have invalid checksums",
+                                        mismatches
+                                    );
+                                } else if verified > 0 {
+                                    tracing::info!(
+                                        objects_verified = verified,
+                                        "All object checksums verified successfully"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to verify checksums");
+                                stats.errors += 1;
+                            }
+                        }
+
+                        tracing::info!(?stats, "Full recovery complete");
+                    }
+
+                    // Store the recovery stats for later inspection
+                    last_recovery_stats = Some(stats);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "WAL recovery failed, continuing anyway");
+                }
+            }
+
+            // Clean up old WAL files
+            if let Err(e) = recovery.cleanup_old_wals().await {
+                tracing::warn!(error = %e, "Failed to cleanup old WAL files");
+            }
+
+            // Open WAL for writes
+            let wal_sync_mode = match wal_config.sync_mode {
+                rucket_core::WalSyncMode::None => WalSyncMode::None,
+                rucket_core::WalSyncMode::Fdatasync => WalSyncMode::Fdatasync,
+                rucket_core::WalSyncMode::Fsync => WalSyncMode::Fsync,
+            };
+
+            let writer_config =
+                WalWriterConfig { wal_dir, sync_mode: wal_sync_mode, ..Default::default() };
+
+            match WalWriter::open(&writer_config) {
+                Ok(writer) => Some(Arc::new(writer)),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to open WAL, continuing without");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let verify_checksums_on_read = sync_config.verify_checksums_on_read;
+        let storage = Self {
+            data_dir,
+            temp_dir,
+            metadata,
+            sync_manager: SyncManager::new(sync_config),
+            key_locks: Arc::new(DashMap::new()),
+            wal,
+            verify_checksums_on_read,
+            last_recovery_stats,
+            encryption_provider: None,
+        };
+
+        // Clean up any orphaned temp files from previous runs
+        storage.recover_temp_files().await?;
+
+        Ok(storage)
+    }
+
     /// Enable SSE-S3 encryption with the given master key.
     ///
     /// Once enabled, all new objects will be encrypted at rest.
@@ -301,6 +453,15 @@ impl LocalStorage {
     #[must_use]
     pub fn is_encryption_enabled(&self) -> bool {
         self.encryption_provider.is_some()
+    }
+
+    /// Returns a reference to the metadata backend.
+    ///
+    /// This is useful for integrating with distributed consensus,
+    /// where the metadata backend needs to be wrapped by a Raft layer.
+    #[must_use]
+    pub fn metadata_backend(&self) -> Arc<dyn MetadataBackend> {
+        Arc::clone(&self.metadata)
     }
 
     /// Verify CRC32C checksums of all objects in storage.
@@ -599,6 +760,75 @@ impl StorageBackend for LocalStorage {
 
     async fn delete_bucket_cors(&self, name: &str) -> Result<()> {
         self.metadata.delete_bucket_cors(name).await
+    }
+
+    async fn get_bucket_policy(&self, name: &str) -> Result<Option<String>> {
+        self.metadata.get_bucket_policy(name).await
+    }
+
+    async fn put_bucket_policy(&self, name: &str, policy_json: &str) -> Result<()> {
+        self.metadata.put_bucket_policy(name, policy_json).await
+    }
+
+    async fn delete_bucket_policy(&self, name: &str) -> Result<()> {
+        self.metadata.delete_bucket_policy(name).await
+    }
+
+    async fn get_public_access_block(
+        &self,
+        name: &str,
+    ) -> Result<Option<PublicAccessBlockConfiguration>> {
+        self.metadata.get_public_access_block(name).await
+    }
+
+    async fn put_public_access_block(
+        &self,
+        name: &str,
+        config: PublicAccessBlockConfiguration,
+    ) -> Result<()> {
+        self.metadata.put_public_access_block(name, config).await
+    }
+
+    async fn delete_public_access_block(&self, name: &str) -> Result<()> {
+        self.metadata.delete_public_access_block(name).await
+    }
+
+    async fn get_lifecycle_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<LifecycleConfiguration>> {
+        self.metadata.get_lifecycle_configuration(name).await
+    }
+
+    async fn put_lifecycle_configuration(
+        &self,
+        name: &str,
+        config: LifecycleConfiguration,
+    ) -> Result<()> {
+        self.metadata.put_lifecycle_configuration(name, config).await
+    }
+
+    async fn delete_lifecycle_configuration(&self, name: &str) -> Result<()> {
+        self.metadata.delete_lifecycle_configuration(name).await
+    }
+
+    async fn get_encryption_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<ServerSideEncryptionConfiguration>> {
+        self.metadata.get_encryption_configuration(name).await
+    }
+
+    async fn put_encryption_configuration(
+        &self,
+        name: &str,
+        config: ServerSideEncryptionConfiguration,
+    ) -> Result<()> {
+        self.metadata.put_encryption_configuration(name, config).await
+    }
+
+    async fn delete_encryption_configuration(&self, name: &str) -> Result<()> {
+        self.metadata.delete_encryption_configuration(name).await
     }
 
     async fn put_object(

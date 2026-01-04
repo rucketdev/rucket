@@ -112,7 +112,7 @@ pub struct CorsRuleRequest {
     #[serde(rename = "ID")]
     pub id: Option<String>,
 
-    /// Allowed origins (e.g., "*" or "http://example.com").
+    /// Allowed origins (e.g., `*` or `http://example.com`).
     #[serde(rename = "AllowedOrigin", default)]
     pub allowed_origins: Vec<String>,
 
@@ -131,6 +131,167 @@ pub struct CorsRuleRequest {
     /// Max age for preflight cache in seconds.
     #[serde(rename = "MaxAgeSeconds")]
     pub max_age_seconds: Option<u32>,
+}
+
+/// `PublicAccessBlockConfiguration` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "PublicAccessBlockConfiguration")]
+pub struct PublicAccessBlockConfigurationRequest {
+    /// Block public ACLs on this bucket and objects in this bucket.
+    #[serde(rename = "BlockPublicAcls")]
+    pub block_public_acls: Option<bool>,
+
+    /// Ignore public ACLs on this bucket and objects in this bucket.
+    #[serde(rename = "IgnorePublicAcls")]
+    pub ignore_public_acls: Option<bool>,
+
+    /// Block public bucket policies for this bucket.
+    #[serde(rename = "BlockPublicPolicy")]
+    pub block_public_policy: Option<bool>,
+
+    /// Restrict public bucket policies for this bucket.
+    #[serde(rename = "RestrictPublicBuckets")]
+    pub restrict_public_buckets: Option<bool>,
+}
+
+/// `LifecycleConfiguration` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "LifecycleConfiguration")]
+pub struct LifecycleConfigurationRequest {
+    /// List of lifecycle rules.
+    #[serde(rename = "Rule", default)]
+    pub rules: Vec<LifecycleRuleRequest>,
+}
+
+/// A lifecycle rule in the request.
+#[derive(Debug, Deserialize)]
+pub struct LifecycleRuleRequest {
+    /// Unique identifier for the rule.
+    #[serde(rename = "ID")]
+    pub id: Option<String>,
+
+    /// Status of the rule.
+    #[serde(rename = "Status")]
+    pub status: String,
+
+    /// Filter to select objects.
+    #[serde(rename = "Filter")]
+    pub filter: Option<LifecycleFilterRequest>,
+
+    /// Expiration settings.
+    #[serde(rename = "Expiration")]
+    pub expiration: Option<ExpirationRequest>,
+
+    /// Noncurrent version expiration settings.
+    #[serde(rename = "NoncurrentVersionExpiration")]
+    pub noncurrent_version_expiration: Option<NoncurrentVersionExpirationRequest>,
+
+    /// Abort incomplete multipart upload settings.
+    #[serde(rename = "AbortIncompleteMultipartUpload")]
+    pub abort_incomplete_multipart_upload: Option<AbortIncompleteMultipartUploadRequest>,
+}
+
+/// Lifecycle filter in the request.
+#[derive(Debug, Deserialize)]
+pub struct LifecycleFilterRequest {
+    /// Key name prefix.
+    #[serde(rename = "Prefix")]
+    pub prefix: Option<String>,
+
+    /// Tag filter.
+    #[serde(rename = "Tag")]
+    pub tag: Option<LifecycleTagRequest>,
+
+    /// Logical AND of filters.
+    #[serde(rename = "And")]
+    pub and: Option<LifecycleFilterAndRequest>,
+}
+
+/// Logical AND filter for lifecycle.
+#[derive(Debug, Deserialize)]
+pub struct LifecycleFilterAndRequest {
+    /// Key name prefix.
+    #[serde(rename = "Prefix")]
+    pub prefix: Option<String>,
+
+    /// Tags to match.
+    #[serde(rename = "Tag", default)]
+    pub tags: Vec<LifecycleTagRequest>,
+}
+
+/// Tag in lifecycle filter.
+#[derive(Debug, Deserialize)]
+pub struct LifecycleTagRequest {
+    /// Tag key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Tag value.
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
+/// Expiration settings in request.
+#[derive(Debug, Deserialize)]
+pub struct ExpirationRequest {
+    /// Days after creation when object expires.
+    #[serde(rename = "Days")]
+    pub days: Option<u32>,
+    /// Date when objects expire.
+    #[serde(rename = "Date")]
+    pub date: Option<String>,
+    /// Whether to remove expired delete markers.
+    #[serde(rename = "ExpiredObjectDeleteMarker")]
+    pub expired_object_delete_marker: Option<bool>,
+}
+
+/// Noncurrent version expiration settings in request.
+#[derive(Debug, Deserialize)]
+pub struct NoncurrentVersionExpirationRequest {
+    /// Days after becoming noncurrent when version expires.
+    #[serde(rename = "NoncurrentDays")]
+    pub noncurrent_days: u32,
+    /// Number of noncurrent versions to retain.
+    #[serde(rename = "NewerNoncurrentVersions")]
+    pub newer_noncurrent_versions: Option<u32>,
+}
+
+/// Abort incomplete multipart upload settings in request.
+#[derive(Debug, Deserialize)]
+pub struct AbortIncompleteMultipartUploadRequest {
+    /// Days after initiation when incomplete uploads are aborted.
+    #[serde(rename = "DaysAfterInitiation")]
+    pub days_after_initiation: u32,
+}
+
+/// `ServerSideEncryptionConfiguration` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "ServerSideEncryptionConfiguration")]
+pub struct ServerSideEncryptionConfigurationRequest {
+    /// List of encryption rules.
+    #[serde(rename = "Rule", default)]
+    pub rules: Vec<ServerSideEncryptionRuleRequest>,
+}
+
+/// A server-side encryption rule in the request.
+#[derive(Debug, Deserialize)]
+pub struct ServerSideEncryptionRuleRequest {
+    /// Default encryption settings.
+    #[serde(rename = "ApplyServerSideEncryptionByDefault")]
+    pub apply_server_side_encryption_by_default: ApplyServerSideEncryptionByDefaultRequest,
+    /// Whether to use bucket key for SSE-KMS.
+    #[serde(rename = "BucketKeyEnabled")]
+    pub bucket_key_enabled: Option<bool>,
+}
+
+/// Default encryption settings in request.
+#[derive(Debug, Deserialize)]
+pub struct ApplyServerSideEncryptionByDefaultRequest {
+    /// Server-side encryption algorithm.
+    #[serde(rename = "SSEAlgorithm")]
+    pub sse_algorithm: String,
+    /// KMS master key ID (for aws:kms algorithm).
+    #[serde(rename = "KMSMasterKeyID")]
+    pub kms_master_key_id: Option<String>,
 }
 
 #[cfg(test)]

@@ -86,6 +86,16 @@ pub struct RequestQuery {
     encryption: Option<String>,
     /// Bucket notification.
     notification: Option<String>,
+    /// Public access block configuration.
+    #[serde(rename = "publicAccessBlock")]
+    public_access_block: Option<String>,
+    /// Access control list.
+    acl: Option<String>,
+    /// Accelerate configuration (not implemented).
+    accelerate: Option<String>,
+    /// Request payment configuration (not implemented).
+    #[serde(rename = "requestPayment")]
+    request_payment: Option<String>,
     /// List object versions.
     versions: Option<String>,
     /// Bucket location.
@@ -264,6 +274,22 @@ async fn handle_bucket_put(
     if query.notification.is_some() {
         return bucket::set_bucket_notification(state, path, body).await.into_response();
     }
+    // Check for ?publicAccessBlock (PutPublicAccessBlock)
+    if query.public_access_block.is_some() {
+        return bucket::put_public_access_block(state, path, body).await.into_response();
+    }
+    // Check for ?acl (PutBucketAcl)
+    if query.acl.is_some() {
+        return bucket::put_bucket_acl(state, path, body).await.into_response();
+    }
+    // Check for ?accelerate (PutBucketAccelerateConfiguration - not implemented)
+    if query.accelerate.is_some() {
+        return bucket::put_bucket_accelerate(state, path).await.into_response();
+    }
+    // Check for ?requestPayment (PutBucketRequestPayment - not implemented)
+    if query.request_payment.is_some() {
+        return bucket::put_bucket_request_payment(state, path).await.into_response();
+    }
     // Default: CreateBucket
     bucket::create_bucket(state, path, headers).await.into_response()
 }
@@ -293,6 +319,10 @@ async fn handle_bucket_delete(
     // Check for ?encryption (DeleteBucketEncryption)
     if query.encryption.is_some() {
         return bucket::delete_bucket_encryption(state, path).await.into_response();
+    }
+    // Check for ?publicAccessBlock (DeletePublicAccessBlock)
+    if query.public_access_block.is_some() {
+        return bucket::delete_public_access_block(state, path).await.into_response();
     }
     // Default: DeleteBucket
     bucket::delete_bucket(state, path).await.into_response()
@@ -382,6 +412,22 @@ async fn handle_bucket_get(
     if query.notification.is_some() {
         return bucket::get_bucket_notification(state, path).await.into_response();
     }
+    // Check for ?publicAccessBlock (GetPublicAccessBlock)
+    if query.public_access_block.is_some() {
+        return bucket::get_public_access_block(state, path).await.into_response();
+    }
+    // Check for ?acl (GetBucketAcl)
+    if query.acl.is_some() {
+        return bucket::get_bucket_acl(state, path).await.into_response();
+    }
+    // Check for ?accelerate (GetBucketAccelerateConfiguration - not implemented)
+    if query.accelerate.is_some() {
+        return bucket::get_bucket_accelerate(state, path).await.into_response();
+    }
+    // Check for ?requestPayment (GetBucketRequestPayment - not implemented)
+    if query.request_payment.is_some() {
+        return bucket::get_bucket_request_payment(state, path).await.into_response();
+    }
     // Check for ?location (GetBucketLocation)
     if query.location.is_some() {
         return bucket::get_bucket_location(state, path).await.into_response();
@@ -469,6 +515,11 @@ async fn handle_object_get(
         return object::get_object_legal_hold(state, path, Query(query)).await.into_response();
     }
 
+    // Check for ?acl (GetObjectAcl)
+    if query.acl.is_some() {
+        return object::get_object_acl(state, path, Query(query)).await.into_response();
+    }
+
     // Build response header overrides
     let overrides = object::ResponseHeaderOverrides {
         content_type: query.response_content_type,
@@ -531,6 +582,11 @@ async fn handle_object_put(
         return object::put_object_legal_hold(state, path, Query(query), body)
             .await
             .into_response();
+    }
+
+    // Check for ?acl (PutObjectAcl)
+    if query.acl.is_some() {
+        return object::put_object_acl(state, path, Query(query), body).await.into_response();
     }
 
     // Check for ?partNumber&uploadId (upload part)

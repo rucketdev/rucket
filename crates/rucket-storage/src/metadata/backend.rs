@@ -3,6 +3,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use rucket_core::encryption::ServerSideEncryptionConfiguration;
+use rucket_core::lifecycle::LifecycleConfiguration;
+use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
     ObjectRetention, Part, TagSet, VersioningStatus,
@@ -522,4 +525,128 @@ pub trait MetadataBackend: Send + Sync + 'static {
         version_id: &str,
         enabled: bool,
     ) -> Result<()>;
+
+    // === Bucket Policy Operations ===
+
+    /// Get bucket policy for a bucket.
+    ///
+    /// Returns the raw JSON policy string.
+    /// Returns `None` if no policy is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_bucket_policy(&self, bucket: &str) -> Result<Option<String>>;
+
+    /// Set bucket policy for a bucket.
+    ///
+    /// Stores the raw JSON policy string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_bucket_policy(&self, bucket: &str, policy_json: &str) -> Result<()>;
+
+    /// Delete bucket policy for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_bucket_policy(&self, bucket: &str) -> Result<()>;
+
+    // === Public Access Block Operations ===
+
+    /// Get Public Access Block configuration for a bucket.
+    ///
+    /// Returns `None` if no configuration is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_public_access_block(
+        &self,
+        bucket: &str,
+    ) -> Result<Option<PublicAccessBlockConfiguration>>;
+
+    /// Set Public Access Block configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_public_access_block(
+        &self,
+        bucket: &str,
+        config: PublicAccessBlockConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Public Access Block configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_public_access_block(&self, bucket: &str) -> Result<()>;
+
+    // === Lifecycle Configuration Operations ===
+
+    /// Get Lifecycle Configuration for a bucket.
+    ///
+    /// Returns `None` if no configuration is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_lifecycle_configuration(
+        &self,
+        bucket: &str,
+    ) -> Result<Option<LifecycleConfiguration>>;
+
+    /// Set Lifecycle Configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_lifecycle_configuration(
+        &self,
+        bucket: &str,
+        config: LifecycleConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Lifecycle Configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_lifecycle_configuration(&self, bucket: &str) -> Result<()>;
+
+    // === Server-Side Encryption Configuration Operations ===
+
+    /// Get Server-Side Encryption Configuration for a bucket.
+    ///
+    /// Returns `None` if no configuration is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_encryption_configuration(
+        &self,
+        bucket: &str,
+    ) -> Result<Option<ServerSideEncryptionConfiguration>>;
+
+    /// Set Server-Side Encryption Configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_encryption_configuration(
+        &self,
+        bucket: &str,
+        config: ServerSideEncryptionConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Server-Side Encryption Configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_encryption_configuration(&self, bucket: &str) -> Result<()>;
 }
