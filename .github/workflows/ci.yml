@@ -34,6 +34,30 @@ jobs:
               - '.github/workflows/**'
 
   # ==========================================================================
+  # Fast Checks (no compilation required, run immediately)
+  # ==========================================================================
+  fmt:
+    name: Format
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  deny:
+    name: Dependency Check
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # ==========================================================================
   # Build (compiles once, populates cache for all other jobs)
   # ==========================================================================
   build:
@@ -50,7 +74,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
@@ -60,10 +84,10 @@ jobs:
         run: cargo test --all-features --no-run
 
   # ==========================================================================
-  # Linting (runs after build to use cached artifacts)
+  # Clippy & Docs (run after build to use cached artifacts)
   # ==========================================================================
-  lint:
-    name: Lint
+  clippy:
+    name: Clippy
     needs: [build]
     runs-on: ubuntu-latest
     steps:
@@ -75,21 +99,13 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Check dependencies
-        uses: EmbarkStudios/cargo-deny-action@v2
+      - run: cargo clippy --all-targets --all-features -- -D warnings
 
-  # ==========================================================================
-  # Documentation
-  # ==========================================================================
   docs:
     name: Documentation
     needs: [build]
@@ -283,7 +299,9 @@ jobs:
   ci-success:
     name: CI Success
     needs:
-      - lint
+      - fmt
+      - deny
+      - clippy
       - docs
       - unit-tests
       - integration-tests
@@ -297,7 +315,9 @@ jobs:
     steps:
       - name: Check all jobs passed
         run: |
-          if [[ "${{ needs.lint.result }}" == "failure" ]] || \
+          if [[ "${{ needs.fmt.result }}" == "failure" ]] || \
+             [[ "${{ needs.deny.result }}" == "failure" ]] || \
+             [[ "${{ needs.clippy.result }}" == "failure" ]] || \
              [[ "${{ needs.docs.result }}" == "failure" ]] || \
              [[ "${{ needs.unit-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.integration-tests.result }}" == "failure" ]] || \
