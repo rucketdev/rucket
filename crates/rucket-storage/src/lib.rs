@@ -23,6 +23,9 @@ pub mod streaming;
 pub mod sync;
 pub mod wal;
 
+#[cfg(test)]
+mod sync_durability_tests;
+
 pub use backend::{DeleteObjectResult, ObjectHeaders, PutObjectResult, StorageBackend};
 pub use batch::{BatchConfig, BatchWriter};
 pub use crypto::{CryptoError, EncryptionAlgorithm, EncryptionMetadata, SseS3Provider};
