@@ -4,16 +4,18 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 
 ## Test Results Summary
 
-**Ceph s3-tests Pass Rate: 36%** (305/829 tests passing)
-
 | Category | Status | Notes |
 |----------|--------|-------|
 | Basic Operations | Supported | PUT, GET, DELETE, HEAD, LIST |
-| Bucket Operations | Supported | Create, delete, list, location |
+| Bucket Operations | Supported | Create, delete, list, location, policies |
 | Object Versioning | Partial | Basic versioning works; some edge cases pending |
 | Multipart Upload | Partial | Basic multipart works; versioning integration pending |
 | Presigned URLs | Partial | Basic presigning works; some expiration edge cases |
 | CORS | Partial | Configuration works; preflight responses pending |
+| Object Lock | Supported | Retention (Governance/Compliance) and Legal Hold |
+| Server-Side Encryption | Partial | SSE-S3 implemented; SSE-C/SSE-KMS pending |
+| Bucket Policies | Supported | Policy CRUD and request-time evaluation |
+| Object Tagging | Supported | Full tagging support including versioned objects |
 
 ## Fully Supported Features
 
@@ -41,6 +43,22 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 - Cache-Control, Expires
 - ETag (MD5 for simple uploads, multipart format for multipart)
 
+### Object Tagging
+- PutObjectTagging / GetObjectTagging / DeleteObjectTagging
+- Tagging with versioned objects
+- Tagging header on PutObject
+
+### Object Lock
+- PutObjectLockConfiguration / GetObjectLockConfiguration
+- PutObjectRetention / GetObjectRetention (Governance and Compliance modes)
+- PutObjectLegalHold / GetObjectLegalHold
+- Retention enforcement on delete
+
+### Server-Side Encryption
+- SSE-S3 (AES-256-GCM encryption at rest)
+- GetBucketEncryption / PutBucketEncryption / DeleteBucketEncryption
+- Default bucket encryption
+
 ### Checksums
 - CRC32C (x-amz-checksum-crc32c)
 - SHA256 (x-amz-checksum-sha256)
@@ -48,6 +66,12 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 ### Authentication
 - AWS Signature Version 4 (header and query string)
 - Presigned URLs
+
+### Bucket Policies
+- PutBucketPolicy / GetBucketPolicy / DeleteBucketPolicy
+- Policy evaluation on object operations
+- Principal, Action, Resource matching
+- Condition keys (IpAddress, SecureTransport, StringEquals)
 
 ## Partially Supported Features
 
@@ -93,49 +117,33 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 
 ## Not Implemented Features
 
-### Server-Side Encryption (105 failing tests)
-- SSE-S3 (AES256)
+### Server-Side Encryption (Partial)
 - SSE-C (Customer-provided keys)
 - SSE-KMS (AWS KMS keys)
-- Bucket default encryption
 
-**Rationale**: Encryption adds complexity; planned for Phase 3.
+**Rationale**: SSE-S3 is implemented; SSE-C and SSE-KMS require key management infrastructure.
 
-### Access Control Lists (51 failing tests)
+### Access Control Lists
 - Object ACLs
 - Bucket ACLs
 - Canned ACLs (public-read, private, etc.)
 - Grant headers
 
-**Rationale**: Single-user mode in Phase 1; multi-user ACLs planned for Phase 3.
+**Rationale**: Single-user mode in Phase 1; bucket policies provide access control.
 
-### Bucket Policies (32 failing tests)
-- Policy-based access control
-- Condition keys
-- Principal specifications
-
-**Rationale**: Requires multi-user support; planned for Phase 3.
-
-### Object Lock (39 failing tests)
-- Retention periods
-- Legal holds
-- Governance/Compliance modes
-
-**Rationale**: Enterprise feature; planned for Phase 4.
-
-### Lifecycle Rules (25 failing tests)
+### Lifecycle Rules
 - Expiration rules
 - Transition rules
 - NoncurrentVersion actions
 
 **Rationale**: Planned for Phase 2.
 
-### Bucket Logging (32 failing tests)
+### Bucket Logging
 - Access logging to target bucket
 
 **Rationale**: Enterprise feature; planned for Phase 4.
 
-### POST Object (21 failing tests)
+### POST Object
 - Browser-based uploads
 - Form-based authentication
 
@@ -143,7 +151,6 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 
 ### Other Missing Features
 - Bucket Tagging
-- Object Tagging
 - Replication
 - Inventory
 - Analytics
@@ -190,9 +197,11 @@ cargo test --package rucket --test s3_compat
 
 ## Compatibility Roadmap
 
-| Phase | Features | Target |
+| Phase | Features | Status |
 |-------|----------|--------|
-| Phase 1 | Core S3 operations, versioning, multipart | Current |
-| Phase 2 | Lifecycle, improved multipart | Next |
-| Phase 3 | Encryption, ACLs, policies, POST Object | Future |
-| Phase 4 | Object Lock, logging, replication | Future |
+| Phase 1 | Core S3 operations, versioning, multipart | Complete |
+| Phase 2.1 | Object Lock (retention, legal hold) | Complete |
+| Phase 2.2 | Server-Side Encryption (SSE-S3) | Complete |
+| Phase 2.3 | Bucket Policies (CRUD + evaluation) | Complete |
+| Phase 3 | Lifecycle rules, ACLs, POST Object | Next |
+| Phase 4 | SSE-C/SSE-KMS, logging, replication | Future |
