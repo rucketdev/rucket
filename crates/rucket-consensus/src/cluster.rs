@@ -126,6 +126,40 @@ impl ClusterManager {
         log_storage: RedbLogStorage,
         state_machine: MetadataStateMachine,
     ) -> Result<Self, ClusterError> {
+        let network = GrpcNetworkFactory::new();
+        Self::new_with_network(config, log_storage, state_machine, network).await
+    }
+
+    /// Creates a new cluster manager with a custom network factory.
+    ///
+    /// This allows injecting custom network implementations, such as
+    /// [`ChaosNetworkFactory`](crate::network::ChaosNetworkFactory) for fault injection testing.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use rucket_consensus::{ClusterManager, ClusterConfig, RedbLogStorage, MetadataStateMachine};
+    /// use rucket_consensus::network::{GrpcNetworkFactory, ChaosNetworkFactory};
+    /// use rucket_consensus::testing::ChaosController;
+    ///
+    /// let chaos = Arc::new(ChaosController::new());
+    /// let inner_factory = GrpcNetworkFactory::new();
+    /// let chaos_factory = ChaosNetworkFactory::new(inner_factory, chaos.clone(), node_id);
+    ///
+    /// let manager = ClusterManager::new_with_network(
+    ///     config, log_storage, state_machine, chaos_factory
+    /// ).await?;
+    /// ```
+    pub async fn new_with_network<N>(
+        config: ClusterConfig,
+        log_storage: RedbLogStorage,
+        state_machine: MetadataStateMachine,
+        network: N,
+    ) -> Result<Self, ClusterError>
+    where
+        N: openraft::network::RaftNetworkFactory<crate::types::RaftTypeConfig>,
+    {
         // Build OpenRaft config
         let raft_config = Config {
             cluster_name: "rucket".to_string(),
@@ -142,9 +176,6 @@ impl ClusterManager {
                 .validate()
                 .map_err(|e| ClusterError::Config(format!("invalid raft config: {}", e)))?,
         );
-
-        // Create network factory
-        let network = GrpcNetworkFactory::new();
 
         // Create Raft instance
         let raft = Raft::new(config.node_id, raft_config, network, log_storage, state_machine)
