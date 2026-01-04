@@ -112,7 +112,7 @@ pub struct CorsRuleRequest {
     #[serde(rename = "ID")]
     pub id: Option<String>,
 
-    /// Allowed origins (e.g., "*" or "http://example.com").
+    /// Allowed origins (e.g., `*` or `http://example.com`).
     #[serde(rename = "AllowedOrigin", default)]
     pub allowed_origins: Vec<String>,
 
