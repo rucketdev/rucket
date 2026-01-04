@@ -34,10 +34,10 @@ jobs:
               - '.github/workflows/**'
 
   # ==========================================================================
-  # Linting (single job for all lint checks)
+  # Build (compiles once, populates cache for all other jobs)
   # ==========================================================================
-  lint:
-    name: Lint
+  build:
+    name: Build
     needs: [changes]
     if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
@@ -53,8 +53,33 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+      - name: Build all targets
+        run: cargo build --all-targets --all-features
+      - name: Build tests
+        run: cargo test --all-features --no-run
+
+  # ==========================================================================
+  # Linting (runs after build to use cached artifacts)
+  # ==========================================================================
+  lint:
+    name: Lint
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run clippy
@@ -67,8 +92,7 @@ jobs:
   # ==========================================================================
   docs:
     name: Documentation
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,19 +104,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - run: cargo doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
   # ==========================================================================
-  # Tests (all run in parallel)
+  # Tests (all run in parallel after build)
   # ==========================================================================
   unit-tests:
     name: Unit Tests
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,15 +127,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Run unit tests
         run: cargo test --all-features --lib --bins
 
   integration-tests:
     name: Integration Tests
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -124,15 +146,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Run cluster integration tests
         run: cargo test --all-features --test cluster_integration -- --test-threads=1
 
   chaos-tests:
     name: Chaos Tests
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -144,15 +165,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Run chaos tests
         run: cargo test --features chaos-testing --package rucket-consensus --test chaos_tests
 
   simulation-tests:
     name: Simulation Tests
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -164,15 +184,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Run Turmoil simulation tests
         run: cargo test --package rucket-consensus --test simulation_tests
 
   cloud-discovery-tests:
     name: Cloud Discovery Tests
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -184,15 +203,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Run cloud discovery tests
         run: cargo test --features aws --package rucket-consensus --test cloud_discovery_tests
 
   api-tests:
     name: API Tests
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -204,23 +222,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Run API handler tests
         run: cargo test --package rucket-api --all-features
 
   storage-tests:
     name: Storage Tests
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Run storage tests
         run: cargo test --package rucket-storage --all-features
 
@@ -229,7 +246,7 @@ jobs:
   # ==========================================================================
   coverage:
     name: Code Coverage
-    needs: [changes]
+    needs: [build]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -244,8 +261,8 @@ jobs:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate coverage
