@@ -55,7 +55,7 @@ test: ## Run all tests
 
 .PHONY: test-integration
 test-integration: ## Run integration tests (single-threaded)
-	$(CARGO) test --test '*' -- --test-threads=1
+	$(CARGO) test --all-features --test '*' -- --test-threads=1
 
 .PHONY: lint
 lint: fmt-check clippy ## Run all lints (format + clippy)

@@ -749,6 +749,236 @@ pub struct ObjectPartInfo {
     pub checksum_crc32c: Option<String>,
 }
 
+/// `AccessControlPolicy` response for ACL operations.
+#[derive(Debug, Serialize)]
+#[serde(rename = "AccessControlPolicy")]
+pub struct AccessControlPolicy {
+    /// Owner of the bucket/object.
+    #[serde(rename = "Owner")]
+    pub owner: Owner,
+    /// Access control list.
+    #[serde(rename = "AccessControlList")]
+    pub access_control_list: AccessControlList,
+}
+
+/// Access control list.
+#[derive(Debug, Serialize)]
+pub struct AccessControlList {
+    /// List of grants.
+    #[serde(rename = "Grant")]
+    pub grants: Vec<Grant>,
+}
+
+/// Individual grant in ACL.
+#[derive(Debug, Serialize)]
+pub struct Grant {
+    /// The grantee (who gets the permission).
+    #[serde(rename = "Grantee")]
+    pub grantee: Grantee,
+    /// The permission being granted.
+    #[serde(rename = "Permission")]
+    pub permission: String,
+}
+
+/// Grantee in ACL.
+#[derive(Debug, Serialize)]
+pub struct Grantee {
+    /// Type of grantee (CanonicalUser).
+    #[serde(rename = "@xsi:type")]
+    pub grantee_type: String,
+    /// Namespace declaration for xsi.
+    #[serde(rename = "@xmlns:xsi")]
+    pub xmlns_xsi: String,
+    /// User ID.
+    #[serde(rename = "ID")]
+    pub id: String,
+    /// Display name.
+    #[serde(rename = "DisplayName")]
+    pub display_name: String,
+}
+
+impl AccessControlPolicy {
+    /// Creates a minimal ACL response with owner having FULL_CONTROL.
+    pub fn owner_full_control() -> Self {
+        let owner = Owner::default();
+        Self {
+            access_control_list: AccessControlList {
+                grants: vec![Grant {
+                    grantee: Grantee {
+                        grantee_type: "CanonicalUser".to_string(),
+                        xmlns_xsi: "http://www.w3.org/2001/XMLSchema-instance".to_string(),
+                        id: owner.id.clone(),
+                        display_name: owner.display_name.clone(),
+                    },
+                    permission: "FULL_CONTROL".to_string(),
+                }],
+            },
+            owner,
+        }
+    }
+}
+
+/// `PublicAccessBlockConfiguration` response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "PublicAccessBlockConfiguration")]
+pub struct PublicAccessBlockConfiguration {
+    /// Block public ACLs on this bucket and objects in this bucket.
+    #[serde(rename = "BlockPublicAcls")]
+    pub block_public_acls: bool,
+
+    /// Ignore public ACLs on this bucket and objects in this bucket.
+    #[serde(rename = "IgnorePublicAcls")]
+    pub ignore_public_acls: bool,
+
+    /// Block public bucket policies for this bucket.
+    #[serde(rename = "BlockPublicPolicy")]
+    pub block_public_policy: bool,
+
+    /// Restrict public bucket policies for this bucket.
+    #[serde(rename = "RestrictPublicBuckets")]
+    pub restrict_public_buckets: bool,
+}
+
+/// `LifecycleConfiguration` response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "LifecycleConfiguration")]
+pub struct LifecycleConfigurationResponse {
+    /// List of lifecycle rules.
+    #[serde(rename = "Rule", default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<LifecycleRuleResponse>,
+}
+
+/// A lifecycle rule in the response.
+#[derive(Debug, Serialize)]
+pub struct LifecycleRuleResponse {
+    /// Unique identifier for the rule.
+    #[serde(rename = "ID", skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// Status of the rule.
+    #[serde(rename = "Status")]
+    pub status: String,
+
+    /// Filter to select objects.
+    #[serde(rename = "Filter", skip_serializing_if = "Option::is_none")]
+    pub filter: Option<LifecycleFilterResponse>,
+
+    /// Expiration settings.
+    #[serde(rename = "Expiration", skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<ExpirationResponse>,
+
+    /// Noncurrent version expiration settings.
+    #[serde(rename = "NoncurrentVersionExpiration", skip_serializing_if = "Option::is_none")]
+    pub noncurrent_version_expiration: Option<NoncurrentVersionExpirationResponse>,
+
+    /// Abort incomplete multipart upload settings.
+    #[serde(rename = "AbortIncompleteMultipartUpload", skip_serializing_if = "Option::is_none")]
+    pub abort_incomplete_multipart_upload: Option<AbortIncompleteMultipartUploadResponse>,
+}
+
+/// Lifecycle filter in the response.
+#[derive(Debug, Serialize)]
+pub struct LifecycleFilterResponse {
+    /// Key name prefix.
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+
+    /// Tag filter.
+    #[serde(rename = "Tag", skip_serializing_if = "Option::is_none")]
+    pub tag: Option<LifecycleTagResponse>,
+
+    /// Logical AND of filters.
+    #[serde(rename = "And", skip_serializing_if = "Option::is_none")]
+    pub and: Option<LifecycleFilterAndResponse>,
+}
+
+/// Logical AND filter for lifecycle.
+#[derive(Debug, Serialize)]
+pub struct LifecycleFilterAndResponse {
+    /// Key name prefix.
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+
+    /// Tags to match.
+    #[serde(rename = "Tag", default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<LifecycleTagResponse>,
+}
+
+/// Tag in lifecycle filter.
+#[derive(Debug, Serialize)]
+pub struct LifecycleTagResponse {
+    /// Tag key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Tag value.
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
+/// Expiration settings in response.
+#[derive(Debug, Serialize)]
+pub struct ExpirationResponse {
+    /// Days after creation when object expires.
+    #[serde(rename = "Days", skip_serializing_if = "Option::is_none")]
+    pub days: Option<u32>,
+    /// Date when objects expire.
+    #[serde(rename = "Date", skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+    /// Whether to remove expired delete markers.
+    #[serde(rename = "ExpiredObjectDeleteMarker", skip_serializing_if = "Option::is_none")]
+    pub expired_object_delete_marker: Option<bool>,
+}
+
+/// Noncurrent version expiration settings in response.
+#[derive(Debug, Serialize)]
+pub struct NoncurrentVersionExpirationResponse {
+    /// Days after becoming noncurrent when version expires.
+    #[serde(rename = "NoncurrentDays")]
+    pub noncurrent_days: u32,
+    /// Number of noncurrent versions to retain.
+    #[serde(rename = "NewerNoncurrentVersions", skip_serializing_if = "Option::is_none")]
+    pub newer_noncurrent_versions: Option<u32>,
+}
+
+/// Abort incomplete multipart upload settings in response.
+#[derive(Debug, Serialize)]
+pub struct AbortIncompleteMultipartUploadResponse {
+    /// Days after initiation when incomplete uploads are aborted.
+    #[serde(rename = "DaysAfterInitiation")]
+    pub days_after_initiation: u32,
+}
+
+/// `ServerSideEncryptionConfiguration` response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "ServerSideEncryptionConfiguration")]
+pub struct ServerSideEncryptionConfigurationResponse {
+    /// List of encryption rules.
+    #[serde(rename = "Rule", default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<ServerSideEncryptionRuleResponse>,
+}
+
+/// A server-side encryption rule in the response.
+#[derive(Debug, Serialize)]
+pub struct ServerSideEncryptionRuleResponse {
+    /// Default encryption settings.
+    #[serde(rename = "ApplyServerSideEncryptionByDefault")]
+    pub apply_server_side_encryption_by_default: ApplyServerSideEncryptionByDefaultResponse,
+    /// Whether to use bucket key for SSE-KMS.
+    #[serde(rename = "BucketKeyEnabled", skip_serializing_if = "Option::is_none")]
+    pub bucket_key_enabled: Option<bool>,
+}
+
+/// Default encryption settings in response.
+#[derive(Debug, Serialize)]
+pub struct ApplyServerSideEncryptionByDefaultResponse {
+    /// Server-side encryption algorithm.
+    #[serde(rename = "SSEAlgorithm")]
+    pub sse_algorithm: String,
+    /// KMS master key ID (for aws:kms algorithm).
+    #[serde(rename = "KMSMasterKeyID", skip_serializing_if = "Option::is_none")]
+    pub kms_master_key_id: Option<String>,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors

@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use rucket_core::config::ApiCompatibilityMode;
+use rucket_core::policy::BucketPolicy;
 use rucket_core::types::{CorsConfiguration, CorsRule, Tag, TagSet, VersioningStatus};
 use rucket_storage::{LocalStorage, StorageBackend};
 
@@ -249,7 +250,7 @@ pub async fn get_bucket_versioning(
 pub async fn set_bucket_policy(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
-    _body: Bytes,
+    body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.storage.head_bucket(&bucket).await? {
         return Err(ApiError::new(
@@ -258,6 +259,27 @@ pub async fn set_bucket_policy(
         )
         .with_resource(&bucket));
     }
+
+    // Parse the policy JSON
+    let policy_json = std::str::from_utf8(&body).map_err(|_| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::MalformedPolicy,
+            "Policy document is not valid UTF-8",
+        )
+    })?;
+
+    // Parse and validate the policy
+    let policy = BucketPolicy::from_json(policy_json).map_err(|e| {
+        ApiError::new(rucket_core::error::S3ErrorCode::MalformedPolicy, e.to_string())
+    })?;
+
+    policy.validate().map_err(|e| {
+        ApiError::new(rucket_core::error::S3ErrorCode::MalformedPolicy, e.to_string())
+    })?;
+
+    // Store the policy
+    state.storage.put_bucket_policy(&bucket, policy_json).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -273,11 +295,18 @@ pub async fn get_bucket_policy(
         )
         .with_resource(&bucket));
     }
-    Err(ApiError::new(
-        rucket_core::error::S3ErrorCode::NoSuchBucketPolicy,
-        "The bucket policy does not exist",
-    )
-    .with_resource(&bucket))
+
+    match state.storage.get_bucket_policy(&bucket).await? {
+        Some(policy_json) => {
+            Ok((StatusCode::OK, [("Content-Type", "application/json")], policy_json)
+                .into_response())
+        }
+        None => Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucketPolicy,
+            "The bucket policy does not exist",
+        )
+        .with_resource(&bucket)),
+    }
 }
 
 /// `DELETE /{bucket}?policy` - Delete bucket policy.
@@ -292,6 +321,100 @@ pub async fn delete_bucket_policy(
         )
         .with_resource(&bucket));
     }
+
+    state.storage.delete_bucket_policy(&bucket).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `PUT /{bucket}?publicAccessBlock` - Set Public Access Block configuration.
+pub async fn put_public_access_block(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+    body: Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    // Parse the Public Access Block configuration XML
+    let config: crate::xml::request::PublicAccessBlockConfigurationRequest =
+        quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+            ApiError::new(
+                rucket_core::error::S3ErrorCode::MalformedXML,
+                format!("Invalid Public Access Block configuration XML: {e}"),
+            )
+        })?;
+
+    // Convert to domain type
+    let domain_config = rucket_core::public_access_block::PublicAccessBlockConfiguration {
+        block_public_acls: config.block_public_acls.unwrap_or(false),
+        ignore_public_acls: config.ignore_public_acls.unwrap_or(false),
+        block_public_policy: config.block_public_policy.unwrap_or(false),
+        restrict_public_buckets: config.restrict_public_buckets.unwrap_or(false),
+    };
+
+    state.storage.put_public_access_block(&bucket, domain_config).await?;
+
+    Ok(StatusCode::OK)
+}
+
+/// `GET /{bucket}?publicAccessBlock` - Get Public Access Block configuration.
+pub async fn get_public_access_block(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<Response, ApiError> {
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    match state.storage.get_public_access_block(&bucket).await? {
+        Some(config) => {
+            let response = crate::xml::response::PublicAccessBlockConfiguration {
+                block_public_acls: config.block_public_acls,
+                ignore_public_acls: config.ignore_public_acls,
+                block_public_policy: config.block_public_policy,
+                restrict_public_buckets: config.restrict_public_buckets,
+            };
+            let xml = to_xml(&response).map_err(|e| {
+                ApiError::new(
+                    rucket_core::error::S3ErrorCode::InternalError,
+                    format!("Failed to serialize response: {e}"),
+                )
+            })?;
+            Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+        }
+        None => Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchPublicAccessBlockConfiguration,
+            "The public access block configuration was not found",
+        )
+        .with_resource(&bucket)),
+    }
+}
+
+/// `DELETE /{bucket}?publicAccessBlock` - Delete Public Access Block configuration.
+pub async fn delete_public_access_block(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    state.storage.delete_public_access_block(&bucket).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -490,7 +613,7 @@ pub async fn delete_bucket_tagging(
 pub async fn set_bucket_lifecycle(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
-    _body: Bytes,
+    body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.storage.head_bucket(&bucket).await? {
         return Err(ApiError::new(
@@ -499,6 +622,69 @@ pub async fn set_bucket_lifecycle(
         )
         .with_resource(&bucket));
     }
+
+    // Parse the lifecycle configuration XML
+    let config_req: crate::xml::request::LifecycleConfigurationRequest =
+        quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+            ApiError::new(
+                rucket_core::error::S3ErrorCode::MalformedXML,
+                format!("Invalid lifecycle configuration XML: {e}"),
+            )
+        })?;
+
+    // Convert request to domain type
+    let config = rucket_core::lifecycle::LifecycleConfiguration {
+        rules: config_req
+            .rules
+            .into_iter()
+            .map(|r| rucket_core::lifecycle::LifecycleRule {
+                id: r.id,
+                status: rucket_core::lifecycle::RuleStatus::parse(&r.status)
+                    .unwrap_or(rucket_core::lifecycle::RuleStatus::Enabled),
+                filter: r.filter.map(|f| rucket_core::lifecycle::LifecycleFilter {
+                    prefix: f.prefix,
+                    tag: f.tag.map(|t| rucket_core::lifecycle::LifecycleTag {
+                        key: t.key,
+                        value: t.value,
+                    }),
+                    object_size_greater_than: None,
+                    object_size_less_than: None,
+                    and: f.and.map(|a| rucket_core::lifecycle::LifecycleFilterAnd {
+                        prefix: a.prefix,
+                        tags: a
+                            .tags
+                            .into_iter()
+                            .map(|t| rucket_core::lifecycle::LifecycleTag {
+                                key: t.key,
+                                value: t.value,
+                            })
+                            .collect(),
+                        object_size_greater_than: None,
+                        object_size_less_than: None,
+                    }),
+                }),
+                expiration: r.expiration.map(|e| rucket_core::lifecycle::Expiration {
+                    days: e.days,
+                    date: e.date,
+                    expired_object_delete_marker: e.expired_object_delete_marker,
+                }),
+                noncurrent_version_expiration: r.noncurrent_version_expiration.map(|n| {
+                    rucket_core::lifecycle::NoncurrentVersionExpiration {
+                        noncurrent_days: n.noncurrent_days,
+                        newer_noncurrent_versions: n.newer_noncurrent_versions,
+                    }
+                }),
+                abort_incomplete_multipart_upload: r.abort_incomplete_multipart_upload.map(|a| {
+                    rucket_core::lifecycle::AbortIncompleteMultipartUpload {
+                        days_after_initiation: a.days_after_initiation,
+                    }
+                }),
+            })
+            .collect(),
+    };
+
+    state.storage.put_lifecycle_configuration(&bucket, config).await?;
+
     Ok(StatusCode::OK)
 }
 
@@ -514,11 +700,69 @@ pub async fn get_bucket_lifecycle(
         )
         .with_resource(&bucket));
     }
-    Err(ApiError::new(
-        rucket_core::error::S3ErrorCode::NoSuchLifecycleConfiguration,
-        "The lifecycle configuration does not exist",
-    )
-    .with_resource(&bucket))
+
+    match state.storage.get_lifecycle_configuration(&bucket).await? {
+        Some(config) => {
+            let response = crate::xml::response::LifecycleConfigurationResponse {
+                rules: config
+                    .rules
+                    .into_iter()
+                    .map(|r| crate::xml::response::LifecycleRuleResponse {
+                        id: r.id,
+                        status: r.status.as_str().to_string(),
+                        filter: r.filter.map(|f| crate::xml::response::LifecycleFilterResponse {
+                            prefix: f.prefix,
+                            tag: f.tag.map(|t| crate::xml::response::LifecycleTagResponse {
+                                key: t.key,
+                                value: t.value,
+                            }),
+                            and: f.and.map(|a| crate::xml::response::LifecycleFilterAndResponse {
+                                prefix: a.prefix,
+                                tags: a
+                                    .tags
+                                    .into_iter()
+                                    .map(|t| crate::xml::response::LifecycleTagResponse {
+                                        key: t.key,
+                                        value: t.value,
+                                    })
+                                    .collect(),
+                            }),
+                        }),
+                        expiration: r.expiration.map(|e| {
+                            crate::xml::response::ExpirationResponse {
+                                days: e.days,
+                                date: e.date,
+                                expired_object_delete_marker: e.expired_object_delete_marker,
+                            }
+                        }),
+                        noncurrent_version_expiration: r.noncurrent_version_expiration.map(|n| {
+                            crate::xml::response::NoncurrentVersionExpirationResponse {
+                                noncurrent_days: n.noncurrent_days,
+                                newer_noncurrent_versions: n.newer_noncurrent_versions,
+                            }
+                        }),
+                        abort_incomplete_multipart_upload: r.abort_incomplete_multipart_upload.map(
+                            |a| crate::xml::response::AbortIncompleteMultipartUploadResponse {
+                                days_after_initiation: a.days_after_initiation,
+                            },
+                        ),
+                    })
+                    .collect(),
+            };
+            let xml = to_xml(&response).map_err(|e| {
+                ApiError::new(
+                    rucket_core::error::S3ErrorCode::InternalError,
+                    format!("Failed to serialize response: {e}"),
+                )
+            })?;
+            Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+        }
+        None => Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchLifecycleConfiguration,
+            "The lifecycle configuration does not exist",
+        )
+        .with_resource(&bucket)),
+    }
 }
 
 /// `DELETE /{bucket}?lifecycle` - Delete bucket lifecycle.
@@ -533,6 +777,9 @@ pub async fn delete_bucket_lifecycle(
         )
         .with_resource(&bucket));
     }
+
+    state.storage.delete_lifecycle_configuration(&bucket).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -686,7 +933,7 @@ pub async fn get_object_lock_configuration(
 pub async fn set_bucket_encryption(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
-    _body: Bytes,
+    body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.storage.head_bucket(&bucket).await? {
         return Err(ApiError::new(
@@ -695,6 +942,39 @@ pub async fn set_bucket_encryption(
         )
         .with_resource(&bucket));
     }
+
+    // Parse the encryption configuration XML
+    let config_req: crate::xml::request::ServerSideEncryptionConfigurationRequest =
+        quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
+            ApiError::new(
+                rucket_core::error::S3ErrorCode::MalformedXML,
+                format!("Invalid encryption configuration XML: {e}"),
+            )
+        })?;
+
+    // Convert request to domain type
+    let config = rucket_core::encryption::ServerSideEncryptionConfiguration {
+        rules: config_req
+            .rules
+            .into_iter()
+            .map(|r| rucket_core::encryption::ServerSideEncryptionRule {
+                apply_server_side_encryption_by_default:
+                    rucket_core::encryption::ApplyServerSideEncryptionByDefault {
+                        sse_algorithm: rucket_core::encryption::SseAlgorithm::parse(
+                            &r.apply_server_side_encryption_by_default.sse_algorithm,
+                        )
+                        .unwrap_or(rucket_core::encryption::SseAlgorithm::Aes256),
+                        kms_master_key_id: r
+                            .apply_server_side_encryption_by_default
+                            .kms_master_key_id,
+                    },
+                bucket_key_enabled: r.bucket_key_enabled.unwrap_or(false),
+            })
+            .collect(),
+    };
+
+    state.storage.put_encryption_configuration(&bucket, config).await?;
+
     Ok(StatusCode::OK)
 }
 
@@ -710,11 +990,43 @@ pub async fn get_bucket_encryption(
         )
         .with_resource(&bucket));
     }
-    Err(ApiError::new(
-        rucket_core::error::S3ErrorCode::ServerSideEncryptionConfigurationNotFoundError,
-        "The server side encryption configuration was not found",
-    )
-    .with_resource(&bucket))
+
+    match state.storage.get_encryption_configuration(&bucket).await? {
+        Some(config) => {
+            let response = crate::xml::response::ServerSideEncryptionConfigurationResponse {
+                rules: config
+                    .rules
+                    .into_iter()
+                    .map(|r| crate::xml::response::ServerSideEncryptionRuleResponse {
+                        apply_server_side_encryption_by_default:
+                            crate::xml::response::ApplyServerSideEncryptionByDefaultResponse {
+                                sse_algorithm: r
+                                    .apply_server_side_encryption_by_default
+                                    .sse_algorithm
+                                    .as_str()
+                                    .to_string(),
+                                kms_master_key_id: r
+                                    .apply_server_side_encryption_by_default
+                                    .kms_master_key_id,
+                            },
+                        bucket_key_enabled: if r.bucket_key_enabled { Some(true) } else { None },
+                    })
+                    .collect(),
+            };
+            let xml = to_xml(&response).map_err(|e| {
+                ApiError::new(
+                    rucket_core::error::S3ErrorCode::InternalError,
+                    format!("Failed to serialize response: {e}"),
+                )
+            })?;
+            Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+        }
+        None => Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::ServerSideEncryptionConfigurationNotFoundError,
+            "The server side encryption configuration was not found",
+        )
+        .with_resource(&bucket)),
+    }
 }
 
 /// `DELETE /{bucket}?encryption` - Delete bucket encryption.
@@ -729,6 +1041,9 @@ pub async fn delete_bucket_encryption(
         )
         .with_resource(&bucket));
     }
+
+    state.storage.delete_encryption_configuration(&bucket).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -917,4 +1232,150 @@ fn matches_wildcard(pattern: &str, value: &str) -> bool {
     } else {
         pattern == value
     }
+}
+
+/// `GET /{bucket}?acl` - Get bucket ACL.
+///
+/// Returns a minimal ACL with owner having FULL_CONTROL.
+/// This is a simplified implementation for single-tenant mode.
+pub async fn get_bucket_acl(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<Response, ApiError> {
+    // Verify bucket exists
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    // Return minimal ACL with owner having FULL_CONTROL
+    let response = crate::xml::response::AccessControlPolicy::owner_full_control();
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::InternalError,
+            format!("Failed to serialize response: {e}"),
+        )
+    })?;
+
+    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+}
+
+/// `PUT /{bucket}?acl` - Set bucket ACL.
+///
+/// Accepts but ignores ACL changes in single-tenant mode.
+pub async fn put_bucket_acl(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+    _body: Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    // Verify bucket exists
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    // Accept but ignore ACL changes (single-tenant mode)
+    Ok(StatusCode::OK)
+}
+
+// ============================================================================
+// Not Implemented Handlers (501 stubs)
+// ============================================================================
+
+/// `GET /{bucket}?accelerate` - Get bucket accelerate configuration.
+///
+/// Returns 501 NotImplemented - Transfer Acceleration is not supported.
+pub async fn get_bucket_accelerate(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<Response, ApiError> {
+    // Verify bucket exists first
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    Err(ApiError::new(
+        rucket_core::error::S3ErrorCode::NotImplemented,
+        "Transfer Acceleration is not supported",
+    )
+    .with_resource(&bucket))
+}
+
+/// `PUT /{bucket}?accelerate` - Set bucket accelerate configuration.
+///
+/// Returns 501 NotImplemented - Transfer Acceleration is not supported.
+pub async fn put_bucket_accelerate(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<Response, ApiError> {
+    // Verify bucket exists first
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    Err(ApiError::new(
+        rucket_core::error::S3ErrorCode::NotImplemented,
+        "Transfer Acceleration is not supported",
+    )
+    .with_resource(&bucket))
+}
+
+/// `GET /{bucket}?requestPayment` - Get bucket request payment configuration.
+///
+/// Returns 501 NotImplemented - Request Payment is not supported.
+pub async fn get_bucket_request_payment(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<Response, ApiError> {
+    // Verify bucket exists first
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    Err(ApiError::new(
+        rucket_core::error::S3ErrorCode::NotImplemented,
+        "Request Payment is not supported",
+    )
+    .with_resource(&bucket))
+}
+
+/// `PUT /{bucket}?requestPayment` - Set bucket request payment configuration.
+///
+/// Returns 501 NotImplemented - Request Payment is not supported.
+pub async fn put_bucket_request_payment(
+    State(state): State<AppState>,
+    Path(bucket): Path<String>,
+) -> Result<Response, ApiError> {
+    // Verify bucket exists first
+    if !state.storage.head_bucket(&bucket).await? {
+        return Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::NoSuchBucket,
+            "The specified bucket does not exist",
+        )
+        .with_resource(&bucket));
+    }
+
+    Err(ApiError::new(
+        rucket_core::error::S3ErrorCode::NotImplemented,
+        "Request Payment is not supported",
+    )
+    .with_resource(&bucket))
 }

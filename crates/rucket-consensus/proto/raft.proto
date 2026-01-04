@@ -1,0 +1,57 @@
+// Raft gRPC service definition for inter-node communication.
+//
+// This protocol is used by OpenRaft to replicate log entries, send heartbeats,
+// request votes, and transfer snapshots between cluster nodes.
+
+syntax = "proto3";
+
+package rucket.raft.v1;
+
+// RaftService handles all Raft protocol messages between cluster nodes.
+service RaftService {
+  // Vote handles RequestVote RPC for leader election.
+  rpc Vote(VoteRequest) returns (VoteResponse);
+
+  // AppendEntries handles AppendEntries RPC for log replication.
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+
+  // InstallSnapshot handles InstallSnapshot RPC for state transfer.
+  rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
+}
+
+// VoteRequest is sent by candidates to request votes during leader election.
+message VoteRequest {
+  // Serialized openraft VoteRequest (bincode encoded).
+  bytes data = 1;
+}
+
+// VoteResponse is the response to a vote request.
+message VoteResponse {
+  // Serialized openraft VoteResponse (bincode encoded).
+  bytes data = 1;
+}
+
+// AppendEntriesRequest is sent by the leader to replicate log entries.
+message AppendEntriesRequest {
+  // Serialized openraft AppendEntriesRequest (bincode encoded).
+  bytes data = 1;
+}
+
+// AppendEntriesResponse is the response to an append entries request.
+message AppendEntriesResponse {
+  // Serialized openraft AppendEntriesResponse (bincode encoded).
+  bytes data = 1;
+}
+
+// InstallSnapshotRequest is sent by the leader to transfer snapshots.
+message InstallSnapshotRequest {
+  // Serialized openraft InstallSnapshotRequest (bincode encoded).
+  // Note: For large snapshots, this is streamed in chunks.
+  bytes data = 1;
+}
+
+// InstallSnapshotResponse is the response to an install snapshot request.
+message InstallSnapshotResponse {
+  // Serialized openraft InstallSnapshotResponse (bincode encoded).
+  bytes data = 1;
+}

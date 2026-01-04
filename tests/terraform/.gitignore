@@ -1,0 +1,21 @@
+# Terraform/OpenTofu state and cache
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files (for local development)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration
+.terraformrc
+terraform.rc

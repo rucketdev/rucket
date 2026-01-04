@@ -48,6 +48,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     /// API configuration.
     pub api: ApiConfig,
+    /// Cluster configuration for distributed mode.
+    pub cluster: ClusterConfig,
 }
 
 impl Config {
@@ -695,6 +697,452 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self { compatibility_mode: ApiCompatibilityMode::Minio }
+    }
+}
+
+/// Cluster configuration for distributed mode.
+///
+/// When `enabled` is `true`, Rucket operates as part of a distributed cluster
+/// using Raft consensus for metadata operations.
+///
+/// # Example Configuration
+///
+/// ```toml
+/// [cluster]
+/// enabled = true
+/// node_id = 1
+/// bind_cluster = "0.0.0.0:9001"
+/// peers = ["node2:9001", "node3:9001"]
+///
+/// [cluster.raft]
+/// heartbeat_interval_ms = 150
+/// election_timeout_min_ms = 300
+/// election_timeout_max_ms = 600
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClusterConfig {
+    /// Whether clustering is enabled.
+    ///
+    /// When `false`, Rucket operates in single-node mode (default).
+    pub enabled: bool,
+
+    /// This node's unique ID.
+    ///
+    /// Must be unique across the cluster and stable across restarts.
+    /// IDs are u64 values; common practice is to use 1, 2, 3, etc.
+    pub node_id: u64,
+
+    /// Address for Raft RPC communication.
+    ///
+    /// This is the address other nodes use to reach this node for
+    /// Raft messages (vote requests, append entries, snapshots).
+    pub bind_cluster: SocketAddr,
+
+    /// Initial peer addresses for cluster formation.
+    ///
+    /// Specify as `["host1:port", "host2:port"]`.
+    /// Used when discovery is not configured.
+    pub peers: Vec<String>,
+
+    /// Service discovery configuration.
+    ///
+    /// Alternative to static `peers` list. Supports DNS and Kubernetes
+    /// discovery methods.
+    pub discover: Option<DiscoveryConfig>,
+
+    /// Bootstrap configuration for new cluster formation.
+    ///
+    /// Only the first node in a new cluster should have `bootstrap.enabled = true`.
+    pub bootstrap: Option<BootstrapConfig>,
+
+    /// Raft timing configuration.
+    pub raft: RaftTimingConfig,
+
+    /// Path for Raft log storage.
+    ///
+    /// The Raft log is stored separately from the metadata database
+    /// for better performance and isolation.
+    pub raft_log_dir: PathBuf,
+}
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            node_id: 1,
+            bind_cluster: "127.0.0.1:9001".parse().expect("valid default address"),
+            peers: Vec::new(),
+            discover: None,
+            bootstrap: None,
+            raft: RaftTimingConfig::default(),
+            raft_log_dir: PathBuf::from("./data/raft"),
+        }
+    }
+}
+
+impl ClusterConfig {
+    /// Creates a new cluster config with the given node ID.
+    #[must_use]
+    pub fn new(node_id: u64) -> Self {
+        Self { node_id, enabled: true, ..Default::default() }
+    }
+
+    /// Sets the bind address for cluster communication.
+    #[must_use]
+    pub fn with_bind_addr(mut self, addr: SocketAddr) -> Self {
+        self.bind_cluster = addr;
+        self
+    }
+
+    /// Sets the peer addresses.
+    #[must_use]
+    pub fn with_peers(mut self, peers: Vec<String>) -> Self {
+        self.peers = peers;
+        self
+    }
+
+    /// Enables bootstrap mode.
+    #[must_use]
+    pub fn with_bootstrap(mut self, expect_nodes: u32) -> Self {
+        self.bootstrap = Some(BootstrapConfig { enabled: true, expect_nodes, timeout_secs: 60 });
+        self
+    }
+
+    /// Returns whether this node should bootstrap a new cluster.
+    #[must_use]
+    pub fn should_bootstrap(&self) -> bool {
+        self.bootstrap.as_ref().is_some_and(|b| b.enabled)
+    }
+
+    /// Returns the expected number of nodes for bootstrap.
+    #[must_use]
+    pub fn expected_nodes(&self) -> u32 {
+        self.bootstrap.as_ref().map_or(1, |b| b.expect_nodes)
+    }
+}
+
+/// Bootstrap configuration for initial cluster formation.
+///
+/// Bootstrap mode is used when forming a new cluster. The first node
+/// waits for the expected number of nodes to be available before
+/// initializing the Raft group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BootstrapConfig {
+    /// Whether this node should bootstrap a new cluster.
+    ///
+    /// Only ONE node in the cluster should have this set to `true`.
+    pub enabled: bool,
+
+    /// Expected number of nodes before forming the cluster.
+    ///
+    /// The bootstrap node waits until this many nodes are discovered
+    /// before initializing Raft. For a 3-node cluster, set to 3.
+    pub expect_nodes: u32,
+
+    /// Timeout in seconds for waiting for expected nodes.
+    ///
+    /// If the expected nodes aren't discovered within this time,
+    /// bootstrap fails.
+    pub timeout_secs: u64,
+}
+
+/// Service discovery configuration.
+///
+/// Provides automatic peer discovery as an alternative to static
+/// peer lists. Supports multiple discovery mechanisms from traditional
+/// infrastructure-based (DNS, Kubernetes) to SPOF-free (gossip).
+///
+/// # Examples
+///
+/// ```toml
+/// # DNS-based discovery
+/// [cluster.discover]
+/// type = "dns"
+/// hostname = "rucket.local"
+/// port = 9001
+///
+/// # Gossip-based discovery (SPOF-free)
+/// [cluster.discover]
+/// type = "gossip"
+/// bind = "0.0.0.0:9002"
+/// bootstrap_peers = ["seed1:9002", "seed2:9002"]
+///
+/// # Auto-detect cloud provider with AWS-specific settings
+/// [cluster.discover]
+/// type = "cloud"
+/// cluster_tag = "rucket:cluster"
+/// cluster_value = "production"
+/// aws_use_imdsv2 = true
+/// aws_region = "us-west-2"
+///
+/// # Explicit AWS (skip auto-detection)
+/// [cluster.discover]
+/// type = "aws"
+/// cluster_tag = "rucket:cluster"
+/// cluster_value = "production"
+/// use_imdsv2 = true
+/// region = "us-west-2"
+///
+/// # Explicit GCP
+/// [cluster.discover]
+/// type = "gcp"
+/// cluster_label = "rucket-cluster"
+/// cluster_value = "production"
+/// project_id = "my-project"
+///
+/// # Explicit Azure
+/// [cluster.discover]
+/// type = "azure"
+/// cluster_tag = "rucket:cluster"
+/// cluster_value = "production"
+/// resource_group = "my-rg"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum DiscoveryConfig {
+    /// DNS-based discovery using SRV or A records.
+    ///
+    /// Queries the specified hostname and uses the results as peer
+    /// addresses. Works with any DNS infrastructure including
+    /// Kubernetes CoreDNS.
+    Dns {
+        /// DNS hostname to query (e.g., "rucket.local").
+        hostname: String,
+        /// Port to use for discovered hosts (for A records).
+        port: u16,
+        /// Whether to use SRV records (port comes from record).
+        #[serde(default)]
+        use_srv: bool,
+    },
+
+    /// Kubernetes headless service discovery.
+    ///
+    /// Uses the Kubernetes API to discover pod IPs from a headless
+    /// service.
+    Kubernetes {
+        /// Service name.
+        service: String,
+        /// Namespace (defaults to current namespace from env).
+        namespace: Option<String>,
+        /// Port name or number.
+        port: String,
+    },
+
+    /// Gossip-based discovery using SWIM protocol.
+    ///
+    /// Decentralized, SPOF-free discovery where nodes discover each
+    /// other through epidemic protocol. Requires at least one bootstrap
+    /// peer to join an existing cluster.
+    Gossip {
+        /// Address to bind the gossip listener.
+        bind: SocketAddr,
+        /// Initial peers to contact for joining the gossip network.
+        bootstrap_peers: Vec<String>,
+        /// Whether to encrypt gossip traffic.
+        #[serde(default)]
+        encrypt: bool,
+        /// Encryption key (32-byte hex string) if encrypt is true.
+        secret_key: Option<String>,
+    },
+
+    /// Auto-detecting cloud provider discovery.
+    ///
+    /// Automatically detects whether running on AWS, GCP, or Azure
+    /// and uses the appropriate discovery mechanism (EC2 tags,
+    /// instance labels, resource tags). Provider-specific settings
+    /// are prefixed with `aws_`, `gcp_`, or `azure_`.
+    Cloud {
+        /// Tag/label key to identify cluster members.
+        #[serde(default = "default_cluster_tag")]
+        cluster_tag: String,
+        /// Tag/label value to match.
+        cluster_value: String,
+        /// Port for Raft RPC communication.
+        #[serde(default = "default_raft_port")]
+        raft_port: u16,
+        /// Force a specific cloud provider instead of auto-detecting.
+        /// Values: "aws", "gcp", "azure"
+        force_provider: Option<String>,
+
+        // AWS-specific settings (apply when AWS is detected)
+        /// Use IMDSv2 for metadata access (more secure). Default: true.
+        #[serde(default)]
+        aws_use_imdsv2: Option<bool>,
+        /// Override auto-detected AWS region.
+        #[serde(default)]
+        aws_region: Option<String>,
+
+        // GCP-specific settings (apply when GCP is detected)
+        /// Override auto-detected GCP project ID.
+        #[serde(default)]
+        gcp_project_id: Option<String>,
+        /// Filter discovery to specific GCP zone.
+        #[serde(default)]
+        gcp_zone: Option<String>,
+
+        // Azure-specific settings (apply when Azure is detected)
+        /// Override auto-detected Azure resource group.
+        #[serde(default)]
+        azure_resource_group: Option<String>,
+        /// Override auto-detected Azure subscription ID.
+        #[serde(default)]
+        azure_subscription_id: Option<String>,
+    },
+
+    /// AWS EC2 discovery using instance tags.
+    ///
+    /// Explicitly targets AWS without auto-detection. Discovers
+    /// cluster members by querying EC2 instances with matching tags.
+    Aws {
+        /// EC2 tag key to identify cluster members.
+        #[serde(default = "default_cluster_tag")]
+        cluster_tag: String,
+        /// EC2 tag value to match.
+        cluster_value: String,
+        /// Port for Raft RPC communication.
+        #[serde(default = "default_raft_port")]
+        raft_port: u16,
+        /// Use IMDSv2 for metadata access (more secure). Default: true.
+        #[serde(default = "default_true")]
+        use_imdsv2: bool,
+        /// Override auto-detected AWS region.
+        #[serde(default)]
+        region: Option<String>,
+    },
+
+    /// GCP Compute Engine discovery using instance labels.
+    ///
+    /// Explicitly targets GCP without auto-detection. Discovers
+    /// cluster members by querying VM instances with matching labels.
+    Gcp {
+        /// Instance label key to identify cluster members.
+        #[serde(default = "default_cluster_tag")]
+        cluster_label: String,
+        /// Instance label value to match.
+        cluster_value: String,
+        /// Port for Raft RPC communication.
+        #[serde(default = "default_raft_port")]
+        raft_port: u16,
+        /// Override auto-detected GCP project ID.
+        #[serde(default)]
+        project_id: Option<String>,
+        /// Filter discovery to specific GCP zone.
+        #[serde(default)]
+        zone: Option<String>,
+    },
+
+    /// Azure VM discovery using resource tags.
+    ///
+    /// Explicitly targets Azure without auto-detection. Discovers
+    /// cluster members by querying VMs with matching tags.
+    Azure {
+        /// Resource tag key to identify cluster members.
+        #[serde(default = "default_cluster_tag")]
+        cluster_tag: String,
+        /// Resource tag value to match.
+        cluster_value: String,
+        /// Port for Raft RPC communication.
+        #[serde(default = "default_raft_port")]
+        raft_port: u16,
+        /// Override auto-detected Azure resource group.
+        #[serde(default)]
+        resource_group: Option<String>,
+        /// Override auto-detected Azure subscription ID.
+        #[serde(default)]
+        subscription_id: Option<String>,
+    },
+
+    /// mDNS/DNS-SD discovery for local networks.
+    ///
+    /// Zero-configuration discovery using multicast DNS. Suitable
+    /// for development, IoT, and LAN deployments.
+    #[serde(rename = "mdns")]
+    MDns {
+        /// Service name to advertise/discover.
+        #[serde(default = "default_mdns_service")]
+        service_name: String,
+        /// Port for Raft RPC communication.
+        #[serde(default = "default_raft_port")]
+        raft_port: u16,
+    },
+}
+
+fn default_cluster_tag() -> String {
+    "rucket:cluster".to_string()
+}
+
+fn default_raft_port() -> u16 {
+    9001
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_mdns_service() -> String {
+    "_rucket._tcp.local".to_string()
+}
+
+/// Raft timing parameters.
+///
+/// These values control leader election and heartbeat behavior.
+/// The defaults are suitable for most deployments.
+///
+/// # Tuning Guidelines
+///
+/// - `heartbeat_interval_ms`: Should be much less than election timeout.
+///   Lower values detect failures faster but increase network traffic.
+///
+/// - Election timeouts: Should be 2-3x the heartbeat interval to avoid
+///   unnecessary elections during brief network hiccups.
+///
+/// - For high-latency networks (cross-region), increase all values
+///   proportionally.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RaftTimingConfig {
+    /// Heartbeat interval in milliseconds.
+    ///
+    /// The leader sends heartbeats to followers at this interval.
+    /// Default: 150ms
+    pub heartbeat_interval_ms: u64,
+
+    /// Minimum election timeout in milliseconds.
+    ///
+    /// A follower starts an election if it hasn't heard from the leader
+    /// within a random timeout between min and max.
+    /// Default: 300ms
+    pub election_timeout_min_ms: u64,
+
+    /// Maximum election timeout in milliseconds.
+    ///
+    /// Default: 600ms
+    pub election_timeout_max_ms: u64,
+
+    /// Maximum entries per AppendEntries RPC.
+    ///
+    /// Limits the batch size for log replication. Higher values can
+    /// improve throughput but increase memory usage.
+    /// Default: 300
+    pub max_payload_entries: u64,
+
+    /// Snapshot interval in number of log entries.
+    ///
+    /// A snapshot is taken every N committed entries to compact the log.
+    /// Default: 10000
+    pub snapshot_interval: u64,
+}
+
+impl Default for RaftTimingConfig {
+    fn default() -> Self {
+        Self {
+            heartbeat_interval_ms: 150,
+            election_timeout_min_ms: 300,
+            election_timeout_max_ms: 600,
+            max_payload_entries: 300,
+            snapshot_interval: 10000,
+        }
     }
 }
 

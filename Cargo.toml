@@ -5,6 +5,7 @@ members = [
     "crates/rucket-core",
     "crates/rucket-api",
     "crates/rucket-storage",
+    "crates/rucket-consensus",
 ]
 
 [workspace.package]
@@ -35,6 +36,7 @@ missing_panics_doc = "allow"
 rucket-core = { path = "crates/rucket-core" }
 rucket-api = { path = "crates/rucket-api" }
 rucket-storage = { path = "crates/rucket-storage" }
+rucket-consensus = { path = "crates/rucket-consensus" }
 
 # Async runtime
 tokio = { version = "1.43", features = ["full"] }
@@ -117,6 +119,7 @@ tokio-test = "0.4"
 assert_cmd = "2.0"
 predicates = "3.1"
 rand = "0.8"
+proptest = "1.5"
 rcgen = "0.13"
 reqwest = { version = "0.12", features = ["rustls-tls", "native-tls-vendored"] }
 

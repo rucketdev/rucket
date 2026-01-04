@@ -11,7 +11,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Detect which files changed to skip unnecessary jobs on docs-only changes
+  # ==========================================================================
+  # Change Detection
+  # ==========================================================================
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
@@ -30,6 +32,9 @@ jobs:
               - 'Makefile'
               - '.github/workflows/**'
 
+  # ==========================================================================
+  # Linting (runs in parallel)
+  # ==========================================================================
   check:
     name: Check
     needs: [changes]
@@ -66,19 +71,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make clippy
 
-  test:
-    name: Test
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: make test
-      - name: Run integration tests
-        run: make test-integration
-
   deny:
     name: Dependency Check
     needs: [changes]
@@ -96,11 +88,99 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: make doc
 
+  # ==========================================================================
+  # Unit Tests (runs first, required by all other test jobs)
+  # ==========================================================================
+  unit-tests:
+    name: Unit Tests
+    needs: [changes, check, fmt, clippy]
+    if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run unit tests
+        run: cargo test --all-features --lib --bins
+
+  # ==========================================================================
+  # Test Groups (run in parallel after unit tests pass)
+  # ==========================================================================
+  integration-tests:
+    name: Integration Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run cluster integration tests
+        run: cargo test --all-features --test cluster_integration -- --test-threads=1
+
+  chaos-tests:
+    name: Chaos Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run chaos tests
+        run: cargo test --features chaos-testing --package rucket-consensus --test chaos_tests
+
+  simulation-tests:
+    name: Simulation Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Turmoil simulation tests
+        run: cargo test --package rucket-consensus --test simulation_tests
+
+  cloud-discovery-tests:
+    name: Cloud Discovery Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run cloud discovery tests
+        run: cargo test --features aws --package rucket-consensus --test cloud_discovery_tests
+
+  api-tests:
+    name: API Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run API handler tests
+        run: cargo test --package rucket-api --all-features
+
+  storage-tests:
+    name: Storage Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run storage tests
+        run: cargo test --package rucket-storage --all-features
+
+  # ==========================================================================
+  # Code Coverage (runs after all tests pass)
+  # ==========================================================================
   coverage:
     name: Code Coverage
-    needs: [changes]
+    needs: [unit-tests, integration-tests, chaos-tests, simulation-tests]
     if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
     steps:
@@ -122,3 +202,43 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
           fail_ci_if_error: true
+
+  # ==========================================================================
+  # CI Success (single required check for branch protection)
+  # ==========================================================================
+  ci-success:
+    name: CI Success
+    needs:
+      - check
+      - fmt
+      - clippy
+      - deny
+      - docs
+      - unit-tests
+      - integration-tests
+      - chaos-tests
+      - simulation-tests
+      - cloud-discovery-tests
+      - api-tests
+      - storage-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.check.result }}" == "failure" ]] || \
+             [[ "${{ needs.fmt.result }}" == "failure" ]] || \
+             [[ "${{ needs.clippy.result }}" == "failure" ]] || \
+             [[ "${{ needs.deny.result }}" == "failure" ]] || \
+             [[ "${{ needs.docs.result }}" == "failure" ]] || \
+             [[ "${{ needs.unit-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.integration-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.chaos-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.simulation-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.cloud-discovery-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.api-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.storage-tests.result }}" == "failure" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
+          echo "All required jobs passed!"

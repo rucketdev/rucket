@@ -7,7 +7,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
+use rucket_core::encryption::ServerSideEncryptionConfiguration;
 use rucket_core::error::{Error, S3ErrorCode};
+use rucket_core::lifecycle::LifecycleConfiguration;
+use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, CorsRule, ETag, MultipartUpload, ObjectMetadata, Part, Tag,
     TagSet, VersioningStatus,
@@ -42,6 +45,20 @@ const BUCKET_CORS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("buck
 
 /// Bucket tagging table: bucket_name -> StoredTagSet (bincode)
 const BUCKET_TAGGING: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("bucket_tagging");
+
+/// Bucket policy table: bucket_name -> JSON string (UTF-8 bytes)
+const BUCKET_POLICY: TableDefinition<'_, &str, &str> = TableDefinition::new("bucket_policy");
+
+/// Public Access Block configuration table: bucket_name -> StoredPublicAccessBlock (bincode)
+const PUBLIC_ACCESS_BLOCK: TableDefinition<'_, &str, &[u8]> =
+    TableDefinition::new("public_access_block");
+
+/// Lifecycle configuration table: bucket_name -> LifecycleConfiguration (bincode)
+const BUCKET_LIFECYCLE: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("bucket_lifecycle");
+
+/// Encryption configuration table: bucket_name -> ServerSideEncryptionConfiguration (bincode)
+const BUCKET_ENCRYPTION: TableDefinition<'_, &str, &[u8]> =
+    TableDefinition::new("bucket_encryption");
 
 // === Stored Types (for bincode serialization) ===
 
@@ -419,6 +436,10 @@ impl RedbMetadataStore {
             let _ = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
             let _ = txn.open_table(BUCKET_CORS).map_err(db_err)?;
             let _ = txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_POLICY).map_err(db_err)?;
+            let _ = txn.open_table(PUBLIC_ACCESS_BLOCK).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_LIFECYCLE).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_ENCRYPTION).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
         }
 
@@ -462,6 +483,10 @@ impl RedbMetadataStore {
             let _ = txn.open_table(OBJECT_TAGGING).map_err(db_err)?;
             let _ = txn.open_table(BUCKET_CORS).map_err(db_err)?;
             let _ = txn.open_table(BUCKET_TAGGING).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_POLICY).map_err(db_err)?;
+            let _ = txn.open_table(PUBLIC_ACCESS_BLOCK).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_LIFECYCLE).map_err(db_err)?;
+            let _ = txn.open_table(BUCKET_ENCRYPTION).map_err(db_err)?;
             txn.commit().map_err(db_err)?;
         }
 
@@ -2430,6 +2455,413 @@ impl MetadataBackend for RedbMetadataStore {
 
                 let data = bincode::serialize(&obj).map_err(db_err)?;
                 table.insert(composite_key.as_str(), data.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    // === Bucket Policy Operations ===
+
+    async fn get_bucket_policy(&self, bucket: &str) -> Result<Option<String>> {
+        // First verify the bucket exists
+        if !self.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let bucket_name = bucket.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(BUCKET_POLICY).map_err(db_err)?;
+
+            match table.get(bucket_name.as_str()).map_err(db_err)? {
+                Some(value) => Ok(Some(value.value().to_string())),
+                None => Ok(None),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_bucket_policy(&self, bucket: &str, policy_json: &str) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+        let policy = policy_json.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_POLICY).map_err(db_err)?;
+                table.insert(bucket_name.as_str(), policy.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_bucket_policy(&self, bucket: &str) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(bucket).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                bucket,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = bucket.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_POLICY).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    // === Public Access Block Operations ===
+
+    async fn get_public_access_block(
+        &self,
+        name: &str,
+    ) -> Result<Option<PublicAccessBlockConfiguration>> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(PUBLIC_ACCESS_BLOCK).map_err(db_err)?;
+
+            match table.get(bucket_name.as_str()).map_err(db_err)? {
+                Some(value) => {
+                    let config: PublicAccessBlockConfiguration =
+                        bincode::deserialize(value.value()).map_err(|e| {
+                            Error::Database(format!(
+                                "Failed to deserialize Public Access Block config: {e}"
+                            ))
+                        })?;
+                    Ok(Some(config))
+                }
+                None => Ok(None),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_public_access_block(
+        &self,
+        name: &str,
+        config: PublicAccessBlockConfiguration,
+    ) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(PUBLIC_ACCESS_BLOCK).map_err(db_err)?;
+                let bytes = bincode::serialize(&config).map_err(|e| {
+                    Error::Database(format!("Failed to serialize Public Access Block config: {e}"))
+                })?;
+                table.insert(bucket_name.as_str(), bytes.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_public_access_block(&self, name: &str) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(PUBLIC_ACCESS_BLOCK).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    // === Lifecycle Configuration Operations ===
+
+    async fn get_lifecycle_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<LifecycleConfiguration>> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(BUCKET_LIFECYCLE).map_err(db_err)?;
+
+            match table.get(bucket_name.as_str()).map_err(db_err)? {
+                Some(value) => {
+                    let config: LifecycleConfiguration = bincode::deserialize(value.value())
+                        .map_err(|e| {
+                            Error::Database(format!("Failed to deserialize Lifecycle config: {e}"))
+                        })?;
+                    Ok(Some(config))
+                }
+                None => Ok(None),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_lifecycle_configuration(
+        &self,
+        name: &str,
+        config: LifecycleConfiguration,
+    ) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_LIFECYCLE).map_err(db_err)?;
+                let bytes = bincode::serialize(&config).map_err(|e| {
+                    Error::Database(format!("Failed to serialize Lifecycle config: {e}"))
+                })?;
+                table.insert(bucket_name.as_str(), bytes.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_lifecycle_configuration(&self, name: &str) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_LIFECYCLE).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    // === Server-Side Encryption Configuration Operations ===
+
+    async fn get_encryption_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<ServerSideEncryptionConfiguration>> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let read_txn = db.begin_read().map_err(db_err)?;
+            let table = read_txn.open_table(BUCKET_ENCRYPTION).map_err(db_err)?;
+
+            match table.get(bucket_name.as_str()).map_err(db_err)? {
+                Some(value) => {
+                    let config: ServerSideEncryptionConfiguration =
+                        bincode::deserialize(value.value()).map_err(|e| {
+                            Error::Database(format!("Failed to deserialize Encryption config: {e}"))
+                        })?;
+                    Ok(Some(config))
+                }
+                None => Ok(None),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn put_encryption_configuration(
+        &self,
+        name: &str,
+        config: ServerSideEncryptionConfiguration,
+    ) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_ENCRYPTION).map_err(db_err)?;
+                let bytes = bincode::serialize(&config).map_err(|e| {
+                    Error::Database(format!("Failed to serialize Encryption config: {e}"))
+                })?;
+                table.insert(bucket_name.as_str(), bytes.as_slice()).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn delete_encryption_configuration(&self, name: &str) -> Result<()> {
+        // First verify the bucket exists
+        if !self.bucket_exists(name).await? {
+            return Err(Error::s3_with_resource(
+                S3ErrorCode::NoSuchBucket,
+                "The specified bucket does not exist",
+                name,
+            ));
+        }
+
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let bucket_name = name.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut table = txn.open_table(BUCKET_ENCRYPTION).map_err(db_err)?;
+                // Remove if exists, ignore if not
+                let _ = table.remove(bucket_name.as_str()).map_err(db_err)?;
             }
 
             txn.commit().map_err(db_err)?;

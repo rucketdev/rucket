@@ -32,6 +32,10 @@ pub struct RecoveryStats {
     pub checksum_mismatches: usize,
     /// Number of errors encountered (non-fatal).
     pub errors: usize,
+    /// Whether WAL corruption was detected (CRC32 mismatch).
+    pub wal_corruption_detected: bool,
+    /// Sequence number where WAL corruption was first detected.
+    pub wal_corrupted_at_sequence: Option<u64>,
 }
 
 /// Recovery manager for crash recovery.
@@ -75,10 +79,21 @@ impl RecoveryManager {
 
         stats.entries_processed = reader.entries().len();
 
+        // Check for WAL corruption
+        if reader.corruption_detected() {
+            stats.wal_corruption_detected = true;
+            stats.wal_corrupted_at_sequence = reader.corrupted_at_sequence();
+            tracing::error!(
+                sequence = ?stats.wal_corrupted_at_sequence,
+                entries_recovered = stats.entries_processed,
+                "WAL corruption detected! Only entries before corruption point were recovered."
+            );
+        }
+
         // Find incomplete operations
         let incomplete = reader.find_incomplete();
 
-        if incomplete.is_empty() {
+        if incomplete.is_empty() && !stats.wal_corruption_detected {
             tracing::debug!(entries = stats.entries_processed, "WAL is clean, no recovery needed");
             return Ok(stats);
         }

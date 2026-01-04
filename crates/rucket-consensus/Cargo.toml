@@ -1,0 +1,78 @@
+[package]
+name = "rucket-consensus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Raft consensus for Rucket distributed object storage"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Cloud provider discovery features
+aws = ["aws-config", "aws-sdk-ec2"]
+gcp = []  # TODO: Add GCP SDK when implementing
+azure = [] # TODO: Add Azure SDK when implementing
+full-cloud = ["aws", "gcp", "azure"]
+# Chaos testing for fault injection
+chaos-testing = ["rand", "stateright", "parking_lot"]
+
+[dependencies]
+# Internal crates
+rucket-core = { path = "../rucket-core" }
+rucket-storage = { path = "../rucket-storage" }
+
+# Raft consensus
+openraft = { version = "0.9", features = ["serde", "tracing-log", "storage-v2"] }
+
+# gRPC
+tonic = "0.12"
+prost = "0.13"
+
+# Storage
+redb.workspace = true
+bincode.workspace = true
+
+# Async
+tokio.workspace = true
+async-trait.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# HTTP client for metadata probing and discovery
+reqwest = { workspace = true, features = ["rustls-tls"] }
+
+# Utilities
+uuid.workspace = true
+dashmap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+
+# Optional: AWS SDK for EC2 discovery
+aws-config = { workspace = true, optional = true }
+aws-sdk-ec2 = { version = "1", optional = true }
+
+# Optional: Chaos testing
+rand = { workspace = true, optional = true }
+stateright = { version = "0.31", optional = true }
+parking_lot = { version = "0.12", optional = true }
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio-test.workspace = true
+wiremock = "0.6"
+serde_json.workspace = true
+
+# Chaos testing
+turmoil = "0.7"
+stateright = "0.31"

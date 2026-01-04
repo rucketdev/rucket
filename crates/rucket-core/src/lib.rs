@@ -9,8 +9,12 @@
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod encryption;
 pub mod error;
 pub mod hlc;
+pub mod lifecycle;
+pub mod policy;
+pub mod public_access_block;
 pub mod types;
 
 pub use config::{
