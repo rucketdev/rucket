@@ -10,9 +10,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   PROTOC_VERSION: "25.1"
-  # Parallel compilation: -Z threads for intra-crate, CARGO_BUILD_JOBS for inter-crate
-  RUSTFLAGS: "-Z threads=4"
-  CARGO_BUILD_JOBS: "4"
 
 jobs:
   # ==========================================================================
@@ -46,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -72,10 +69,10 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - run: cargo doc --all-features --no-deps
         env:
@@ -96,12 +93,12 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
       - name: Build all targets
         run: cargo build --all-targets --all-features
       - name: Build tests
@@ -121,12 +118,12 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -144,10 +141,10 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - name: Run unit tests
         run: cargo test --all-features --lib --bins
@@ -166,10 +163,10 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - name: Run cluster integration tests
         run: cargo test --all-features --test cluster_integration -- --test-threads=1
@@ -185,10 +182,10 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - name: Run chaos tests
         run: cargo test --features chaos-testing --package rucket-consensus --test chaos_tests
@@ -204,10 +201,10 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - name: Run Turmoil simulation tests
         run: cargo test --package rucket-consensus --test simulation_tests
@@ -223,10 +220,10 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - name: Run cloud discovery tests
         run: cargo test --features aws --package rucket-consensus --test cloud_discovery_tests
@@ -242,10 +239,10 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - name: Run API handler tests
         run: cargo test --package rucket-api --all-features
@@ -256,10 +253,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
           save-if: false
       - name: Run storage tests
         run: cargo test --package rucket-storage --all-features
@@ -279,12 +276,12 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-nightly-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate coverage
