@@ -133,15 +133,15 @@ impl ClusterManager {
     /// Creates a new cluster manager with a custom network factory.
     ///
     /// This allows injecting custom network implementations, such as
-    /// [`ChaosNetworkFactory`](crate::network::ChaosNetworkFactory) for fault injection testing.
+    /// [`ChaosNetworkFactory`](crate::testing::ChaosNetworkFactory) for fault injection testing.
     ///
     /// # Example
     ///
     /// ```ignore
     /// use std::sync::Arc;
     /// use rucket_consensus::{ClusterManager, ClusterConfig, RedbLogStorage, MetadataStateMachine};
-    /// use rucket_consensus::network::{GrpcNetworkFactory, ChaosNetworkFactory};
-    /// use rucket_consensus::testing::ChaosController;
+    /// use rucket_consensus::network::GrpcNetworkFactory;
+    /// use rucket_consensus::testing::{ChaosController, ChaosNetworkFactory};
     ///
     /// let chaos = Arc::new(ChaosController::new());
     /// let inner_factory = GrpcNetworkFactory::new();

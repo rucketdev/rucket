@@ -46,7 +46,7 @@ pub enum ChaosError {
 /// - Network partitions (sets of isolated nodes)
 /// - Crashed nodes
 ///
-/// Use [`ChaosNetwork`] to wrap a Raft network and apply these faults.
+/// Use [`ChaosNetwork`](super::ChaosNetwork) to wrap a Raft network and apply these faults.
 ///
 /// # Thread Safety
 ///
