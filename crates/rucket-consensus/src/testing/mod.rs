@@ -68,10 +68,14 @@
 #[cfg(feature = "chaos-testing")]
 mod chaos;
 #[cfg(feature = "chaos-testing")]
+mod chaos_network;
+#[cfg(feature = "chaos-testing")]
 mod linearizability;
 
 #[cfg(feature = "chaos-testing")]
-pub use chaos::{ChaosController, ChaosError, ChaosNetwork, PartitionId};
+pub use chaos::{ChaosController, ChaosError, PartitionId};
+#[cfg(feature = "chaos-testing")]
+pub use chaos_network::{ChaosNetwork, ChaosNetworkFactory};
 #[cfg(feature = "chaos-testing")]
 pub use linearizability::{
     BucketHistoryRecorder, BucketOp, BucketRet, BucketSpec, HistoryRecorder, KvOp, KvRet, KvSpec,
