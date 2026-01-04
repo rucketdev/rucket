@@ -10,6 +10,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   PROTOC_VERSION: "25.1"
+  # Parallel compilation: -Z threads for intra-crate, CARGO_BUILD_JOBS for inter-crate
+  RUSTFLAGS: "-Z threads=4"
+  CARGO_BUILD_JOBS: "4"
 
 jobs:
   # ==========================================================================
@@ -43,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -86,9 +89,6 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.code == 'true' || contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: "-Z threads=4"
-      CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@v4
       - name: Install Protoc
