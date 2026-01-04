@@ -53,9 +53,33 @@ clippy: ## Run clippy lints
 test: ## Run all tests
 	$(CARGO) test --all-features
 
+.PHONY: test-unit
+test-unit: ## Run unit tests only (lib + bins)
+	$(CARGO) test --all-features --lib --bins
+
 .PHONY: test-integration
 test-integration: ## Run integration tests (single-threaded)
-	$(CARGO) test --all-features --test '*' -- --test-threads=1
+	$(CARGO) test --all-features --test cluster_integration -- --test-threads=1
+
+.PHONY: test-chaos
+test-chaos: ## Run chaos tests (consensus fault injection)
+	$(CARGO) test --features chaos-testing --package rucket-consensus --test chaos_tests
+
+.PHONY: test-simulation
+test-simulation: ## Run Turmoil simulation tests
+	$(CARGO) test --package rucket-consensus --test simulation_tests
+
+.PHONY: test-cloud-discovery
+test-cloud-discovery: ## Run cloud discovery tests (AWS)
+	$(CARGO) test --features aws --package rucket-consensus --test cloud_discovery_tests
+
+.PHONY: test-api
+test-api: ## Run API handler tests
+	$(CARGO) test --package rucket-api --all-features
+
+.PHONY: test-storage
+test-storage: ## Run storage tests
+	$(CARGO) test --package rucket-storage --all-features
 
 .PHONY: lint
 lint: fmt-check clippy ## Run all lints (format + clippy)
@@ -87,6 +111,14 @@ coverage-open: coverage ## Generate and open coverage report
 .PHONY: build
 build: ## Build release binary
 	$(CARGO) build --release
+
+.PHONY: build-all
+build-all: ## Build all targets with all features
+	$(CARGO) build --all-targets --all-features
+
+.PHONY: build-tests
+build-tests: ## Build tests without running
+	$(CARGO) test --all-features --no-run
 
 .PHONY: run
 run: ## Run the server
