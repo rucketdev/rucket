@@ -6,7 +6,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{middleware as axum_middleware, Router};
+use axum::{middleware as axum_middleware, Extension, Router};
 use bytes::Bytes;
 use rucket_core::config::{ApiCompatibilityMode, AuthConfig};
 use rucket_storage::LocalStorage;
@@ -14,7 +14,7 @@ use serde::Deserialize;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
-use crate::auth::{auth_middleware, AuthState};
+use crate::auth::{auth_middleware, AuthContext, AuthState};
 use crate::handlers::bucket::{self, AppState};
 use crate::handlers::{minio, multipart, object};
 use crate::middleware::metrics_layer;
@@ -334,23 +334,25 @@ async fn head_bucket(state: State<AppState>, path: Path<String>) -> Response {
 
 async fn head_object(
     state: State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     path: Path<(String, String)>,
     headers: HeaderMap,
     query: Query<RequestQuery>,
 ) -> Response {
-    object::head_object(state, path, headers, query).await.into_response()
+    object::head_object(state, auth, path, headers, query).await.into_response()
 }
 
 /// Handle POST requests to bucket (delete multiple objects).
 async fn handle_bucket_post(
     state: State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     path: Path<String>,
     Query(query): Query<RequestQuery>,
     body: Bytes,
 ) -> Response {
     // Check for ?delete (DeleteObjects)
     if query.delete.is_some() {
-        return object::delete_objects(state, path, body).await.into_response();
+        return object::delete_objects(state, auth, path, body).await.into_response();
     }
 
     // Unsupported POST to bucket
@@ -364,6 +366,7 @@ async fn handle_bucket_post(
 /// Handle GET requests to bucket (list objects, uploads, or config).
 async fn handle_bucket_get(
     state: State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     path: Path<String>,
     Query(query): Query<RequestQuery>,
 ) -> Response {
@@ -448,7 +451,9 @@ async fn handle_bucket_get(
             fetch_owner: query.fetch_owner,
             allow_unordered: query.allow_unordered,
         };
-        return object::list_object_versions(state, path, Query(list_query)).await.into_response();
+        return object::list_object_versions(state, auth, path, Query(list_query))
+            .await
+            .into_response();
     }
 
     let list_query = object::ListObjectsQuery {
@@ -468,15 +473,16 @@ async fn handle_bucket_get(
     // Use V1 or V2 based on list-type parameter
     // list-type=2 means V2, otherwise V1
     if query.list_type == Some(2) {
-        object::list_objects_v2(state, path, Query(list_query)).await.into_response()
+        object::list_objects_v2(state, auth.clone(), path, Query(list_query)).await.into_response()
     } else {
-        object::list_objects_v1(state, path, Query(list_query)).await.into_response()
+        object::list_objects_v1(state, auth, path, Query(list_query)).await.into_response()
     }
 }
 
 /// Handle GET requests to object (get object or list parts).
 async fn handle_object_get(
     state: State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     path: Path<(String, String)>,
     Query(query): Query<RequestQuery>,
     headers: HeaderMap,
@@ -495,29 +501,33 @@ async fn handle_object_get(
     if query.tagging.is_some() {
         let tagging_query =
             RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
-        return object::get_object_tagging(state, path, Query(tagging_query)).await.into_response();
+        return object::get_object_tagging(state, auth, path, Query(tagging_query))
+            .await
+            .into_response();
     }
 
     // Check for ?attributes (GetObjectAttributes)
     if query.attributes.is_some() {
-        return object::get_object_attributes(state, path, Query(query), headers)
+        return object::get_object_attributes(state, auth, path, Query(query), headers)
             .await
             .into_response();
     }
 
     // Check for ?retention (GetObjectRetention)
     if query.retention.is_some() {
-        return object::get_object_retention(state, path, Query(query)).await.into_response();
+        return object::get_object_retention(state, auth, path, Query(query)).await.into_response();
     }
 
     // Check for ?legal-hold (GetObjectLegalHold)
     if query.legal_hold.is_some() {
-        return object::get_object_legal_hold(state, path, Query(query)).await.into_response();
+        return object::get_object_legal_hold(state, auth, path, Query(query))
+            .await
+            .into_response();
     }
 
     // Check for ?acl (GetObjectAcl)
     if query.acl.is_some() {
-        return object::get_object_acl(state, path, Query(query)).await.into_response();
+        return object::get_object_acl(state, auth, path, Query(query)).await.into_response();
     }
 
     // Build response header overrides
@@ -531,12 +541,15 @@ async fn handle_object_get(
     };
 
     // Default: GetObject
-    object::get_object(state, path, headers, overrides, query.version_id).await.into_response()
+    object::get_object(state, auth, path, headers, overrides, query.version_id)
+        .await
+        .into_response()
 }
 
 /// Handle PUT requests to object (put object, upload part, or copy).
 async fn handle_object_put(
     state: State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     path: Path<(String, String)>,
     Query(query): Query<RequestQuery>,
     headers: HeaderMap,
@@ -558,35 +571,35 @@ async fn handle_object_put(
 
     // Check for x-amz-copy-source (copy object)
     if headers.contains_key("x-amz-copy-source") {
-        return object::copy_object(state, path, headers).await.into_response();
+        return object::copy_object(state, auth, path, headers).await.into_response();
     }
 
     // Check for ?tagging (PutObjectTagging)
     if query.tagging.is_some() {
         let tagging_query =
             RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
-        return object::put_object_tagging(state, path, Query(tagging_query), body)
+        return object::put_object_tagging(state, auth, path, Query(tagging_query), body)
             .await
             .into_response();
     }
 
     // Check for ?retention (PutObjectRetention)
     if query.retention.is_some() {
-        return object::put_object_retention(state, path, Query(query), headers, body)
+        return object::put_object_retention(state, auth, path, Query(query), headers, body)
             .await
             .into_response();
     }
 
     // Check for ?legal-hold (PutObjectLegalHold)
     if query.legal_hold.is_some() {
-        return object::put_object_legal_hold(state, path, Query(query), body)
+        return object::put_object_legal_hold(state, auth, path, Query(query), body)
             .await
             .into_response();
     }
 
     // Check for ?acl (PutObjectAcl)
     if query.acl.is_some() {
-        return object::put_object_acl(state, path, Query(query), body).await.into_response();
+        return object::put_object_acl(state, auth, path, Query(query), body).await.into_response();
     }
 
     // Check for ?partNumber&uploadId (upload part)
@@ -601,12 +614,13 @@ async fn handle_object_put(
     }
 
     // Default: PutObject
-    object::put_object(state, path, headers, body).await.into_response()
+    object::put_object(state, auth, path, headers, body).await.into_response()
 }
 
 /// Handle DELETE requests to object (delete object or abort upload).
 async fn handle_object_delete(
     state: State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     path: Path<(String, String)>,
     Query(query): Query<RequestQuery>,
     headers: HeaderMap,
@@ -626,13 +640,13 @@ async fn handle_object_delete(
     if query.tagging.is_some() {
         let tagging_query =
             RequestQuery { version_id: query.version_id.clone(), ..Default::default() };
-        return object::delete_object_tagging(state, path, Query(tagging_query))
+        return object::delete_object_tagging(state, auth, path, Query(tagging_query))
             .await
             .into_response();
     }
 
     // Default: DeleteObject
-    object::delete_object(state, path, headers, Query(query)).await.into_response()
+    object::delete_object(state, auth, path, headers, Query(query)).await.into_response()
 }
 
 /// Handle POST requests to object (initiate or complete multipart).

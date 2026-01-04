@@ -6,16 +6,20 @@ use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::Extension;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use rucket_core::config::ApiCompatibilityMode;
 use rucket_core::error::S3ErrorCode;
+use rucket_core::policy::S3Action;
 use rucket_storage::{ObjectHeaders, StorageBackend};
 use serde::Deserialize;
 
+use crate::auth::AuthContext;
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
+use crate::policy::{evaluate_bucket_policy, get_auth_context};
 use crate::xml::request::DeleteObjects;
 
 /// Query parameters for overriding response headers in GetObject.
@@ -338,10 +342,24 @@ async fn check_preconditions(
 /// `PUT /{bucket}/{key}` - Upload object.
 pub async fn put_object(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::PutObject,
+        None,
+        false,
+    )
+    .await?;
+
     // Check conditional headers for optimistic locking
     check_preconditions(&state, &bucket, &key, &headers).await?;
 
@@ -541,6 +559,7 @@ fn parse_client_checksum(
 /// `GET /{bucket}/{key}` - Download object.
 pub async fn get_object(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
     overrides: ResponseHeaderOverrides,
@@ -554,6 +573,19 @@ pub async fn get_object(
         )
         .with_resource(&bucket));
     }
+
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::GetObject,
+        None,  // TODO: extract source IP from request
+        false, // TODO: check if HTTPS
+    )
+    .await?;
 
     // Parse Range header if present
     let range_header = headers.get("range").and_then(|v| v.to_str().ok());
@@ -894,6 +926,7 @@ fn get_object_version_range(
 /// `DELETE /{bucket}/{key}` - Delete object.
 pub async fn delete_object(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
     Query(query): Query<crate::router::RequestQuery>,
@@ -906,6 +939,19 @@ pub async fn delete_object(
         )
         .with_resource(&bucket));
     }
+
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::DeleteObject,
+        None,
+        false,
+    )
+    .await?;
 
     // Check for bypass governance header
     let bypass_governance = headers
@@ -973,6 +1019,7 @@ pub async fn delete_object(
 /// `HEAD /{bucket}/{key}` - Get object metadata.
 pub async fn head_object(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
     Query(query): Query<crate::router::RequestQuery>,
@@ -985,6 +1032,19 @@ pub async fn head_object(
         )
         .with_resource(&bucket));
     }
+
+    // Evaluate bucket policy (HEAD uses same permission as GET)
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::GetObject,
+        None,
+        false,
+    )
+    .await?;
 
     // Get metadata, either latest or specific version
     let meta = if let Some(ref vid) = query.version_id {
@@ -1084,12 +1144,10 @@ pub async fn head_object(
 /// `PUT /{bucket}/{key}` with `x-amz-copy-source` - Copy object.
 pub async fn copy_object(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((dst_bucket, dst_key)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    // Check conditional headers for destination object
-    check_preconditions(&state, &dst_bucket, &dst_key, &headers).await?;
-
     let copy_source =
         headers.get("x-amz-copy-source").and_then(|v| v.to_str().ok()).ok_or_else(|| {
             ApiError::new(S3ErrorCode::InvalidRequest, "Missing x-amz-copy-source header")
@@ -1097,12 +1155,42 @@ pub async fn copy_object(
 
     // Parse source: /bucket/key or bucket/key
     let source = copy_source.trim_start_matches('/');
-    let (src_bucket, src_key) = source.split_once('/').ok_or_else(|| {
+    let (src_bucket, src_key_raw) = source.split_once('/').ok_or_else(|| {
         ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source format")
     })?;
 
     // URL-decode the source key (it may be percent-encoded)
-    let src_key = s3_url_decode(src_key);
+    let src_key = s3_url_decode(src_key_raw);
+
+    // Evaluate bucket policies for both source and destination
+    let auth_ctx = get_auth_context(auth);
+
+    // Check GetObject permission on source
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        src_bucket,
+        Some(&src_key),
+        S3Action::GetObject,
+        None,
+        false,
+    )
+    .await?;
+
+    // Check PutObject permission on destination
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &dst_bucket,
+        Some(&dst_key),
+        S3Action::PutObject,
+        None,
+        false,
+    )
+    .await?;
+
+    // Check conditional headers for destination object
+    check_preconditions(&state, &dst_bucket, &dst_key, &headers).await?;
 
     // Check x-amz-copy-source-if-match: fail if source ETag doesn't match
     if let Some(if_match) = headers.get("x-amz-copy-source-if-match").and_then(|v| v.to_str().ok())
@@ -1194,9 +1282,23 @@ pub async fn copy_object(
 /// `GET /{bucket}` - List objects V1.
 pub async fn list_objects_v1(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        None,
+        S3Action::ListBucket,
+        None,
+        false,
+    )
+    .await?;
+
     // Ceph extension: allow-unordered with delimiter is not supported
     if state.compatibility_mode == ApiCompatibilityMode::Ceph
         && query.allow_unordered.as_deref() == Some("true")
@@ -1293,9 +1395,23 @@ pub async fn list_objects_v1(
 /// `GET /{bucket}?list-type=2` - List objects V2.
 pub async fn list_objects_v2(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        None,
+        S3Action::ListBucket,
+        None,
+        false,
+    )
+    .await?;
+
     // Ceph extension: allow-unordered with delimiter is not supported
     if state.compatibility_mode == ApiCompatibilityMode::Ceph
         && query.allow_unordered.as_deref() == Some("true")
@@ -1420,9 +1536,23 @@ pub async fn list_objects_v2(
 /// For non-versioned buckets, returns all objects with a version ID of "null".
 pub async fn list_object_versions(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        None,
+        S3Action::ListBucketVersions,
+        None,
+        false,
+    )
+    .await?;
+
     let max_keys = parse_max_keys(&query.max_keys)?;
 
     // Use the real list_object_versions method that returns all versions
@@ -1478,6 +1608,7 @@ pub async fn list_object_versions(
 /// `POST /{bucket}?delete` - Delete multiple objects.
 pub async fn delete_objects(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path(bucket): Path<String>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
@@ -1485,6 +1616,21 @@ pub async fn delete_objects(
     let request: DeleteObjects = quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
         ApiError::new(S3ErrorCode::InvalidRequest, format!("Failed to parse DeleteObjects: {e}"))
     })?;
+
+    // Evaluate bucket policy for DeleteObject action
+    // Note: In full implementation, this would check per-object, but for simplicity
+    // we check at the bucket level
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        None,
+        S3Action::DeleteObject,
+        None,
+        false,
+    )
+    .await?;
 
     // S3 limits DeleteObjects to 1000 keys
     if request.objects.len() > 1000 {
@@ -1545,9 +1691,23 @@ pub async fn delete_objects(
 /// `GET /{bucket}/{key}?tagging` - Get object tagging.
 pub async fn get_object_tagging(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::GetObjectTagging,
+        None,
+        false,
+    )
+    .await?;
+
     // Get tags (this also verifies bucket and object exist)
     let tag_set = if let Some(ref version_id) = query.version_id {
         state.storage.get_object_tagging_version(&bucket, &key, version_id).await?
@@ -1592,10 +1752,24 @@ const MAX_TAG_VALUE_LENGTH: usize = 256;
 /// `PUT /{bucket}/{key}?tagging` - Set object tagging.
 pub async fn put_object_tagging(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::PutObjectTagging,
+        None,
+        false,
+    )
+    .await?;
+
     // Parse the tagging XML
     let tagging: TaggingRequest = quick_xml::de::from_reader(body.as_ref()).map_err(|e| {
         ApiError::new(S3ErrorCode::MalformedXML, format!("Failed to parse tagging XML: {e}"))
@@ -1665,9 +1839,23 @@ pub async fn put_object_tagging(
 /// `DELETE /{bucket}/{key}?tagging` - Delete object tagging.
 pub async fn delete_object_tagging(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::DeleteObjectTagging,
+        None,
+        false,
+    )
+    .await?;
+
     // Delete tags (this also verifies bucket and object exist)
     if let Some(ref version_id) = query.version_id {
         state.storage.delete_object_tagging_version(&bucket, &key, version_id).await?;
@@ -1719,10 +1907,24 @@ impl ObjectAttribute {
 /// `GET /{bucket}/{key}?attributes` - Get object attributes.
 pub async fn get_object_attributes(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy (GetObjectAttributes requires GetObject permission)
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::GetObject,
+        None,
+        false,
+    )
+    .await?;
+
     // Parse requested attributes from x-amz-object-attributes header
     // The SDK may send multiple headers or a single comma-separated header
     let mut requested_attrs: Vec<ObjectAttribute> = Vec::new();
@@ -1836,6 +2038,7 @@ pub async fn get_object_attributes(
 /// `GET /{bucket}/{key}?retention` - Get object retention configuration.
 pub async fn get_object_retention(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
@@ -1847,6 +2050,19 @@ pub async fn get_object_retention(
         )
         .with_resource(&bucket));
     }
+
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::GetObjectRetention,
+        None,
+        false,
+    )
+    .await?;
 
     // Get retention from storage
     let retention = if let Some(ref version_id) = query.version_id {
@@ -1889,6 +2105,7 @@ pub async fn get_object_retention(
 /// `PUT /{bucket}/{key}?retention` - Set object retention configuration.
 pub async fn put_object_retention(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
     headers: HeaderMap,
@@ -1902,6 +2119,19 @@ pub async fn put_object_retention(
         )
         .with_resource(&bucket));
     }
+
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::PutObjectRetention,
+        None,
+        false,
+    )
+    .await?;
 
     // Check for bypass governance header
     let bypass_governance = headers
@@ -2020,6 +2250,7 @@ pub async fn put_object_retention(
 /// `GET /{bucket}/{key}?legal-hold` - Get object legal hold status.
 pub async fn get_object_legal_hold(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
@@ -2031,6 +2262,19 @@ pub async fn get_object_legal_hold(
         )
         .with_resource(&bucket));
     }
+
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::GetObjectLegalHold,
+        None,
+        false,
+    )
+    .await?;
 
     // Get legal hold status from storage
     let enabled = if let Some(ref version_id) = query.version_id {
@@ -2059,6 +2303,7 @@ pub async fn get_object_legal_hold(
 /// `PUT /{bucket}/{key}?legal-hold` - Set object legal hold status.
 pub async fn put_object_legal_hold(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
     body: Bytes,
@@ -2071,6 +2316,19 @@ pub async fn put_object_legal_hold(
         )
         .with_resource(&bucket));
     }
+
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::PutObjectLegalHold,
+        None,
+        false,
+    )
+    .await?;
 
     // Parse the XML body
     let body_str = std::str::from_utf8(&body).map_err(|_| {
@@ -2137,9 +2395,23 @@ pub async fn put_object_legal_hold(
 /// This is a simplified implementation for single-tenant mode.
 pub async fn get_object_acl(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::GetObjectAcl,
+        None,
+        false,
+    )
+    .await?;
+
     // Get object metadata to verify it exists
     let _metadata = if let Some(ref version_id) = query.version_id {
         state.storage.head_object_version(&bucket, &key, version_id).await?
@@ -2170,10 +2442,24 @@ pub async fn get_object_acl(
 /// Accepts but ignores ACL changes in single-tenant mode.
 pub async fn put_object_acl(
     State(state): State<AppState>,
+    auth: Option<Extension<AuthContext>>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<crate::router::RequestQuery>,
     _body: Bytes,
 ) -> Result<Response, ApiError> {
+    // Evaluate bucket policy
+    let auth_ctx = get_auth_context(auth);
+    evaluate_bucket_policy(
+        &*state.storage,
+        &auth_ctx,
+        &bucket,
+        Some(&key),
+        S3Action::PutObjectAcl,
+        None,
+        false,
+    )
+    .await?;
+
     // Get object metadata to verify it exists
     let _metadata = if let Some(ref version_id) = query.version_id {
         state.storage.head_object_version(&bucket, &key, version_id).await?
@@ -2266,6 +2552,7 @@ mod tests {
 
         let result = get_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(RequestQuery::default()),
         )
@@ -2294,6 +2581,7 @@ mod tests {
 
         let put_result = put_object_tagging(
             State(state.clone()),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(RequestQuery::default()),
             Bytes::from(tagging_xml),
@@ -2307,6 +2595,7 @@ mod tests {
         // Get tagging and verify
         let get_result = get_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(RequestQuery::default()),
         )
@@ -2335,6 +2624,7 @@ mod tests {
 
         put_object_tagging(
             State(state.clone()),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(RequestQuery::default()),
             Bytes::from(tagging_xml),
@@ -2345,6 +2635,7 @@ mod tests {
         // Delete tagging
         let delete_result = delete_object_tagging(
             State(state.clone()),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(RequestQuery::default()),
         )
@@ -2357,6 +2648,7 @@ mod tests {
         // Verify tags are deleted (should return empty tag set)
         let get_result = get_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(RequestQuery::default()),
         )
@@ -2395,6 +2687,7 @@ mod tests {
         // Get tagging with version ID
         let get_result = get_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(query_with_version_id(version_id.clone())),
         )
@@ -2447,6 +2740,7 @@ mod tests {
 
         let put_result = put_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(query_with_version_id(version_id.clone())),
             Bytes::from(tagging_xml),
@@ -2490,6 +2784,7 @@ mod tests {
         // Delete tagging with version ID
         let delete_result = delete_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(query_with_version_id(version_id.clone())),
         )
@@ -2510,6 +2805,7 @@ mod tests {
         // Put malformed tagging XML
         let put_result = put_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "test-key.txt".to_string())),
             Query(RequestQuery::default()),
             Bytes::from("not valid xml"),
@@ -2527,6 +2823,7 @@ mod tests {
         // Try to get tags for non-existent object
         let result = get_object_tagging(
             State(state),
+            None,
             Path(("test-bucket".to_string(), "nonexistent.txt".to_string())),
             Query(RequestQuery::default()),
         )

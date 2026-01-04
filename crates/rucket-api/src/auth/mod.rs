@@ -14,6 +14,41 @@ pub use sigv4::{SigV4Validator, ValidationError};
 
 use crate::error::ApiError;
 
+/// Authentication context extracted from the request.
+///
+/// This is injected as an `Extension` by the auth middleware and can be
+/// used by handlers to determine the authenticated principal.
+#[derive(Clone, Debug)]
+pub struct AuthContext {
+    /// The access key ID of the authenticated user.
+    /// For anonymous requests, this is empty.
+    pub access_key: String,
+
+    /// Whether this is an anonymous (unauthenticated) request.
+    pub is_anonymous: bool,
+
+    /// The principal ARN for policy evaluation.
+    /// Format: `arn:aws:iam::account-id:user/username` or `*` for anonymous.
+    pub principal_arn: String,
+}
+
+impl AuthContext {
+    /// Create a new authenticated context.
+    #[must_use]
+    pub fn authenticated(access_key: String) -> Self {
+        // For now, use a simplified principal ARN based on access key
+        // In a real multi-tenant setup, this would map to actual IAM users
+        let principal_arn = format!("arn:aws:iam::000000000000:user/{}", access_key);
+        Self { access_key, is_anonymous: false, principal_arn }
+    }
+
+    /// Create an anonymous context.
+    #[must_use]
+    pub fn anonymous() -> Self {
+        Self { access_key: String::new(), is_anonymous: true, principal_arn: "*".to_string() }
+    }
+}
+
 /// State for the auth middleware.
 #[derive(Clone)]
 pub struct AuthState {
@@ -34,9 +69,12 @@ impl AuthState {
 /// Validates requests using either:
 /// - Header-based AWS Signature V4 (Authorization header)
 /// - Query parameter-based presigned URLs (X-Amz-Signature query param)
+///
+/// Injects an `AuthContext` extension that handlers can use to determine
+/// the authenticated principal for policy evaluation.
 pub async fn auth_middleware(
     State(auth_state): State<AuthState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let method = request.method().clone();
@@ -51,7 +89,17 @@ pub async fn auth_middleware(
     if SigV4Validator::is_presigned_request(&query_params) {
         // Validate presigned URL
         match auth_state.validator.validate_presigned(&method, &uri_str, &headers, &query_params) {
-            Ok(()) => next.run(request).await,
+            Ok(()) => {
+                // Extract access key from presigned URL params
+                let access_key = query_params
+                    .get("X-Amz-Credential")
+                    .and_then(|c| c.split('/').next())
+                    .unwrap_or("")
+                    .to_string();
+                let auth_ctx = AuthContext::authenticated(access_key);
+                request.extensions_mut().insert(auth_ctx);
+                next.run(request).await
+            }
             Err(e) => validation_error_to_response(e),
         }
     } else if headers.contains_key("authorization") {
@@ -64,14 +112,39 @@ pub async fn auth_middleware(
             .unwrap_or("UNSIGNED-PAYLOAD");
 
         match auth_state.validator.validate(&method, &uri_str, &headers, payload_hash) {
-            Ok(()) => next.run(request).await,
+            Ok(()) => {
+                // Extract access key from Authorization header
+                let access_key = extract_access_key_from_auth_header(
+                    headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or(""),
+                );
+                let auth_ctx = AuthContext::authenticated(access_key);
+                request.extensions_mut().insert(auth_ctx);
+                next.run(request).await
+            }
             Err(e) => validation_error_to_response(e),
         }
     } else {
-        // No auth provided - for now, allow anonymous access
-        // This matches current behavior; can be made stricter later
+        // No auth provided - allow anonymous access
+        // Inject anonymous context for policy evaluation
+        let auth_ctx = AuthContext::anonymous();
+        request.extensions_mut().insert(auth_ctx);
         next.run(request).await
     }
+}
+
+/// Extract access key from Authorization header.
+///
+/// Header format: `AWS4-HMAC-SHA256 Credential=AKID/date/region/service/aws4_request, ...`
+fn extract_access_key_from_auth_header(header: &str) -> String {
+    // Find Credential= part
+    if let Some(cred_start) = header.find("Credential=") {
+        let cred_part = &header[cred_start + 11..];
+        // Access key is everything before the first '/'
+        if let Some(slash_pos) = cred_part.find('/') {
+            return cred_part[..slash_pos].to_string();
+        }
+    }
+    String::new()
 }
 
 /// Parse query string into a BTreeMap.
