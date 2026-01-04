@@ -16,8 +16,8 @@ use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rucket_consensus::network::{ChaosNetworkFactory, GrpcNetworkFactory};
-use rucket_consensus::testing::ChaosController;
+use rucket_consensus::network::GrpcNetworkFactory;
+use rucket_consensus::testing::{ChaosController, ChaosNetworkFactory};
 use rucket_consensus::{
     ClusterConfig, ClusterManager, MetadataStateMachine, RaftMetadataBackend, RedbLogStorage,
 };

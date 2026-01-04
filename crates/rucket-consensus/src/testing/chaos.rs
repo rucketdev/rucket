@@ -336,60 +336,6 @@ impl Default for ChaosController {
     }
 }
 
-/// A wrapper around a Raft network that applies chaos faults.
-///
-/// This struct wraps any type implementing the Raft network traits and
-/// applies faults configured in the associated [`ChaosController`].
-///
-/// # Usage
-///
-/// ```ignore
-/// let controller = Arc::new(ChaosController::new());
-/// let inner_network = GrpcNetwork::new(target, addr);
-/// let chaos_network = ChaosNetwork::new(inner_network, controller, self_id);
-///
-/// // Now use chaos_network for Raft operations
-/// // Faults can be controlled via the controller
-/// ```
-#[derive(Debug)]
-pub struct ChaosNetwork<N> {
-    /// The underlying network implementation.
-    inner: N,
-    /// Chaos controller for fault injection.
-    controller: Arc<ChaosController>,
-    /// This node's ID.
-    self_id: RaftNodeId,
-}
-
-impl<N> ChaosNetwork<N> {
-    /// Creates a new chaos network wrapper.
-    pub fn new(inner: N, controller: Arc<ChaosController>, self_id: RaftNodeId) -> Self {
-        Self { inner, controller, self_id }
-    }
-
-    /// Returns a reference to the underlying network.
-    pub fn inner(&self) -> &N {
-        &self.inner
-    }
-
-    /// Returns a mutable reference to the underlying network.
-    pub fn inner_mut(&mut self) -> &mut N {
-        &mut self.inner
-    }
-
-    /// Returns the chaos controller.
-    pub fn controller(&self) -> &Arc<ChaosController> {
-        &self.controller
-    }
-
-    /// Applies chaos before sending a message to the target.
-    ///
-    /// Returns the delay to apply, or an error if the message should be dropped.
-    pub async fn apply_chaos(&self, target: RaftNodeId) -> Result<Option<Duration>, ChaosError> {
-        self.controller.intercept(self.self_id, target).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,15 +460,5 @@ mod tests {
         assert_eq!(controller.get_packet_loss(1, 3), 0.0);
         assert!(!controller.is_crashed(4));
         assert!(controller.can_communicate(5, 1).await);
-    }
-
-    #[test]
-    fn test_chaos_network_creation() {
-        let controller = Arc::new(ChaosController::new());
-        let inner = (); // Dummy inner network
-        let network = ChaosNetwork::new(inner, controller.clone(), 1);
-
-        assert_eq!(network.self_id, 1);
-        assert!(Arc::ptr_eq(network.controller(), &controller));
     }
 }
