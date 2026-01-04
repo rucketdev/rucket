@@ -52,6 +52,9 @@ mod reader;
 mod recovery;
 mod writer;
 
+#[cfg(test)]
+mod durability_tests;
+
 pub use entry::{IncompleteOperation, SequencedEntry, WalEntry};
 pub use reader::WalReader;
 pub use recovery::{RecoveryManager, RecoveryStats};
