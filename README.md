@@ -15,7 +15,7 @@ S3-compatible object storage. Community-governed, feature-complete, written in R
 - **S3 Compatible** — Drop-in replacement, not "S3-ish"
 - **Performant** — Competitive with MinIO on single-node workloads
 - **Durable** — Write-ahead logging, crash recovery, no silent data loss
-- **Distributed** — Single-node first, HA and clustering planned
+- **Distributed** — Raft-based clustering with automatic rebalancing
 
 See [VISION.md](docs/VISION.md) for details.
 
@@ -69,9 +69,11 @@ See [configuration.md](docs/configuration.md) for all options.
 | Checksums | Done |
 | Presigned URLs | Done |
 | CORS | Done |
-| Bucket policies | Planned |
-| Object Lock | Planned |
-| SSE encryption | Planned |
+| Bucket policies | Done |
+| Object Lock | Done |
+| SSE-S3 encryption | Done |
+| Lifecycle policies | Done |
+| Replication | Done |
 
 ## License
 
