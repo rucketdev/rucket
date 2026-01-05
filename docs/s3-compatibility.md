@@ -156,7 +156,7 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 ### Bucket Logging
 - Access logging to target bucket
 
-**Rationale**: Enterprise feature; planned for Phase 4.
+**Rationale**: Enterprise feature; planned for future phases.
 
 ### POST Object
 - Browser-based uploads
