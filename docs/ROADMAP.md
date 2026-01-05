@@ -851,11 +851,13 @@ Or via environment variables:
 
 ---
 
-### Milestone 5.2: Contributor Onboarding
+### Milestone 5.2: Contributor Onboarding 🚧
+
+**Status**: IN PROGRESS
 
 **Tasks**:
-1. [ ] Write CONTRIBUTING.md
-2. [ ] Create good-first-issue labels
+1. [x] Write CONTRIBUTING.md (PR #154 - updated with full project structure, crate dependencies, contribution categories)
+2. [ ] Create good-first-issue labels on GitHub
 3. [ ] Set up community communication (Discord/Slack)
 4. [ ] Onboard first external maintainer
 
