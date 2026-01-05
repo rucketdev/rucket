@@ -10,6 +10,7 @@ use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use rucket_api::metrics::init_metrics;
 use rucket_api::{create_admin_router, create_router, AdminState};
+use rucket_cluster::{RebalanceConfig, RebalanceManager};
 use rucket_consensus::{
     CloudConfig, CloudDiscovery, ClusterManager, DiscoveredPeer, Discovery, DiscoveryError,
     DiscoveryManager, DiscoveryManagerConfig, DnsDiscovery, MetadataStateMachine,
@@ -21,6 +22,7 @@ use rucket_storage::metrics::{init_storage_metrics, start_storage_metrics_collec
 use rucket_storage::{LocalStorage, RedbMetadataStore};
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -316,8 +318,15 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
 
     // Merge admin router if cluster mode is enabled
     let app = if let Some(cluster_manager) = &_cluster_manager {
-        let admin_state =
-            AdminState { raft: cluster_manager.raft(), node_id: config.cluster.node_id };
+        // Create rebalance manager for shard redistribution
+        let rebalance_config = RebalanceConfig::default();
+        let rebalance_manager = RebalanceManager::new(rebalance_config);
+
+        let admin_state = AdminState {
+            raft: cluster_manager.raft(),
+            node_id: config.cluster.node_id,
+            rebalance_manager: Some(Arc::new(RwLock::new(rebalance_manager))),
+        };
         let admin_router = create_admin_router(admin_state);
         s3_router.merge(admin_router)
     } else {

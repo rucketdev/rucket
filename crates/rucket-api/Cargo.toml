@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 rucket-core.workspace = true
 rucket-consensus.workspace = true
+rucket-cluster.workspace = true
 rucket-storage.workspace = true
 
 openraft = { version = "0.9", features = ["serde"] }
