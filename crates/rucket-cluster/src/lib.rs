@@ -4,6 +4,7 @@
 //! - Phi Accrual Failure Detector for probabilistic failure detection
 //! - Heartbeat manager for cluster health monitoring
 //! - Node state tracking and event emission
+//! - Shard repair loop for automatic data recovery
 //!
 //! # Architecture
 //!
@@ -52,6 +53,7 @@
 
 pub mod heartbeat;
 pub mod phi_detector;
+pub mod repair;
 
 // Re-export main types
 pub use heartbeat::{
@@ -59,6 +61,10 @@ pub use heartbeat::{
     HeartbeatSender, NoOpHeartbeatSender, NodeState,
 };
 pub use phi_detector::{NodeStats, PhiAccrualDetector, PhiDetectorConfig};
+pub use repair::{
+    NoOpShardLocator, NoOpShardRepairer, ObjectInfo, RepairConfig, RepairEvent, RepairManager,
+    RepairResult, ShardLocation, ShardLocator, ShardRepairTask, ShardRepairer, TaskStatus,
+};
 
 #[cfg(test)]
 mod tests {
