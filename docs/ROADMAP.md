@@ -611,6 +611,14 @@ Or via environment variables:
   - Concurrent repair with configurable limits (default 4)
   - Retry support with maximum 3 attempts
   - 11 unit tests for repair module
+- `crates/rucket-cluster/src/rebalance.rs` (PR #141): Rebalancing on membership changes
+  - `RebalanceManager`: Coordinates shard redistribution on node join/leave
+  - `RebalanceTask`: Represents pending migration operations
+  - `PlacementComputer` trait: Compute optimal shard placement
+  - `ShardMover` trait: Execute shard migrations between nodes
+  - Integration with HeartbeatEvent for automatic detection
+  - Rate limiting and retry support
+  - 14 unit tests for rebalance module
 
 **Files to modify**:
 - `crates/rucket-cluster/` (new crate) ✓
@@ -619,12 +627,13 @@ Or via environment variables:
 1. [x] Implement Phi Accrual Failure Detector (PR #137)
 2. [x] Implement heartbeat monitoring (1s interval) (PR #137)
 3. [x] Implement shard repair loop (PR #139)
-4. [ ] Implement rebalancing on node join/leave
+4. [x] Implement rebalancing on node join/leave (PR #141)
 5. [ ] Implement background scrubbing
 
 **Testing**:
 - [x] Unit tests for failure detection (26 tests)
 - [x] Unit tests for repair module (11 tests)
+- [x] Unit tests for rebalance module (14 tests)
 - [ ] Failure injection tests
 - [ ] Recovery time measurement
 - [ ] Scrubbing correctness tests
@@ -865,7 +874,7 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 3.2: CRUSH algorithm with consensus-backed PG ownership (38 tests)
 - [x] Milestone 3.3: Erasure coding with storage integration (PRs #129, #131 - 37 tests)
 - [~] Milestone 3.4: Primary-backup replication (PRs #133, #135 - 55 tests, storage integration complete)
-- [~] Milestone 3.5: Failure detection + repair (PRs #137, #139 - 38 tests, phi accrual + heartbeat + shard repair)
+- [~] Milestone 3.5: Failure detection + repair (PRs #137, #139, #141 - 51 tests, phi accrual + heartbeat + repair + rebalance)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
