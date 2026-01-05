@@ -6,6 +6,7 @@
 //! - Node state tracking and event emission
 //! - Shard repair loop for automatic data recovery
 //! - Rebalancing on node join/leave
+//! - Background scrubbing for data integrity verification
 //!
 //! # Architecture
 //!
@@ -15,6 +16,7 @@
 //! 3. The Phi Accrual detector computes failure suspicion levels
 //! 4. Events are emitted when nodes change state (healthy/warning/failed)
 //! 5. Rebalancing redistributes data when nodes join or leave
+//! 6. Background scrubbing periodically verifies data integrity
 //!
 //! # Example
 //!
@@ -57,6 +59,7 @@ pub mod heartbeat;
 pub mod phi_detector;
 pub mod rebalance;
 pub mod repair;
+pub mod scrub;
 
 // Re-export main types
 pub use heartbeat::{
@@ -72,6 +75,11 @@ pub use rebalance::{
 pub use repair::{
     NoOpShardLocator, NoOpShardRepairer, ObjectInfo, RepairConfig, RepairEvent, RepairManager,
     RepairResult, ShardLocation, ShardLocator, ShardRepairTask, ShardRepairer, TaskStatus,
+};
+pub use scrub::{
+    CorruptionHandler, DataValidator, NoOpCorruptionHandler, NoOpDataValidator, ScrubConfig,
+    ScrubEvent, ScrubManager, ScrubResult, ScrubStats, ScrubTarget, ScrubTask,
+    TaskStatus as ScrubTaskStatus,
 };
 
 #[cfg(test)]
