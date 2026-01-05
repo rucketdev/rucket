@@ -26,8 +26,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 mod cli;
+mod cluster_cli;
 
-use cli::{Cli, Commands};
+use cli::{Cli, ClusterSubcommand, Commands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -40,10 +41,21 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Serve(args) => run_server(args).await,
+        Commands::Cluster(cmd) => run_cluster_command(cmd.command).await,
         Commands::Version => {
             println!("rucket {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+    }
+}
+
+async fn run_cluster_command(cmd: ClusterSubcommand) -> Result<()> {
+    match cmd {
+        ClusterSubcommand::Status(args) => cluster_cli::handle_cluster_status(args).await,
+        ClusterSubcommand::AddNode(args) => cluster_cli::handle_add_node(args).await,
+        ClusterSubcommand::RemoveNode(args) => cluster_cli::handle_remove_node(args).await,
+        ClusterSubcommand::Rebalance(args) => cluster_cli::handle_rebalance(args).await,
+        ClusterSubcommand::ListNodes(args) => cluster_cli::handle_list_nodes(args).await,
     }
 }
 
