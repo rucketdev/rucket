@@ -8,8 +8,8 @@ use anyhow::{Context, Result};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
-use rucket_api::create_router;
 use rucket_api::metrics::init_metrics;
+use rucket_api::{create_admin_router, create_router, AdminState};
 use rucket_consensus::{
     CloudConfig, CloudDiscovery, ClusterManager, DiscoveredPeer, Discovery, DiscoveryError,
     DiscoveryManager, DiscoveryManagerConfig, DnsDiscovery, MetadataStateMachine,
@@ -306,13 +306,23 @@ async fn run_server(args: cli::ServeArgs) -> Result<()> {
     };
 
     // Create router with body size limit and compatibility mode
-    let app = create_router(
+    let s3_router = create_router(
         storage,
         config.server.max_body_size,
         config.api.compatibility_mode,
         config.logging.log_requests,
         Some(&config.auth),
     );
+
+    // Merge admin router if cluster mode is enabled
+    let app = if let Some(cluster_manager) = &_cluster_manager {
+        let admin_state =
+            AdminState { raft: cluster_manager.raft(), node_id: config.cluster.node_id };
+        let admin_router = create_admin_router(admin_state);
+        s3_router.merge(admin_router)
+    } else {
+        s3_router
+    };
 
     // Bind to address
     let addr = config.server.bind;
