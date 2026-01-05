@@ -104,6 +104,10 @@ pub struct RebalanceArgs {
     #[arg(short, long, default_value = "http://127.0.0.1:9000")]
     pub endpoint: String,
 
+    /// Show current rebalance status instead of triggering a rebalance.
+    #[arg(long)]
+    pub status: bool,
+
     /// Only show what would be rebalanced (dry run).
     #[arg(long)]
     pub dry_run: bool,
@@ -293,6 +297,22 @@ mod tests {
         if let Commands::Cluster(cmd) = cli.command {
             if let ClusterSubcommand::Rebalance(args) = cmd.command {
                 assert!(args.dry_run);
+                assert!(!args.status);
+            } else {
+                panic!("Expected Rebalance subcommand");
+            }
+        } else {
+            panic!("Expected Cluster command");
+        }
+    }
+
+    #[test]
+    fn test_cluster_rebalance_status_parsing() {
+        let cli = Cli::parse_from(["rucket", "cluster", "rebalance", "--status"]);
+        if let Commands::Cluster(cmd) = cli.command {
+            if let ClusterSubcommand::Rebalance(args) = cmd.command {
+                assert!(args.status);
+                assert!(!args.dry_run);
             } else {
                 panic!("Expected Rebalance subcommand");
             }
