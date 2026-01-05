@@ -6,11 +6,13 @@
 //! - WAL respects configured sync modes
 //!
 //! Note: These tests use the `test_stats` infrastructure from the sync module
-//! to count sync operations.
+//! to count sync operations. Tests that use global counters are marked with
+//! `#[serial]` to prevent race conditions.
 
 use std::time::Duration;
 
 use rucket_core::{SyncConfig, SyncStrategy};
+use serial_test::serial;
 use tempfile::TempDir;
 
 use crate::sync::{test_stats, write_and_hash_with_strategy, SyncManager};
@@ -18,6 +20,7 @@ use crate::wal::{WalEntry, WalSyncMode, WalWriter, WalWriterConfig};
 
 /// Test that SyncStrategy::None doesn't trigger fsync.
 #[tokio::test]
+#[serial]
 async fn test_sync_strategy_none_no_fsync() {
     test_stats::reset();
     let temp_dir = TempDir::new().unwrap();
@@ -42,7 +45,7 @@ async fn test_sync_strategy_none_no_fsync() {
 
 /// Test that SyncStrategy::Always calls fsync for each write.
 #[tokio::test]
-#[ignore = "Flaky due to global counter shared across tests"]
+#[serial]
 async fn test_sync_strategy_always_fsyncs() {
     test_stats::reset();
     let temp_dir = TempDir::new().unwrap();
@@ -212,6 +215,7 @@ async fn test_wal_sync_modes() {
 
 /// Test that periodic sync background task works.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
 async fn test_periodic_sync_background() {
     test_stats::reset();
     let temp_dir = TempDir::new().unwrap();

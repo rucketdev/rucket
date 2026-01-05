@@ -50,3 +50,4 @@ dashmap.workspace = true
 tempfile.workspace = true
 tokio-test.workspace = true
 proptest.workspace = true
+serial_test.workspace = true
