@@ -1,7 +1,7 @@
-//! Bucket lifecycle tests.
+//! Bucket lifecycle tests (stub file).
 //!
-//! These tests are for lifecycle policies which are not yet implemented in Rucket.
-//! All tests are marked with #[ignore].
+//! Note: Lifecycle policies ARE implemented in Rucket (see rucket-api handlers).
+//! These are stub tests for future comprehensive coverage.
 //!
 //! Ported from:
 //! - Ceph s3-tests: test_lifecycle_*
