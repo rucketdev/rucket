@@ -1955,6 +1955,7 @@ impl StorageBackend for LocalStorage {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
     use tempfile::TempDir;
 
     use super::*;
@@ -2761,6 +2762,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_sync_counters_in_always_mode() {
         use crate::sync::test_stats;
 
@@ -2807,6 +2809,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_sync_counters_threshold_triggered() {
         use crate::sync::test_stats;
 
