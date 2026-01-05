@@ -461,29 +461,32 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.2: Placement Groups + CRUSH
+### Milestone 3.2: Placement Groups + CRUSH 🚧
+
+**Status**: IN PROGRESS (Core algorithm complete, integration pending)
 
 **Deliverable**: Deterministic data placement
 
-**New dependencies**:
-- `crush` (or custom implementation)
-
-**Files to modify**:
-- `crates/rucket-placement/` (new crate)
-- `crates/rucket-storage/src/placement.rs`
+**Implementation** (`crates/rucket-placement/`):
+- Pure Rust CRUSH implementation using SipHash-1-3
+- Straw2 algorithm for weighted, disruption-minimal selection
+- Failure domain hierarchy (root > datacenter > zone > rack > host > device)
+- ClusterMap for hierarchical topology management
+- Placement rules: replicated, zone-aware, rack-aware
+- 31 tests covering distribution, determinism, and failure isolation
 
 **Tasks**:
-1. [ ] Implement CRUSH algorithm (or port existing)
-2. [ ] Implement CRUSHPlacement policy
-3. [ ] Implement cluster map (nodes, weights, topology)
-4. [ ] Implement zone-aware placement
+1. [x] Implement CRUSH algorithm (pure Rust implementation)
+2. [x] Implement CRUSHPlacement policy
+3. [x] Implement cluster map (nodes, weights, topology)
+4. [x] Implement zone-aware placement
 5. [ ] Wire CRUSH into storage routing
-6. [ ] Implement PG ownership calculation
+6. [ ] Implement PG ownership calculation with consensus
 
 **Testing**:
-- [ ] Unit tests for CRUSH placement consistency
-- [ ] Distribution uniformity tests
-- [ ] Zone awareness tests
+- [x] Unit tests for CRUSH placement consistency (31 tests)
+- [x] Distribution uniformity tests
+- [x] Zone awareness tests
 
 **CI adjustment**: None required
 
@@ -775,10 +778,10 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 
 ## Immediate Next Steps
 
-**Phase 1, 2, and 3.1 complete!** Rucket now has Raft-based distributed consensus.
+**Phase 1, 2, 3.1 complete, 3.2 in progress!** CRUSH algorithm implemented.
 
 **Next phase**: Phase 3 (Distributed Foundation) continued
-1. **Milestone 3.2**: Placement Groups + CRUSH algorithm
+1. **Milestone 3.2**: Wire CRUSH into storage routing (core algorithm done)
 2. **Milestone 3.3**: Erasure coding (8+4 Reed-Solomon)
 3. **Milestone 3.4**: Primary-Backup replication
 
@@ -794,6 +797,7 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 2.4: Hardened WAL recovery with comprehensive durability tests
 - [x] Milestone 2.5: Production documentation (deployment, operations, security, troubleshooting)
 - [x] Milestone 3.1: Raft consensus with openraft, RaftMetadataBackend, peer discovery
+- [~] Milestone 3.2: CRUSH algorithm (core implementation done, 31 tests)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
@@ -803,3 +807,4 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - Comprehensive durability guarantees (WAL, checksums, fsync)
 - Complete operational documentation
 - Raft-based metadata consensus (52 tests)
+- CRUSH placement algorithm (rucket-placement crate)
