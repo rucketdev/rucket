@@ -20,6 +20,7 @@ rucket-core.workspace = true
 rucket-api.workspace = true
 rucket-storage.workspace = true
 rucket-consensus.workspace = true
+rucket-cluster.workspace = true
 
 tokio.workspace = true
 clap.workspace = true

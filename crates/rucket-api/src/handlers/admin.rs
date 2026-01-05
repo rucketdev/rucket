@@ -11,8 +11,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use openraft::BasicNode;
+use rucket_cluster::RebalanceManager;
 use rucket_consensus::types::RucketRaft;
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
 /// Application state for admin handlers.
 #[derive(Clone)]
@@ -21,6 +23,8 @@ pub struct AdminState {
     pub raft: Arc<RucketRaft>,
     /// This node's ID.
     pub node_id: u64,
+    /// The rebalance manager for shard redistribution.
+    pub rebalance_manager: Option<Arc<RwLock<RebalanceManager>>>,
 }
 
 /// Cluster status response.
@@ -135,6 +139,25 @@ pub struct RebalanceResponse {
     pub bytes_to_transfer: u64,
     /// Estimated duration (if available).
     pub estimated_duration: Option<String>,
+}
+
+/// Response from rebalance status query.
+#[derive(Debug, Serialize)]
+pub struct RebalanceStatusResponse {
+    /// Whether a rebalance is currently active.
+    pub active: bool,
+    /// Number of migrations pending.
+    pub pending_migrations: usize,
+    /// Number of migrations in progress.
+    pub in_progress_migrations: usize,
+    /// Total completed migrations (since manager start).
+    pub completed_migrations: usize,
+    /// Total failed migrations (since manager start).
+    pub failed_migrations: usize,
+    /// Total bytes transferred.
+    pub bytes_transferred: u64,
+    /// Current cluster members known to the rebalance manager.
+    pub cluster_members: Vec<String>,
 }
 
 /// Get cluster status.
@@ -323,6 +346,40 @@ pub async fn remove_node(
     }
 }
 
+/// Get rebalance status.
+///
+/// GET /_cluster/rebalance
+pub async fn get_rebalance_status(State(state): State<AdminState>) -> Response {
+    // Check if rebalance manager is available
+    let Some(manager) = &state.rebalance_manager else {
+        let response = RebalanceStatusResponse {
+            active: false,
+            pending_migrations: 0,
+            in_progress_migrations: 0,
+            completed_migrations: 0,
+            failed_migrations: 0,
+            bytes_transferred: 0,
+            cluster_members: vec![],
+        };
+        return Json(response).into_response();
+    };
+
+    let manager = manager.read().await;
+    let members = manager.members().await;
+
+    let response = RebalanceStatusResponse {
+        active: manager.is_active(),
+        pending_migrations: manager.pending_count(),
+        in_progress_migrations: manager.in_progress_count(),
+        completed_migrations: manager.completed_count(),
+        failed_migrations: manager.failed_count(),
+        bytes_transferred: manager.bytes_transferred(),
+        cluster_members: members,
+    };
+
+    Json(response).into_response()
+}
+
 /// Trigger a rebalance operation.
 ///
 /// POST /_cluster/rebalance
@@ -343,30 +400,69 @@ pub async fn trigger_rebalance(
         return (StatusCode::BAD_REQUEST, Json(response)).into_response();
     }
 
-    // For now, return a placeholder response.
-    // TODO: Integrate with RebalanceManager from rucket-cluster
+    // Check if rebalance manager is available
+    let Some(manager) = &state.rebalance_manager else {
+        let response = RebalanceResponse {
+            initiated: false,
+            message:
+                "Rebalance manager not configured. Enable cluster mode with rebalancing support."
+                    .to_string(),
+            shards_to_move: 0,
+            bytes_to_transfer: 0,
+            estimated_duration: None,
+        };
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(response)).into_response();
+    };
+
+    let manager = manager.read().await;
+
+    // Check if a rebalance is already in progress
+    if manager.is_active() {
+        let response = RebalanceResponse {
+            initiated: false,
+            message: format!(
+                "Rebalance already in progress: {} pending, {} in progress",
+                manager.pending_count(),
+                manager.in_progress_count()
+            ),
+            shards_to_move: manager.pending_count(),
+            bytes_to_transfer: 0,
+            estimated_duration: None,
+        };
+        return (StatusCode::CONFLICT, Json(response)).into_response();
+    }
+
+    // For dry run, just return current status
+    // Note: Full plan computation requires PlacementComputer implementation
+    // which depends on the storage layer. Currently we return manager status.
     if req.dry_run {
         let response = RebalanceResponse {
             initiated: false,
-            message: "Rebalance plan computed (dry run)".to_string(),
-            shards_to_move: 0,
+            message: "Dry run: No migrations currently scheduled. Manual rebalance planning requires shard placement information.".to_string(),
+            shards_to_move: manager.pending_count(),
             bytes_to_transfer: 0,
             estimated_duration: Some("0s".to_string()),
         };
-        Json(response).into_response()
-    } else {
-        let response = RebalanceResponse {
-            initiated: true,
-            message: format!(
-                "Rebalance initiated with max {} concurrent migrations",
-                req.max_concurrent
-            ),
-            shards_to_move: 0,
-            bytes_to_transfer: 0,
-            estimated_duration: Some("0s".to_string()),
-        };
-        Json(response).into_response()
+        return Json(response).into_response();
     }
+
+    // For actual rebalance, we would need to compute a plan based on current
+    // shard distribution. This requires PlacementComputer which tracks shards.
+    // For now, we indicate that manual rebalancing is ready but waiting for
+    // cluster membership events to trigger automatic rebalancing.
+    let response = RebalanceResponse {
+        initiated: true,
+        message: format!(
+            "Rebalance monitoring active with max {} concurrent migrations. \
+             Automatic rebalancing will occur on cluster membership changes.",
+            req.max_concurrent
+        ),
+        shards_to_move: manager.pending_count(),
+        bytes_to_transfer: 0,
+        estimated_duration: Some("0s".to_string()),
+    };
+
+    Json(response).into_response()
 }
 
 #[cfg(test)]
@@ -422,5 +518,25 @@ mod tests {
             RemoveNodeResponse { success: true, message: "Node removed".to_string(), node_id: 3 };
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("\"success\":true"));
+    }
+
+    #[test]
+    fn test_rebalance_status_response_serialization() {
+        let response = RebalanceStatusResponse {
+            active: true,
+            pending_migrations: 5,
+            in_progress_migrations: 2,
+            completed_migrations: 10,
+            failed_migrations: 1,
+            bytes_transferred: 1024 * 1024 * 100, // 100 MB
+            cluster_members: vec!["node-1".to_string(), "node-2".to_string()],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"active\":true"));
+        assert!(json.contains("\"pending_migrations\":5"));
+        assert!(json.contains("\"in_progress_migrations\":2"));
+        assert!(json.contains("\"completed_migrations\":10"));
+        assert!(json.contains("\"bytes_transferred\":104857600"));
+        assert!(json.contains("\"cluster_members\":[\"node-1\",\"node-2\"]"));
     }
 }

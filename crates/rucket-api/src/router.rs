@@ -720,10 +720,11 @@ async fn cors_preflight_object(
 /// - `GET /_cluster/nodes` - List all nodes
 /// - `POST /_cluster/nodes` - Add a node
 /// - `DELETE /_cluster/nodes/{node_id}` - Remove a node
+/// - `GET /_cluster/rebalance` - Get rebalance status
 /// - `POST /_cluster/rebalance` - Trigger rebalance
 ///
 /// # Arguments
-/// * `admin_state` - Admin state containing the Raft instance
+/// * `admin_state` - Admin state containing the Raft instance and rebalance manager
 pub fn create_admin_router(admin_state: crate::handlers::admin::AdminState) -> Router {
     use crate::handlers::admin;
 
@@ -731,6 +732,9 @@ pub fn create_admin_router(admin_state: crate::handlers::admin::AdminState) -> R
         .route("/_cluster/status", get(admin::get_cluster_status))
         .route("/_cluster/nodes", get(admin::list_nodes).post(admin::add_node))
         .route("/_cluster/nodes/{node_id}", axum::routing::delete(admin::remove_node))
-        .route("/_cluster/rebalance", axum::routing::post(admin::trigger_rebalance))
+        .route(
+            "/_cluster/rebalance",
+            get(admin::get_rebalance_status).post(admin::trigger_rebalance),
+        )
         .with_state(admin_state)
 }
