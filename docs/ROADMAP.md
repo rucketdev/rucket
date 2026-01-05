@@ -857,7 +857,7 @@ Or via environment variables:
 
 **Tasks**:
 1. [x] Write CONTRIBUTING.md (PR #154 - updated with full project structure, crate dependencies, contribution categories)
-2. [ ] Create good-first-issue labels on GitHub
+2. [x] Create good-first-issue labels on GitHub (area: consensus/placement/geo, difficulty levels)
 3. [ ] Set up community communication (Discord/Slack)
 4. [ ] Onboard first external maintainer
 
