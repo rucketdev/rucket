@@ -30,11 +30,12 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use hickory_resolver::Resolver;
 use tokio::net::lookup_host;
 use tokio::sync::mpsc::{self, Receiver};
 use tokio::sync::RwLock;
 use tokio::time::interval;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::{
     DiscoveredPeer, Discovery, DiscoveryError, DiscoveryEvent, DiscoveryOptions, DiscoveryResult,
@@ -43,14 +44,17 @@ use super::{
 
 /// DNS-based peer discovery.
 ///
-/// Resolves peer addresses by querying DNS A records (SRV support requires
-/// the hickory-resolver crate, which can be added later).
+/// Resolves peer addresses by querying DNS A or SRV records.
 ///
 /// # Example
 ///
 /// ```ignore
 /// // Resolve A records for a hostname
 /// let discovery = DnsDiscovery::new("rucket.example.com", 9001);
+/// let peers = discovery.discover().await?;
+///
+/// // Or use SRV records for full service discovery
+/// let discovery = DnsDiscovery::with_srv("_rucket._tcp.example.com");
 /// let peers = discovery.discover().await?;
 /// ```
 pub struct DnsDiscovery {
@@ -85,8 +89,16 @@ impl DnsDiscovery {
 
     /// Creates a new DNS discovery for SRV record resolution.
     ///
-    /// Note: SRV resolution requires the hickory-resolver crate.
-    /// Currently falls back to A record resolution.
+    /// SRV records include both the target hostname and port, making them
+    /// ideal for service discovery where ports may vary.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Resolve SRV records for _rucket._tcp.example.com
+    /// let discovery = DnsDiscovery::with_srv("_rucket._tcp.example.com");
+    /// let peers = discovery.discover().await?;
+    /// ```
     #[must_use]
     pub fn with_srv(hostname: impl Into<String>) -> Self {
         Self {
@@ -125,6 +137,89 @@ impl DnsDiscovery {
 
         Ok(addrs.into_iter().map(|a| a.ip()).collect())
     }
+
+    /// Resolves SRV records for the hostname.
+    ///
+    /// Returns a list of (hostname, port) pairs from the SRV records.
+    async fn resolve_srv_records(&self) -> DiscoveryResult<Vec<(String, u16)>> {
+        debug!(hostname = %self.hostname, "Resolving DNS SRV records");
+
+        let resolver = Resolver::builder_tokio()
+            .map_err(|e| DiscoveryError::DnsResolution(format!("Failed to create resolver: {e}")))?
+            .build();
+
+        let srv_lookup = resolver.srv_lookup(&self.hostname).await.map_err(|e| {
+            DiscoveryError::DnsResolution(format!("SRV lookup failed for {}: {}", self.hostname, e))
+        })?;
+
+        let records: Vec<(String, u16)> = srv_lookup
+            .iter()
+            .map(|srv| {
+                let target = srv.target().to_string().trim_end_matches('.').to_string();
+                let port = srv.port();
+                (target, port)
+            })
+            .collect();
+
+        if records.is_empty() {
+            return Err(DiscoveryError::DnsResolution(format!(
+                "No SRV records found for {}",
+                self.hostname
+            )));
+        }
+
+        info!(
+            hostname = %self.hostname,
+            count = records.len(),
+            "Resolved DNS SRV records"
+        );
+
+        Ok(records)
+    }
+
+    /// Resolves SRV records and returns DiscoveredPeer instances.
+    async fn resolve_srv_to_peers(&self) -> DiscoveryResult<HashSet<DiscoveredPeer>> {
+        let srv_records = self.resolve_srv_records().await?;
+
+        let resolver = Resolver::builder_tokio()
+            .map_err(|e| DiscoveryError::DnsResolution(format!("Failed to create resolver: {e}")))?
+            .build();
+
+        let mut peers = HashSet::new();
+
+        for (target, port) in srv_records {
+            // Resolve the A/AAAA records for each SRV target
+            match resolver.lookup_ip(&target).await {
+                Ok(ips) => {
+                    for ip in ips.iter() {
+                        let addr = SocketAddr::new(ip, port);
+                        if self.self_addr.as_ref() != Some(&addr) {
+                            peers.insert(DiscoveredPeer::new(addr).with_metadata(PeerMetadata {
+                                hostname: Some(target.clone()),
+                                ..Default::default()
+                            }));
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        target = %target,
+                        error = %e,
+                        "Failed to resolve SRV target to IP"
+                    );
+                }
+            }
+        }
+
+        if peers.is_empty() {
+            return Err(DiscoveryError::DnsResolution(format!(
+                "No resolvable peers found from SRV records for {}",
+                self.hostname
+            )));
+        }
+
+        Ok(peers)
+    }
 }
 
 #[async_trait]
@@ -134,30 +229,29 @@ impl Discovery for DnsDiscovery {
     }
 
     async fn discover(&self) -> DiscoveryResult<HashSet<DiscoveredPeer>> {
-        if self.use_srv {
-            // TODO: Implement SRV resolution with hickory-resolver
-            warn!("SRV record resolution not yet implemented, falling back to A records");
-        }
+        let peers = if self.use_srv {
+            debug!(hostname = %self.hostname, "Using SRV record resolution");
+            self.resolve_srv_to_peers().await?
+        } else {
+            let ips = self.resolve_a_records().await?;
 
-        let ips = self.resolve_a_records().await?;
+            debug!(
+                hostname = %self.hostname,
+                count = ips.len(),
+                "Resolved DNS addresses"
+            );
 
-        debug!(
-            hostname = %self.hostname,
-            count = ips.len(),
-            "Resolved DNS addresses"
-        );
-
-        let peers: HashSet<DiscoveredPeer> = ips
-            .into_iter()
-            .map(|ip| {
-                let addr = SocketAddr::new(ip, self.port);
-                DiscoveredPeer::new(addr).with_metadata(PeerMetadata {
-                    hostname: Some(self.hostname.clone()),
-                    ..Default::default()
+            ips.into_iter()
+                .map(|ip| {
+                    let addr = SocketAddr::new(ip, self.port);
+                    DiscoveredPeer::new(addr).with_metadata(PeerMetadata {
+                        hostname: Some(self.hostname.clone()),
+                        ..Default::default()
+                    })
                 })
-            })
-            .filter(|peer| self.self_addr.as_ref() != Some(&peer.raft_addr))
-            .collect();
+                .filter(|peer| self.self_addr.as_ref() != Some(&peer.raft_addr))
+                .collect()
+        };
 
         // Update cache
         *self.cache.write().await = peers.clone();
