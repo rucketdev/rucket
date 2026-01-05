@@ -10,6 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rucket_core::encryption::ServerSideEncryptionConfiguration;
 use rucket_core::error::S3ErrorCode;
+use rucket_core::hlc::HlcClock;
 use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::types::{
@@ -99,13 +100,30 @@ pub struct RaftMetadataBackend<B: MetadataBackend> {
     raft: Arc<RucketRaft>,
     /// The underlying local backend for read operations.
     local: Arc<B>,
+    /// HLC clock for generating causal timestamps.
+    clock: Arc<HlcClock>,
 }
 
 impl<B: MetadataBackend> RaftMetadataBackend<B> {
     /// Creates a new Raft-backed metadata backend.
     #[must_use]
     pub fn new(raft: Arc<RucketRaft>, local: Arc<B>) -> Self {
-        Self { raft, local }
+        Self { raft, local, clock: Arc::new(HlcClock::new()) }
+    }
+
+    /// Creates a new Raft-backed metadata backend with a shared HLC clock.
+    ///
+    /// Use this constructor when you need to share the clock with other components
+    /// (e.g., for cross-region replication where clocks need to be synchronized).
+    #[must_use]
+    pub fn with_clock(raft: Arc<RucketRaft>, local: Arc<B>, clock: Arc<HlcClock>) -> Self {
+        Self { raft, local, clock }
+    }
+
+    /// Returns a reference to the HLC clock.
+    #[must_use]
+    pub fn clock(&self) -> &Arc<HlcClock> {
+        &self.clock
     }
 
     /// Proposes a command to Raft and waits for it to be applied.
@@ -173,7 +191,7 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         let command = MetadataCommand::PutObjectMetadata {
             bucket: bucket.to_string(),
             metadata: meta,
-            hlc: 0, // TODO: Use HLC from cluster clock
+            hlc: self.clock.now().as_raw(),
         };
         let response = self.propose(command).await?;
         response.to_unit_result()
@@ -183,7 +201,7 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         let command = MetadataCommand::DeleteObject {
             bucket: bucket.to_string(),
             key: key.to_string(),
-            hlc: 0, // TODO: Use HLC from cluster clock
+            hlc: self.clock.now().as_raw(),
         };
         let response = self.propose(command).await?;
         match response {
@@ -208,7 +226,7 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
             bucket: bucket.to_string(),
             key: key.to_string(),
             version_id: version_id.to_string(),
-            hlc: 0, // TODO: Use HLC from cluster clock
+            hlc: self.clock.now().as_raw(),
         };
         let response = self.propose(command).await?;
         match response {
@@ -228,7 +246,7 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         let command = MetadataCommand::CreateDeleteMarker {
             bucket: bucket.to_string(),
             key: key.to_string(),
-            hlc: 0, // TODO: Use HLC from cluster clock
+            hlc: self.clock.now().as_raw(),
         };
         let response = self.propose(command).await?;
         match response {
