@@ -177,6 +177,108 @@ compatibility_mode = "minio"  # s3-strict | minio | ceph
 | `minio` | S3 + MinIO health endpoints (`/minio/health/*`) |
 | `ceph` | S3 + Ceph RGW compatibility (versioning, delete markers) |
 
+### [cluster]
+
+Enable distributed mode with Raft consensus for metadata replication.
+
+```toml
+[cluster]
+enabled = true
+node_id = 1
+bind_cluster = "0.0.0.0:9001"
+peers = ["node2:9001", "node3:9001"]
+raft_log_dir = "./data/raft"
+
+[cluster.raft]
+heartbeat_interval_ms = 150
+election_timeout_min_ms = 300
+election_timeout_max_ms = 600
+
+[cluster.bootstrap]
+enabled = true        # Only on first node!
+expect_nodes = 3
+timeout_secs = 60
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `false` | Enable distributed cluster mode |
+| `node_id` | `1` | Unique node ID (must be stable across restarts) |
+| `bind_cluster` | `127.0.0.1:9001` | Address for Raft RPC communication |
+| `peers` | `[]` | Static list of peer addresses |
+| `raft_log_dir` | `./data/raft` | Path for Raft log storage |
+
+#### [cluster.raft]
+
+```toml
+[cluster.raft]
+heartbeat_interval_ms = 150
+election_timeout_min_ms = 300
+election_timeout_max_ms = 600
+snapshot_threshold = 10000
+max_in_snapshot_log_to_keep = 1000
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `heartbeat_interval_ms` | `150` | Leader heartbeat interval |
+| `election_timeout_min_ms` | `300` | Minimum election timeout |
+| `election_timeout_max_ms` | `600` | Maximum election timeout |
+| `snapshot_threshold` | `10000` | Log entries before snapshot |
+
+#### [cluster.bootstrap]
+
+Bootstrap configuration for initial cluster formation.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `false` | Bootstrap a new cluster (only ONE node!) |
+| `expect_nodes` | `1` | Wait for this many nodes before forming cluster |
+| `timeout_secs` | `60` | Timeout waiting for expected nodes |
+
+#### [cluster.discover]
+
+Alternative to static `peers` list. Supports multiple discovery methods:
+
+**DNS Discovery:**
+```toml
+[cluster.discover]
+type = "dns"
+hostname = "rucket.local"
+port = 9001
+use_srv = false
+```
+
+**Kubernetes Discovery:**
+```toml
+[cluster.discover]
+type = "kubernetes"
+service = "rucket-headless"
+namespace = "default"
+port = "raft"
+```
+
+**Cloud Auto-Discovery:**
+```toml
+[cluster.discover]
+type = "cloud"
+cluster_tag = "rucket:cluster"
+cluster_value = "production"
+raft_port = 9001
+# AWS-specific
+aws_use_imdsv2 = true
+aws_region = "us-west-2"
+```
+
+**Gossip Discovery (SPOF-free):**
+```toml
+[cluster.discover]
+type = "gossip"
+bind = "0.0.0.0:9002"
+bootstrap_peers = ["seed1:9002", "seed2:9002"]
+encrypt = false
+```
+
 ---
 
 ## Example Configurations
