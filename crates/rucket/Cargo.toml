@@ -37,6 +37,7 @@ serde_json.workspace = true
 chrono.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
+reqwest = { workspace = true, features = ["json"] }
 
 # Optional dependencies for bench-graph binary
 plotters = { workspace = true, optional = true }
