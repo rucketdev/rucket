@@ -3701,6 +3701,7 @@ dependencies = [
  "rand 0.8.5",
  "redb",
  "rucket-core",
+ "rucket-placement",
  "serde",
  "serde_json",
  "sha1",
