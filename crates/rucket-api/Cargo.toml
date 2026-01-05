@@ -13,7 +13,10 @@ workspace = true
 
 [dependencies]
 rucket-core.workspace = true
+rucket-consensus.workspace = true
 rucket-storage.workspace = true
+
+openraft = { version = "0.9", features = ["serde"] }
 
 axum.workspace = true
 tower.workspace = true
