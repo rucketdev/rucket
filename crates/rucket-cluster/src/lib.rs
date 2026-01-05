@@ -5,6 +5,7 @@
 //! - Heartbeat manager for cluster health monitoring
 //! - Node state tracking and event emission
 //! - Shard repair loop for automatic data recovery
+//! - Rebalancing on node join/leave
 //!
 //! # Architecture
 //!
@@ -13,6 +14,7 @@
 //! 2. Heartbeats include membership information for peer discovery
 //! 3. The Phi Accrual detector computes failure suspicion levels
 //! 4. Events are emitted when nodes change state (healthy/warning/failed)
+//! 5. Rebalancing redistributes data when nodes join or leave
 //!
 //! # Example
 //!
@@ -53,6 +55,7 @@
 
 pub mod heartbeat;
 pub mod phi_detector;
+pub mod rebalance;
 pub mod repair;
 
 // Re-export main types
@@ -61,6 +64,11 @@ pub use heartbeat::{
     HeartbeatSender, NoOpHeartbeatSender, NodeState,
 };
 pub use phi_detector::{NodeStats, PhiAccrualDetector, PhiDetectorConfig};
+pub use rebalance::{
+    MigrationResult, NoOpPlacementComputer, NoOpShardMover, PlacementComputer, RebalanceConfig,
+    RebalanceEvent, RebalanceManager, RebalancePlan, RebalanceReason, RebalanceTask, ShardInfo,
+    ShardMover, TaskStatus as RebalanceTaskStatus,
+};
 pub use repair::{
     NoOpShardLocator, NoOpShardRepairer, ObjectInfo, RepairConfig, RepairEvent, RepairManager,
     RepairResult, ShardLocation, ShardLocator, ShardRepairTask, ShardRepairer, TaskStatus,
