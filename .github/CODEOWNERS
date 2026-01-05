@@ -1,5 +1,5 @@
 # Copyright 2024 The Rucket Authors
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 
 # Default owners for everything in the repo
 *       @rucket/maintainers

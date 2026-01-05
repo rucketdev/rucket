@@ -1,5 +1,5 @@
 # Copyright 2026 Rucket Dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 
 # Build MinIO Mint from latest source for S3 compatibility tests
 #
