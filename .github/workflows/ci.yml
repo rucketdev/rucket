@@ -252,6 +252,24 @@ jobs:
           save-if: false
       - run: make test-storage
 
+  s3-compat-tests:
+    name: S3 Compat Tests
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-stable-${{ hashFiles('**/Cargo.lock') }}"
+          save-if: false
+      - run: make test-s3-compat
+
   # ==========================================================================
   # Code Coverage (main branch only)
   # ==========================================================================
@@ -294,6 +312,7 @@ jobs:
       - cloud-discovery-tests
       - api-tests
       - storage-tests
+      - s3-compat-tests
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -309,7 +328,8 @@ jobs:
              [[ "${{ needs.simulation-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.cloud-discovery-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.api-tests.result }}" == "failure" ]] || \
-             [[ "${{ needs.storage-tests.result }}" == "failure" ]]; then
+             [[ "${{ needs.storage-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.s3-compat-tests.result }}" == "failure" ]]; then
             echo "One or more jobs failed"
             exit 1
           fi

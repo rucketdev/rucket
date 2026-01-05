@@ -81,6 +81,10 @@ test-api: ## Run API handler tests
 test-storage: ## Run storage tests
 	$(CARGO) test --package rucket-storage --all-features
 
+.PHONY: test-s3-compat
+test-s3-compat: ## Run S3 compatibility tests (ported from MinIO/Ceph)
+	$(CARGO) test --package rucket --test s3_compat --all-features
+
 .PHONY: lint
 lint: fmt-check clippy ## Run all lints (format + clippy)
 
