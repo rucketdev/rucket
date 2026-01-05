@@ -1171,7 +1171,7 @@ impl HybridLogicalClock {
 # Rucket Vision
 
 > **Status:** Internal planning document
-> **Last Updated:** 2026-01-03
+> **Last Updated:** 2026-01-05
 
 ---
 
@@ -1209,9 +1209,11 @@ Drop-in replacement for S3, not "S3-ish". Target: 90%+ Ceph s3-tests compatibili
 | Checksums | ✅ | ❌ |
 | Multipart uploads | ✅ | ✅ |
 | Presigned URLs | ✅ | ✅ |
-| Bucket policies (enforced) | 🔲 | ❌ never |
-| Object Lock | 🔲 | ❌ never |
-| SSE-S3/SSE-KMS | 🔲 | ❌ |
+| Bucket policies (enforced) | ✅ | ❌ never |
+| Object Lock | ✅ | ❌ never |
+| SSE-S3 | ✅ | ❌ |
+| Lifecycle rules | ✅ | ❌ |
+| Cross-region replication | ✅ | ❌ |
 
 ### G3: Performance
 Design for performance from the ground up, not bolted on later.
@@ -1227,8 +1229,8 @@ Data safety is non-negotiable.
 - No data loss under any failure mode
 - Designed for production from day one
 
-### G5: Distributed (Future)
-Single-node first, but designed for distributed from the start. No architectural debt.
+### G5: Distributed ✅
+Geo-distributed storage foundation complete. Raft-based clustering with automatic rebalancing.
 
 **Design principle:** Architecture supports geo from day 1, but `rucket serve` remains the simple entry point. Complexity scales with need, not with capability.
 
@@ -1301,7 +1303,7 @@ General-purpose. No artificial limitations.
 | CubeFS | Apache | CNCF ✅ | Partial | ✅ | ❌ | Multi-protocol focus, complex |
 | Ceph | LGPL | Foundation ✅ | Full | ✅ | ❌ | Overkill for most use cases |
 | SeaweedFS | Apache | Single vendor ❌ | Full | ✅ | ⚠️ | Less mature S3 compatibility |
-| **Rucket** | **AGPL** | **Foundation ✅** | **Full** | **🔲** | **✅** | Simple by default, scales to global |
+| **Rucket** | **AGPL** | **Foundation ✅** | **Full** | **✅** | **✅** | Simple by default, scales to global |
 
 **Why not CubeFS?** CNCF graduated (Jan 2025), but:
 - Multi-protocol (POSIX, HDFS, S3) = complexity for S3-only users
@@ -1313,38 +1315,36 @@ General-purpose. No artificial limitations.
 
 ## Roadmap
 
-### Phase 1: S3 Parity (Current)
+### Phase 1: S3 Parity ✅
 - Fix compatibility bugs (SigV4, versioning, pagination)
 - Pass 80%+ Ceph s3-tests
 - Enforce bucket policies
 - Performance baseline benchmarks
 
-### Phase 2: Production-Ready
+### Phase 2: Production-Ready ✅
 - Object Lock (compliance/governance modes)
 - SSE-S3 encryption at rest
 - Hardened crash recovery
 - Documentation for production deployment
 
-### Phase 3: Distributed Foundation
-- Research distributed architectures (consensus, replication, placement)
-- **Design geo-aware data model from day 1** (region, replication_status, version vectors)
-- Erasure coding implementation
-- Storage tiering (hot/cold)
-- Optimized metadata for billions of objects
-- HA: active-passive failover as first step
-- Clustering: multi-node horizontal scaling
+### Phase 3: Distributed Foundation ✅
+- Raft-based consensus for metadata
+- CRUSH placement algorithm
+- Erasure coding (8+4 Reed-Solomon)
+- Primary-backup replication with configurable durability
+- Phi Accrual failure detection with self-healing
+- Cluster CLI for operational management
 
-### Phase 4: Geo-Distribution
+### Phase 4: Geo-Distribution ✅
 - Cross-region async replication
 - Region-aware placement policies
-- Conflict resolution (last-writer-wins with vector clocks)
-- Sync replication option for low-latency regions
+- Conflict resolution (last-writer-wins with HLC)
 - S3 Cross-Region Replication (CRR) API compatibility
 
-### Phase 5: Community & Governance
+### Phase 5: Community & Governance (Current)
 - Governance documentation (decision-making process)
-- Contributor guide
-- Foundation setup (if adoption warrants)
+- Contributor guide ✅
+- Foundation setup (in progress)
 - First external maintainer
 
 ---
