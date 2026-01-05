@@ -19,7 +19,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 LABEL org.opencontainers.image.source="https://github.com/rucketdev/rucket"
 LABEL org.opencontainers.image.description="S3-compatible object storage server"
-LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
 
 # Copy the static binary
 COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/rucket /rucket
