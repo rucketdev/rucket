@@ -702,23 +702,35 @@ Or via environment variables:
 
 **Goal**: Cross-region replication
 
-### Milestone 4.1: Hybrid Logical Clocks (Production)
+### Milestone 4.1: Hybrid Logical Clocks (Production) ✅
+
+**Status**: COMPLETE
 
 **Deliverable**: Causality tracking across regions
 
-**Files to modify**:
-- `crates/rucket-core/src/hlc.rs`
-- All storage operations
+**Implementation**:
+- `crates/rucket-core/src/hlc.rs` (PR #149): Production-ready HLC
+  - `ClockError` enum with `ClockSkewViolation` and `LogicalCounterOverflow` variants
+  - `validate_timestamp()` returns `Result` with detailed error info
+  - `update_checked()` validates before updating clock
+  - Drift tracking: `drift_ms()`, `max_forward_skew_ms()`, `has_excessive_drift()`
+  - Health monitoring: `ClockHealthMetrics` struct for Prometheus integration
+  - 18 new tests for clock skew, causality, and drift tracking
+- `crates/rucket-storage/src/replicated.rs`: HLC already integrated
+  - Generates HLC timestamps for all write operations
+  - Passes HLC in `ReplicationEntry` for causality
 
 **Tasks**:
-1. [ ] Upgrade HLC to production-ready (clock skew handling)
-2. [ ] Integrate HLC into all write operations
-3. [ ] Pass HLC in replication stream
-4. [ ] Implement clock skew rejection (>500ms)
+1. [x] Upgrade HLC to production-ready (clock skew handling) (PR #149)
+2. [x] Integrate HLC into all write operations (already done in ReplicatedStorage)
+3. [x] Pass HLC in replication stream (already done in ReplicationEntry)
+4. [x] Implement clock skew rejection (>500ms) (PR #149)
 
 **Testing**:
-- [ ] Clock skew simulation tests
-- [ ] Causality ordering tests
+- [x] Clock skew simulation tests (validate_timestamp accept/reject)
+- [x] Causality ordering tests (test_causality_across_clocks, test_causality_with_multiple_events)
+- [x] High-frequency monotonicity test (100k timestamps)
+- [x] Drift tracking tests
 
 **CI adjustment**: None required
 
@@ -887,10 +899,10 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 
 ## Immediate Next Steps
 
-**Phase 1, 2, 3 complete!** Full distributed storage foundation with cluster CLI.
+**Phase 1, 2, 3 complete, Phase 4 in progress!** Production HLC for geo-distribution.
 
-**Next phase**: Phase 4 (Geo-Distribution)
-1. **Milestone 4.1**: Hybrid Logical Clocks (production-ready)
+**Current phase**: Phase 4 (Geo-Distribution)
+1. ✅ **Milestone 4.1**: Hybrid Logical Clocks (production-ready) - COMPLETE
 2. **Milestone 4.2**: Cross-region replication
 3. **Milestone 4.3**: Conflict resolution strategies
 
@@ -911,6 +923,7 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 3.4: Primary-backup replication (PRs #133, #135 - 55 tests)
 - [x] Milestone 3.5: Failure detection + self-healing (PRs #137, #139, #141, #143 - 64 tests)
 - [x] Milestone 3.6: Cluster CLI + Operations (PRs #145, #147 - 15 tests)
+- [x] Milestone 4.1: HLC production upgrade (PR #149 - 18 new tests, 88 total in rucket-core)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
@@ -927,3 +940,4 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - Phi Accrual failure detection with heartbeat monitoring
 - Cluster CLI for operational management (status, add/remove nodes, rebalance)
 - Admin API for programmatic cluster operations
+- Production-ready HLC with clock skew detection and drift tracking
