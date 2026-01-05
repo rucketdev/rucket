@@ -19,7 +19,7 @@ use super::common::{
 use crate::auth::AuthContext;
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
-use crate::policy::{evaluate_bucket_policy, get_auth_context};
+use crate::policy::{evaluate_bucket_policy, get_auth_context, RequestInfo};
 use crate::xml::request::DeleteObjects;
 use crate::xml::response::{
     to_xml, CommonPrefix, DeleteError, DeleteMarker, DeleteObjectsResponse, DeletedObject,
@@ -36,14 +36,15 @@ pub async fn list_objects_v1(
 ) -> Result<Response, ApiError> {
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::default();
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         None,
         S3Action::ListBucket,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -149,14 +150,15 @@ pub async fn list_objects_v2(
 ) -> Result<Response, ApiError> {
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::default();
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         None,
         S3Action::ListBucket,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -290,14 +292,15 @@ pub async fn list_object_versions(
 ) -> Result<Response, ApiError> {
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::default();
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         None,
         S3Action::ListBucketVersions,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -369,14 +372,15 @@ pub async fn delete_objects(
     // Note: In full implementation, this would check per-object, but for simplicity
     // we check at the bucket level
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::default();
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         None,
         S3Action::DeleteObject,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 

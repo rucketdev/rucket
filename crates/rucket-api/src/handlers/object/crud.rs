@@ -25,7 +25,7 @@ use super::common::{
 use crate::auth::AuthContext;
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
-use crate::policy::{evaluate_bucket_policy, get_auth_context};
+use crate::policy::{evaluate_bucket_policy, get_auth_context, RequestInfo};
 use crate::xml::response::{to_xml, CopyObjectResponse};
 
 /// `PUT /{bucket}/{key}` - Upload object.
@@ -38,14 +38,15 @@ pub async fn put_object(
 ) -> Result<Response, ApiError> {
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::from_headers(&headers);
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         Some(&key),
         S3Action::PutObject,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -240,14 +241,15 @@ pub async fn get_object(
 
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::from_headers(&headers);
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         Some(&key),
         S3Action::GetObject,
-        None,  // TODO: extract source IP from request
-        false, // TODO: check if HTTPS
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -607,14 +609,15 @@ pub async fn delete_object(
 
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::from_headers(&headers);
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         Some(&key),
         S3Action::DeleteObject,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -700,14 +703,15 @@ pub async fn head_object(
 
     // Evaluate bucket policy (HEAD uses same permission as GET)
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::from_headers(&headers);
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         Some(&key),
         S3Action::GetObject,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -829,6 +833,7 @@ pub async fn copy_object(
 
     // Evaluate bucket policies for both source and destination
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::from_headers(&headers);
 
     // Check GetObject permission on source
     evaluate_bucket_policy(
@@ -837,8 +842,8 @@ pub async fn copy_object(
         src_bucket,
         Some(&src_key),
         S3Action::GetObject,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -849,8 +854,8 @@ pub async fn copy_object(
         &dst_bucket,
         Some(&dst_key),
         S3Action::PutObject,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 

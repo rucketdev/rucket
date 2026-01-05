@@ -18,7 +18,7 @@ use super::common::{MAX_OBJECT_TAGS, MAX_TAG_KEY_LENGTH, MAX_TAG_VALUE_LENGTH};
 use crate::auth::AuthContext;
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
-use crate::policy::{evaluate_bucket_policy, get_auth_context};
+use crate::policy::{evaluate_bucket_policy, get_auth_context, RequestInfo};
 use crate::xml::request::Tagging as TaggingRequest;
 use crate::xml::response::{to_xml, TagResponse, TagSetResponse, TaggingResponse};
 
@@ -31,14 +31,15 @@ pub async fn get_object_tagging(
 ) -> Result<Response, ApiError> {
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::default();
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         Some(&key),
         S3Action::GetObjectTagging,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -86,14 +87,15 @@ pub async fn put_object_tagging(
 ) -> Result<Response, ApiError> {
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::default();
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         Some(&key),
         S3Action::PutObjectTagging,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
@@ -172,14 +174,15 @@ pub async fn delete_object_tagging(
 ) -> Result<Response, ApiError> {
     // Evaluate bucket policy
     let auth_ctx = get_auth_context(auth);
+    let req_info = RequestInfo::default();
     evaluate_bucket_policy(
         &*state.storage,
         &auth_ctx,
         &bucket,
         Some(&key),
         S3Action::DeleteObjectTagging,
-        None,
-        false,
+        req_info.source_ip,
+        req_info.is_secure,
     )
     .await?;
 
