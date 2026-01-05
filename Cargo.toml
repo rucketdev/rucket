@@ -10,6 +10,7 @@ members = [
     "crates/rucket-erasure",
     "crates/rucket-replication",
     "crates/rucket-cluster",
+    "crates/rucket-geo",
 ]
 
 [workspace.package]
@@ -45,6 +46,7 @@ rucket-placement = { path = "crates/rucket-placement" }
 rucket-erasure = { path = "crates/rucket-erasure" }
 rucket-replication = { path = "crates/rucket-replication" }
 rucket-cluster = { path = "crates/rucket-cluster" }
+rucket-geo = { path = "crates/rucket-geo" }
 
 # Erasure coding
 reed-solomon-erasure = "6.0"
