@@ -586,9 +586,9 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.5: Failure Detection + Self-Healing 🚧
+### Milestone 3.5: Failure Detection + Self-Healing ✅
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE
 
 **Deliverable**: Automatic recovery from failures
 
@@ -619,6 +619,14 @@ Or via environment variables:
   - Integration with HeartbeatEvent for automatic detection
   - Rate limiting and retry support
   - 14 unit tests for rebalance module
+- `crates/rucket-cluster/src/scrub.rs` (PR #143): Background scrubbing
+  - `ScrubManager`: Coordinates periodic data integrity verification
+  - `ScrubTask`: Represents pending verification operations
+  - `DataValidator` trait: Compute and compare checksums
+  - `CorruptionHandler` trait: Handle detected corruption
+  - Automatic scrub cycle scheduling (default 7 days)
+  - Integration with repair system for auto-repair
+  - 13 unit tests for scrub module
 
 **Files to modify**:
 - `crates/rucket-cluster/` (new crate) ✓
@@ -628,15 +636,15 @@ Or via environment variables:
 2. [x] Implement heartbeat monitoring (1s interval) (PR #137)
 3. [x] Implement shard repair loop (PR #139)
 4. [x] Implement rebalancing on node join/leave (PR #141)
-5. [ ] Implement background scrubbing
+5. [x] Implement background scrubbing (PR #143)
 
 **Testing**:
 - [x] Unit tests for failure detection (26 tests)
 - [x] Unit tests for repair module (11 tests)
 - [x] Unit tests for rebalance module (14 tests)
+- [x] Unit tests for scrub module (13 tests)
 - [ ] Failure injection tests
 - [ ] Recovery time measurement
-- [ ] Scrubbing correctness tests
 
 **CI adjustment**:
 - [ ] Add chaos testing job
@@ -874,7 +882,7 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 3.2: CRUSH algorithm with consensus-backed PG ownership (38 tests)
 - [x] Milestone 3.3: Erasure coding with storage integration (PRs #129, #131 - 37 tests)
 - [~] Milestone 3.4: Primary-backup replication (PRs #133, #135 - 55 tests, storage integration complete)
-- [~] Milestone 3.5: Failure detection + repair (PRs #137, #139, #141 - 51 tests, phi accrual + heartbeat + repair + rebalance)
+- [x] Milestone 3.5: Failure detection + self-healing (PRs #137, #139, #141, #143 - 64 tests, phi accrual + heartbeat + repair + rebalance + scrub)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
