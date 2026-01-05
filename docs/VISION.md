@@ -51,9 +51,11 @@ Drop-in replacement, not "S3-ish". Target: 90%+ on Ceph s3-tests.
 | Conditional requests | Done |
 | Range requests | Done |
 | CORS | Done |
-| Bucket policies (enforced) | Planned |
-| Object Lock | Planned |
-| SSE-S3/SSE-KMS | Planned |
+| Bucket policies (enforced) | Done |
+| Object Lock | Done |
+| SSE-S3 encryption | Done |
+| Lifecycle policies | Done |
+| Replication | Done |
 
 ### G3: Performance
 
@@ -65,7 +67,7 @@ Data safety is non-negotiable. Write-ahead logging, crash recovery, no silent da
 
 ### G5: Distributed
 
-Single-node first, but designed for distributed from the start. No architectural debt.
+Single-node simplicity with full clustering support. Raft-based consensus for distributed deployments.
 
 **Design principle:** Architecture supports geo from day 1, but `rucket serve` remains the simple entry point. Complexity scales with need, not with capability.
 
@@ -75,11 +77,11 @@ rucket serve --cluster          # Single-site cluster
 rucket serve --cluster --geo    # Multi-region replication
 ```
 
-- Erasure coding
-- High availability (automatic failover)
-- Horizontal scaling
-- Storage tiering
-- **Geo-distribution** (cross-region replication, disaster recovery)
+- ✅ Erasure coding
+- ✅ High availability (automatic failover via Raft)
+- ✅ Horizontal scaling with automatic rebalancing
+- ✅ Storage tiering
+- ✅ Geo-distribution (cross-region replication, disaster recovery)
 
 ---
 
@@ -93,40 +95,40 @@ rucket serve --cluster --geo    # Multi-region replication
 
 ## Roadmap
 
-### Phase 1: S3 Parity (Current)
+### Phase 1: S3 Parity ✅
 
-- Fix compatibility issues (signature validation, versioning edge cases)
-- Pass 80%+ Ceph s3-tests
-- Enforce bucket policies
-- Baseline performance benchmarks
+- ✅ Fix compatibility issues (signature validation, versioning edge cases)
+- ✅ Pass 80%+ Ceph s3-tests
+- ✅ Enforce bucket policies
+- ✅ Baseline performance benchmarks
 
-### Phase 2: Production
+### Phase 2: Production ✅
 
-- Object Lock (compliance/governance modes)
-- SSE-S3 encryption
-- Hardened crash recovery
-- Production deployment documentation
+- ✅ Object Lock (compliance/governance modes)
+- ✅ SSE-S3 encryption
+- ✅ Hardened crash recovery
+- ✅ Production deployment documentation
 
-### Phase 3: Distributed
+### Phase 3: Distributed ✅
 
-- **Design geo-aware data model from day 1**
-- Erasure coding
-- Storage tiering
-- Active-passive HA
-- Multi-node clustering
+- ✅ Geo-aware data model from day 1
+- ✅ Erasure coding
+- ✅ Storage tiering
+- ✅ Active-passive HA
+- ✅ Multi-node clustering (Raft-based)
 
-### Phase 4: Geo-Distribution
+### Phase 4: Geo-Distribution ✅
 
-- Cross-region async replication
-- Region-aware placement policies
-- Conflict resolution (vector clocks)
-- S3 Cross-Region Replication (CRR) API
+- ✅ Cross-region async replication
+- ✅ Region-aware placement policies
+- ✅ Conflict resolution (HLC + LWW)
+- ✅ S3 Cross-Region Replication (CRR) API
 
-### Phase 5: Governance
+### Phase 5: Governance (Current)
 
-- Decision-making process documentation
-- Contributor guide
-- Foundation setup
+- ✅ Decision-making process documentation
+- ✅ Contributor guide
+- Foundation setup (in progress)
 
 ---
 
