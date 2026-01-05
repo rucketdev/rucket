@@ -129,28 +129,78 @@ impl AsyncReplicator {
 
             // Process the batch
             for queued in batch.drain(..) {
-                match client.send(&queued.entry).await {
-                    Ok(()) => {
+                Self::send_with_retry(
+                    &node_id,
+                    &client,
+                    queued.entry,
+                    queued.retries,
+                    &config,
+                    &lag_tracker,
+                )
+                .await;
+            }
+        }
+    }
+
+    /// Sends an entry with retry logic using exponential backoff.
+    async fn send_with_retry(
+        node_id: &str,
+        client: &Arc<dyn ReplicaClient>,
+        entry: ReplicationEntry,
+        initial_retries: u32,
+        config: &ReplicationConfig,
+        lag_tracker: &LagTracker,
+    ) {
+        let mut retries = initial_retries;
+
+        loop {
+            match client.send(&entry).await {
+                Ok(()) => {
+                    if retries > initial_retries {
                         debug!(
                             node_id = %node_id,
-                            entry_id = %queued.entry.id,
+                            entry_id = %entry.id,
+                            retries = retries,
+                            "Successfully replicated entry on retry"
+                        );
+                    } else {
+                        debug!(
+                            node_id = %node_id,
+                            entry_id = %entry.id,
                             "Successfully replicated entry"
                         );
-                        lag_tracker.record_success(&node_id, queued.entry.hlc_timestamp);
                     }
-                    Err(e) => {
-                        warn!(
-                            node_id = %node_id,
-                            entry_id = %queued.entry.id,
-                            error = %e,
-                            retries = queued.retries,
-                            "Failed to replicate entry"
-                        );
+                    lag_tracker.record_success(node_id, entry.hlc_timestamp);
+                    return;
+                }
+                Err(e) => {
+                    lag_tracker.record_failure(node_id);
 
-                        // TODO: Implement retry logic with exponential backoff
-                        // For now, just log the error
-                        lag_tracker.record_failure(&node_id);
+                    if retries >= config.max_retries {
+                        error!(
+                            node_id = %node_id,
+                            entry_id = %entry.id,
+                            error = %e,
+                            retries = retries,
+                            max_retries = config.max_retries,
+                            "Max retries exceeded, dropping entry"
+                        );
+                        return;
                     }
+
+                    let backoff = config.backoff_for_retry(retries);
+                    warn!(
+                        node_id = %node_id,
+                        entry_id = %entry.id,
+                        error = %e,
+                        retries = retries,
+                        max_retries = config.max_retries,
+                        backoff_ms = backoff.as_millis(),
+                        "Failed to replicate entry, retrying after backoff"
+                    );
+
+                    tokio::time::sleep(backoff).await;
+                    retries += 1;
                 }
             }
         }
@@ -262,7 +312,8 @@ impl Replicator for AsyncReplicator {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+    use std::time::Duration;
 
     use tokio::sync::Mutex;
 
@@ -321,6 +372,65 @@ mod tests {
 
         async fn health_check(&self) -> bool {
             !*self.should_fail.lock().await
+        }
+    }
+
+    /// Mock replica client that fails a configurable number of times.
+    struct FailingReplicaClient {
+        node_id: String,
+        address: String,
+        send_count: AtomicUsize,
+        fail_count: AtomicU32,
+        failures_remaining: AtomicU32,
+    }
+
+    impl FailingReplicaClient {
+        fn new(node_id: &str, address: &str, fail_count: u32) -> Self {
+            Self {
+                node_id: node_id.to_string(),
+                address: address.to_string(),
+                send_count: AtomicUsize::new(0),
+                fail_count: AtomicU32::new(fail_count),
+                failures_remaining: AtomicU32::new(fail_count),
+            }
+        }
+
+        fn send_count(&self) -> usize {
+            self.send_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl ReplicaClient for FailingReplicaClient {
+        async fn send(&self, _entry: &ReplicationEntry) -> Result<()> {
+            self.send_count.fetch_add(1, Ordering::SeqCst);
+
+            let remaining = self.failures_remaining.load(Ordering::SeqCst);
+            if remaining > 0 {
+                self.failures_remaining.fetch_sub(1, Ordering::SeqCst);
+                Err(ReplicationError::ConnectionFailed {
+                    node_id: self.node_id.clone(),
+                    reason: format!(
+                        "simulated failure {}/{}",
+                        self.fail_count.load(Ordering::SeqCst) - remaining + 1,
+                        self.fail_count.load(Ordering::SeqCst)
+                    ),
+                })
+            } else {
+                Ok(())
+            }
+        }
+
+        fn node_id(&self) -> &str {
+            &self.node_id
+        }
+
+        fn address(&self) -> &str {
+            &self.address
+        }
+
+        async fn health_check(&self) -> bool {
+            self.failures_remaining.load(Ordering::SeqCst) == 0
         }
     }
 
@@ -385,5 +495,109 @@ mod tests {
 
         let replicas = replicator.get_replicas().await;
         assert!(replicas.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_send_with_retry_success() {
+        // Test that send_with_retry succeeds on first attempt
+        let failing_client = Arc::new(FailingReplicaClient::new("node1", "192.168.1.1:9000", 0));
+        let client: Arc<dyn ReplicaClient> = failing_client.clone();
+        let config = ReplicationConfig::new()
+            .max_retries(3)
+            .initial_backoff(Duration::from_millis(10))
+            .max_backoff(Duration::from_millis(100));
+        let lag_tracker = LagTracker::new();
+        lag_tracker.add_replica("node1".to_string());
+
+        let entry = ReplicationEntry::new(
+            super::super::replicator::ReplicationOperation::CreateBucket {
+                bucket: "test".to_string(),
+            },
+            1,
+            ReplicationLevel::Replicated,
+        );
+
+        AsyncReplicator::send_with_retry("node1", &client, entry, 0, &config, &lag_tracker).await;
+
+        // Should have sent once successfully
+        assert_eq!(failing_client.send_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_send_with_retry_transient_failure() {
+        // Test that send_with_retry retries and succeeds after transient failures
+        let failing_client = Arc::new(FailingReplicaClient::new("node1", "192.168.1.1:9000", 2));
+        let client: Arc<dyn ReplicaClient> = failing_client.clone();
+        let config = ReplicationConfig::new()
+            .max_retries(3)
+            .initial_backoff(Duration::from_millis(1))
+            .max_backoff(Duration::from_millis(10));
+        let lag_tracker = LagTracker::new();
+        lag_tracker.add_replica("node1".to_string());
+
+        let entry = ReplicationEntry::new(
+            super::super::replicator::ReplicationOperation::CreateBucket {
+                bucket: "test".to_string(),
+            },
+            1,
+            ReplicationLevel::Replicated,
+        );
+
+        AsyncReplicator::send_with_retry("node1", &client, entry, 0, &config, &lag_tracker).await;
+
+        // Should have sent 3 times (2 failures + 1 success)
+        assert_eq!(failing_client.send_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_send_with_retry_max_retries_exceeded() {
+        // Test that send_with_retry gives up after max retries
+        let failing_client = Arc::new(FailingReplicaClient::new("node1", "192.168.1.1:9000", 10));
+        let client: Arc<dyn ReplicaClient> = failing_client.clone();
+        let config = ReplicationConfig::new()
+            .max_retries(3)
+            .initial_backoff(Duration::from_millis(1))
+            .max_backoff(Duration::from_millis(10));
+        let lag_tracker = LagTracker::new();
+        lag_tracker.add_replica("node1".to_string());
+
+        let entry = ReplicationEntry::new(
+            super::super::replicator::ReplicationOperation::CreateBucket {
+                bucket: "test".to_string(),
+            },
+            1,
+            ReplicationLevel::Replicated,
+        );
+
+        AsyncReplicator::send_with_retry("node1", &client, entry, 0, &config, &lag_tracker).await;
+
+        // Should have sent 4 times (initial + 3 retries) before giving up
+        assert_eq!(failing_client.send_count(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_send_with_retry_zero_max_retries() {
+        // Test that with max_retries=0, no retries occur
+        let failing_client = Arc::new(FailingReplicaClient::new("node1", "192.168.1.1:9000", 10));
+        let client: Arc<dyn ReplicaClient> = failing_client.clone();
+        let config = ReplicationConfig::new()
+            .max_retries(0)
+            .initial_backoff(Duration::from_millis(1))
+            .max_backoff(Duration::from_millis(10));
+        let lag_tracker = LagTracker::new();
+        lag_tracker.add_replica("node1".to_string());
+
+        let entry = ReplicationEntry::new(
+            super::super::replicator::ReplicationOperation::CreateBucket {
+                bucket: "test".to_string(),
+            },
+            1,
+            ReplicationLevel::Replicated,
+        );
+
+        AsyncReplicator::send_with_retry("node1", &client, entry, 0, &config, &lag_tracker).await;
+
+        // Should have sent once only
+        assert_eq!(failing_client.send_count(), 1);
     }
 }
