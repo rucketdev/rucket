@@ -3763,6 +3763,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rucket-replication"
+version = "0.1.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "dashmap",
+ "metrics",
+ "parking_lot 0.12.5",
+ "proptest",
+ "rucket-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rucket-storage"
 version = "0.1.1"
 dependencies = [
