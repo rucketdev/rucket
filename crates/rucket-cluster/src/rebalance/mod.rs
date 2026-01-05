@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025 The Rucket Authors
+
 //! Rebalancing module for shard redistribution on cluster membership changes.
 //!
 //! This module provides automatic rebalancing when nodes join or leave:
@@ -26,327 +29,25 @@
 //! manager.start(events, placement_policy, shard_mover).await;
 //! ```
 
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+mod config;
+mod events;
+mod task;
+mod traits;
 
-use async_trait::async_trait;
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::Instant;
+
+pub use config::RebalanceConfig;
 use dashmap::DashMap;
+pub use events::{MigrationResult, RebalanceEvent, RebalancePlan, RebalanceReason};
 use metrics::{counter, gauge, histogram};
-use serde::{Deserialize, Serialize};
+pub use task::{RebalanceTask, ShardInfo, TaskStatus};
 use tokio::sync::{broadcast, mpsc, RwLock, Semaphore};
 use tracing::{debug, error, info, trace, warn};
+pub use traits::{NoOpPlacementComputer, NoOpShardMover, PlacementComputer, ShardMover};
 
-use super::heartbeat::HeartbeatEvent;
-
-/// Configuration for the rebalance manager.
-#[derive(Debug, Clone)]
-pub struct RebalanceConfig {
-    /// Delay before starting rebalance after node join.
-    /// Allows cluster to stabilize.
-    pub join_delay: Duration,
-
-    /// Delay before starting rebalance after node leave.
-    /// Allows for transient failures to recover.
-    pub leave_delay: Duration,
-
-    /// Maximum concurrent shard migrations.
-    pub max_concurrent_migrations: usize,
-
-    /// Timeout for individual shard migration.
-    pub migration_timeout: Duration,
-
-    /// Interval between rebalance status checks.
-    pub check_interval: Duration,
-
-    /// Maximum shards to migrate per second (rate limiting).
-    pub max_migrations_per_second: u32,
-
-    /// Whether to enable automatic rebalancing.
-    pub auto_rebalance: bool,
-
-    /// Minimum imbalance threshold to trigger rebalancing (0.0 to 1.0).
-    /// 0.1 means rebalance if any node has 10% more/less than average.
-    pub imbalance_threshold: f64,
-}
-
-impl Default for RebalanceConfig {
-    fn default() -> Self {
-        Self {
-            join_delay: Duration::from_secs(30),
-            leave_delay: Duration::from_secs(60),
-            max_concurrent_migrations: 4,
-            migration_timeout: Duration::from_secs(600),
-            check_interval: Duration::from_secs(10),
-            max_migrations_per_second: 50,
-            auto_rebalance: true,
-            imbalance_threshold: 0.1,
-        }
-    }
-}
-
-/// A task representing a shard migration.
-#[derive(Debug, Clone)]
-pub struct RebalanceTask {
-    /// Unique identifier for the migration task.
-    pub task_id: String,
-    /// Bucket containing the object.
-    pub bucket: String,
-    /// Object key.
-    pub key: String,
-    /// Version ID if versioned.
-    pub version_id: Option<String>,
-    /// Shard index (for erasure coded objects).
-    pub shard_index: Option<u32>,
-    /// Source node (current location).
-    pub source_node: String,
-    /// Target node (destination).
-    pub target_node: String,
-    /// Size in bytes.
-    pub size: u64,
-    /// Priority (lower = higher priority).
-    pub priority: u32,
-    /// When the migration was scheduled.
-    pub scheduled_at: Instant,
-    /// Number of retry attempts.
-    pub retry_count: u32,
-}
-
-impl RebalanceTask {
-    /// Creates a new rebalance task.
-    pub fn new(
-        bucket: String,
-        key: String,
-        source_node: String,
-        target_node: String,
-        size: u64,
-    ) -> Self {
-        Self {
-            task_id: uuid::Uuid::new_v4().to_string(),
-            bucket,
-            key,
-            version_id: None,
-            shard_index: None,
-            source_node,
-            target_node,
-            size,
-            priority: 100,
-            scheduled_at: Instant::now(),
-            retry_count: 0,
-        }
-    }
-
-    /// Sets the shard index for erasure coded objects.
-    pub fn with_shard_index(mut self, index: u32) -> Self {
-        self.shard_index = Some(index);
-        self
-    }
-
-    /// Sets the version ID.
-    pub fn with_version(mut self, version_id: String) -> Self {
-        self.version_id = Some(version_id);
-        self
-    }
-
-    /// Sets the priority.
-    pub fn with_priority(mut self, priority: u32) -> Self {
-        self.priority = priority;
-        self
-    }
-}
-
-/// Result of a migration operation.
-#[derive(Debug, Clone)]
-pub enum MigrationResult {
-    /// Migration completed successfully.
-    Success {
-        /// The task that was migrated.
-        task_id: String,
-        /// Bytes transferred.
-        bytes_transferred: u64,
-        /// Duration of the migration.
-        duration: Duration,
-    },
-    /// Migration failed.
-    Failed {
-        /// The task that failed.
-        task_id: String,
-        /// Error message.
-        error: String,
-        /// Whether the task should be retried.
-        retriable: bool,
-    },
-    /// Source node unavailable.
-    SourceUnavailable {
-        /// The task that couldn't be migrated.
-        task_id: String,
-        /// Source node ID.
-        source_node: String,
-    },
-    /// Target node unavailable.
-    TargetUnavailable {
-        /// The task that couldn't be migrated.
-        task_id: String,
-        /// Target node ID.
-        target_node: String,
-    },
-}
-
-/// Information about a shard for rebalancing purposes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShardInfo {
-    /// Bucket name.
-    pub bucket: String,
-    /// Object key.
-    pub key: String,
-    /// Version ID if versioned.
-    pub version_id: Option<String>,
-    /// Shard index (for erasure coded objects).
-    pub shard_index: Option<u32>,
-    /// Size in bytes.
-    pub size: u64,
-    /// Current node hosting this shard.
-    pub current_node: String,
-    /// Ideal node according to placement policy.
-    pub ideal_node: String,
-}
-
-/// A plan for rebalancing shards across the cluster.
-#[derive(Debug, Clone, Default)]
-pub struct RebalancePlan {
-    /// Shards to migrate.
-    pub migrations: Vec<RebalanceTask>,
-    /// Total bytes to transfer.
-    pub total_bytes: u64,
-    /// Number of shards to move.
-    pub shard_count: usize,
-    /// Nodes involved in the rebalance.
-    pub affected_nodes: HashSet<String>,
-    /// Reason for the rebalance.
-    pub reason: RebalanceReason,
-}
-
-/// Reason for triggering a rebalance.
-#[derive(Debug, Clone, Default)]
-pub enum RebalanceReason {
-    /// A new node joined the cluster.
-    NodeJoined {
-        /// The node that joined.
-        node_id: String,
-    },
-    /// A node left the cluster.
-    NodeLeft {
-        /// The node that left.
-        node_id: String,
-    },
-    /// Manual rebalance triggered by operator.
-    Manual,
-    /// Periodic rebalance to fix imbalance.
-    #[default]
-    Periodic,
-}
-
-/// Trait for computing optimal shard placement.
-#[async_trait]
-pub trait PlacementComputer: Send + Sync {
-    /// Computes the ideal node for a shard.
-    async fn compute_placement(
-        &self,
-        bucket: &str,
-        key: &str,
-        shard_index: Option<u32>,
-        available_nodes: &[String],
-    ) -> Result<String, String>;
-
-    /// Returns all shards and their current/ideal placements.
-    async fn get_all_shard_placements(&self) -> Result<Vec<ShardInfo>, String>;
-
-    /// Returns the current distribution of shards per node.
-    async fn get_shard_distribution(&self) -> Result<HashMap<String, usize>, String>;
-}
-
-/// Trait for executing shard migrations.
-#[async_trait]
-pub trait ShardMover: Send + Sync {
-    /// Migrates a shard from source to target node.
-    async fn migrate_shard(&self, task: &RebalanceTask) -> Result<u64, String>;
-
-    /// Checks if a node is available for migration.
-    async fn is_node_available(&self, node_id: &str) -> bool;
-
-    /// Deletes a shard from the source after successful migration.
-    async fn delete_source_shard(&self, task: &RebalanceTask) -> Result<(), String>;
-}
-
-/// Events emitted by the rebalance manager.
-#[derive(Debug, Clone)]
-pub enum RebalanceEvent {
-    /// A rebalance plan was created.
-    PlanCreated {
-        /// Number of migrations in the plan.
-        migration_count: usize,
-        /// Total bytes to transfer.
-        total_bytes: u64,
-        /// Reason for rebalance.
-        reason: String,
-    },
-    /// A migration task was scheduled.
-    TaskScheduled {
-        /// Task ID.
-        task_id: String,
-        /// Source node.
-        source_node: String,
-        /// Target node.
-        target_node: String,
-    },
-    /// A migration task started.
-    TaskStarted {
-        /// Task ID.
-        task_id: String,
-    },
-    /// A migration task completed.
-    TaskCompleted {
-        /// Task ID.
-        task_id: String,
-        /// Result.
-        result: MigrationResult,
-    },
-    /// Rebalance completed.
-    RebalanceCompleted {
-        /// Number of successful migrations.
-        successful: usize,
-        /// Number of failed migrations.
-        failed: usize,
-        /// Total bytes transferred.
-        bytes_transferred: u64,
-        /// Total duration.
-        duration: Duration,
-    },
-    /// Rebalance status update.
-    Status {
-        /// Number of pending migrations.
-        pending: usize,
-        /// Number of in-progress migrations.
-        in_progress: usize,
-        /// Number of completed migrations.
-        completed: usize,
-        /// Number of failed migrations.
-        failed: usize,
-    },
-}
-
-/// Status of a migration task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskStatus {
-    /// Task is waiting to be executed.
-    Pending,
-    /// Task is currently being executed.
-    InProgress,
-    /// Task completed successfully.
-    Completed,
-    /// Task failed.
-    Failed,
-}
+use crate::heartbeat::HeartbeatEvent;
 
 /// Manages shard rebalancing operations.
 pub struct RebalanceManager {
@@ -494,7 +195,7 @@ impl RebalanceManager {
         info!(node_id = %node_id, "Creating rebalance plan for node leave");
 
         // Get current distribution
-        let distribution = placement.get_shard_distribution().await?;
+        let _distribution = placement.get_shard_distribution().await?;
         let members: Vec<String> = self.cluster_members.read().await.iter().cloned().collect();
         let remaining_members: Vec<String> =
             members.iter().filter(|m| *m != node_id).cloned().collect();
@@ -504,10 +205,6 @@ impl RebalanceManager {
         }
 
         // Calculate average shards per remaining node
-        let total_shards: usize = distribution.values().sum();
-        let avg_shards = total_shards / remaining_members.len();
-
-        // Get all shards and recompute placements
         let shards = placement.get_all_shard_placements().await?;
         let mut migrations = Vec::new();
         let mut total_bytes = 0u64;
@@ -558,7 +255,6 @@ impl RebalanceManager {
             node_id = %node_id,
             migrations = plan.shard_count,
             bytes = total_bytes,
-            avg_shards = avg_shards,
             "Created rebalance plan for node leave"
         );
 
@@ -967,7 +663,7 @@ impl RebalanceManager {
                     successful: completed_count.load(std::sync::atomic::Ordering::SeqCst),
                     failed: failed_count.load(std::sync::atomic::Ordering::SeqCst),
                     bytes_transferred: bytes_transferred.load(std::sync::atomic::Ordering::SeqCst),
-                    duration: Duration::from_secs(0), // Would need to track start time
+                    duration: std::time::Duration::from_secs(0), // Would need to track start time
                 });
             }
             return;
@@ -1159,96 +855,9 @@ impl RebalanceManager {
     }
 }
 
-/// A no-op placement computer for testing.
-pub struct NoOpPlacementComputer;
-
-#[async_trait]
-impl PlacementComputer for NoOpPlacementComputer {
-    async fn compute_placement(
-        &self,
-        _bucket: &str,
-        _key: &str,
-        _shard_index: Option<u32>,
-        available_nodes: &[String],
-    ) -> Result<String, String> {
-        available_nodes.first().cloned().ok_or_else(|| "No available nodes".to_string())
-    }
-
-    async fn get_all_shard_placements(&self) -> Result<Vec<ShardInfo>, String> {
-        Ok(vec![])
-    }
-
-    async fn get_shard_distribution(&self) -> Result<HashMap<String, usize>, String> {
-        Ok(HashMap::new())
-    }
-}
-
-/// A no-op shard mover for testing.
-pub struct NoOpShardMover;
-
-#[async_trait]
-impl ShardMover for NoOpShardMover {
-    async fn migrate_shard(&self, task: &RebalanceTask) -> Result<u64, String> {
-        Ok(task.size)
-    }
-
-    async fn is_node_available(&self, _node_id: &str) -> bool {
-        true
-    }
-
-    async fn delete_source_shard(&self, _task: &RebalanceTask) -> Result<(), String> {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_rebalance_config_defaults() {
-        let config = RebalanceConfig::default();
-        assert_eq!(config.join_delay, Duration::from_secs(30));
-        assert_eq!(config.leave_delay, Duration::from_secs(60));
-        assert_eq!(config.max_concurrent_migrations, 4);
-        assert!(config.auto_rebalance);
-    }
-
-    #[test]
-    fn test_rebalance_task_creation() {
-        let task = RebalanceTask::new(
-            "bucket".to_string(),
-            "key".to_string(),
-            "source-node".to_string(),
-            "target-node".to_string(),
-            1024,
-        );
-
-        assert_eq!(task.bucket, "bucket");
-        assert_eq!(task.key, "key");
-        assert_eq!(task.source_node, "source-node");
-        assert_eq!(task.target_node, "target-node");
-        assert_eq!(task.size, 1024);
-        assert_eq!(task.retry_count, 0);
-    }
-
-    #[test]
-    fn test_rebalance_task_with_shard() {
-        let task = RebalanceTask::new(
-            "bucket".to_string(),
-            "key".to_string(),
-            "source".to_string(),
-            "target".to_string(),
-            1024,
-        )
-        .with_shard_index(5)
-        .with_version("v1".to_string())
-        .with_priority(10);
-
-        assert_eq!(task.shard_index, Some(5));
-        assert_eq!(task.version_id, Some("v1".to_string()));
-        assert_eq!(task.priority, 10);
-    }
 
     #[tokio::test]
     async fn test_rebalance_manager_creation() {
@@ -1325,43 +934,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_no_op_placement_computer() {
-        let computer = NoOpPlacementComputer;
-
-        let nodes = vec!["node-1".to_string(), "node-2".to_string()];
-        let result = computer.compute_placement("bucket", "key", None, &nodes).await;
-        assert_eq!(result.unwrap(), "node-1");
-
-        let result = computer.compute_placement("bucket", "key", None, &[]).await;
-        assert!(result.is_err());
-
-        let placements = computer.get_all_shard_placements().await.unwrap();
-        assert!(placements.is_empty());
-
-        let distribution = computer.get_shard_distribution().await.unwrap();
-        assert!(distribution.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_no_op_shard_mover() {
-        let mover = NoOpShardMover;
-
-        let task = RebalanceTask::new(
-            "bucket".to_string(),
-            "key".to_string(),
-            "source".to_string(),
-            "target".to_string(),
-            1024,
-        );
-
-        let bytes = mover.migrate_shard(&task).await.unwrap();
-        assert_eq!(bytes, 1024);
-
-        assert!(mover.is_node_available("any-node").await);
-        assert!(mover.delete_source_shard(&task).await.is_ok());
-    }
-
-    #[tokio::test]
     async fn test_schedule_multiple_migrations() {
         let config = RebalanceConfig::default();
         let manager = RebalanceManager::new(config);
@@ -1378,69 +950,6 @@ mod tests {
         }
 
         assert_eq!(manager.pending_count(), 5);
-    }
-
-    #[test]
-    fn test_migration_result_variants() {
-        let success = MigrationResult::Success {
-            task_id: "task-1".to_string(),
-            bytes_transferred: 1024,
-            duration: Duration::from_secs(1),
-        };
-
-        match success {
-            MigrationResult::Success { bytes_transferred, .. } => {
-                assert_eq!(bytes_transferred, 1024);
-            }
-            _ => panic!("Expected Success"),
-        }
-
-        let failed = MigrationResult::Failed {
-            task_id: "task-2".to_string(),
-            error: "test error".to_string(),
-            retriable: true,
-        };
-
-        match failed {
-            MigrationResult::Failed { retriable, .. } => assert!(retriable),
-            _ => panic!("Expected Failed"),
-        }
-
-        let source_unavailable = MigrationResult::SourceUnavailable {
-            task_id: "task-3".to_string(),
-            source_node: "node-1".to_string(),
-        };
-
-        match source_unavailable {
-            MigrationResult::SourceUnavailable { source_node, .. } => {
-                assert_eq!(source_node, "node-1");
-            }
-            _ => panic!("Expected SourceUnavailable"),
-        }
-    }
-
-    #[test]
-    fn test_rebalance_plan_default() {
-        let plan = RebalancePlan::default();
-        assert!(plan.migrations.is_empty());
-        assert_eq!(plan.total_bytes, 0);
-        assert_eq!(plan.shard_count, 0);
-        assert!(plan.affected_nodes.is_empty());
-    }
-
-    #[test]
-    fn test_rebalance_reason_variants() {
-        let join = RebalanceReason::NodeJoined { node_id: "node-1".to_string() };
-        match join {
-            RebalanceReason::NodeJoined { node_id } => assert_eq!(node_id, "node-1"),
-            _ => panic!("Expected NodeJoined"),
-        }
-
-        let leave = RebalanceReason::NodeLeft { node_id: "node-2".to_string() };
-        match leave {
-            RebalanceReason::NodeLeft { node_id } => assert_eq!(node_id, "node-2"),
-            _ => panic!("Expected NodeLeft"),
-        }
     }
 
     #[tokio::test]
