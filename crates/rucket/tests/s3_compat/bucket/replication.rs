@@ -1,5 +1,13 @@
 //! Bucket replication configuration tests.
 //!
+//! Tests for S3 bucket replication configuration API including:
+//! - PUT bucket replication configuration
+//! - GET bucket replication configuration
+//! - DELETE bucket replication configuration
+//!
+//! Note: Replication configuration IS implemented in Rucket.
+//! These tests verify the CRUD operations for replication configuration.
+//!
 //! Ported from:
 //! - Ceph s3-tests: test_bucket_replication_*
 //! - AWS S3 documentation: Cross-Region Replication
@@ -14,7 +22,6 @@ use crate::S3TestContext;
 /// Test getting replication on bucket with no config.
 /// Ceph: test_get_bucket_replication_empty
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_get_empty() {
     let ctx = S3TestContext::new().await;
 
@@ -26,7 +33,6 @@ async fn test_bucket_replication_get_empty() {
 /// Test putting and getting replication configuration.
 /// Ceph: test_set_bucket_replication
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_put_get() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -75,7 +81,6 @@ async fn test_bucket_replication_put_get() {
 /// Test deleting replication configuration.
 /// Ceph: test_delete_bucket_replication
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_delete() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -121,7 +126,6 @@ async fn test_bucket_replication_delete() {
 /// Test replication with prefix filter.
 /// Ceph: test_bucket_replication_prefix
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_prefix_filter() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -154,7 +158,6 @@ async fn test_bucket_replication_prefix_filter() {
 /// Test replication with multiple rules.
 /// Ceph: test_bucket_replication_multiple_rules
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_multiple_rules() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -206,7 +209,6 @@ async fn test_bucket_replication_multiple_rules() {
 /// Test replication with disabled rule.
 /// Ceph: test_bucket_replication_disabled
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_disabled_rule() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -239,7 +241,6 @@ async fn test_bucket_replication_disabled_rule() {
 /// Test replication requires versioning.
 /// Ceph: test_bucket_replication_requires_versioning
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_requires_versioning() {
     let ctx = S3TestContext::new().await; // No versioning
 
@@ -274,7 +275,6 @@ async fn test_bucket_replication_requires_versioning() {
 /// Test replication with delete marker replication enabled.
 /// Ceph: test_bucket_replication_delete_markers
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_delete_markers() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -312,7 +312,6 @@ async fn test_bucket_replication_delete_markers() {
 /// Test replication on non-existent bucket.
 /// Ceph: test_bucket_replication_nonexistent
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_nonexistent_bucket() {
     let ctx = S3TestContext::without_bucket().await;
 
@@ -325,7 +324,6 @@ async fn test_bucket_replication_nonexistent_bucket() {
 /// Test replication with storage class.
 /// Ceph: test_bucket_replication_storage_class
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_storage_class() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -362,7 +360,6 @@ async fn test_bucket_replication_storage_class() {
 /// Test updating replication configuration.
 /// Ceph: test_bucket_replication_update
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_update() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -430,7 +427,6 @@ async fn test_bucket_replication_update() {
 /// Test replication with tag filter.
 /// Ceph: test_bucket_replication_tag_filter
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_tag_filter() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -467,7 +463,6 @@ async fn test_bucket_replication_tag_filter() {
 /// Test replication configuration validation.
 /// Ceph: test_bucket_replication_invalid
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_invalid_config() {
     let ctx = S3TestContext::with_versioning().await;
 
@@ -501,7 +496,6 @@ async fn test_bucket_replication_invalid_config() {
 /// Test replication with replica modifications sync.
 /// Ceph: test_bucket_replication_replica_modifications
 #[tokio::test]
-#[ignore = "Bucket replication not implemented"]
 async fn test_bucket_replication_replica_modifications() {
     let ctx = S3TestContext::with_versioning().await;
 
