@@ -651,9 +651,9 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.6: Cluster CLI + Operations 🚧
+### Milestone 3.6: Cluster CLI + Operations ✅
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE
 
 **Deliverable**: Operational tooling
 
@@ -672,6 +672,13 @@ Or via environment variables:
   - `handle_list_nodes`: List all cluster nodes
   - Human-readable and JSON output formatting
   - 5 unit tests for response serialization
+- `crates/rucket-api/src/handlers/admin.rs` (PR #147): Server-side admin API
+  - `GET /_cluster/status` - Get cluster status, health, and node info
+  - `GET /_cluster/nodes` - List all nodes in the cluster
+  - `POST /_cluster/nodes` - Add a node (as learner or voter)
+  - `DELETE /_cluster/nodes/{node_id}` - Remove a node from the cluster
+  - `POST /_cluster/rebalance` - Trigger shard rebalancing
+  - 5 unit tests for request/response serialization
 
 **Tasks**:
 1. [x] Implement `rucket cluster status` (PR #145)
@@ -679,13 +686,13 @@ Or via environment variables:
 3. [x] Implement `rucket cluster remove-node` (PR #145)
 4. [x] Implement `rucket cluster rebalance` (PR #145)
 5. [x] Implement `rucket cluster list-nodes` (PR #145)
-6. [ ] Implement rolling upgrade procedure
-7. [ ] Admin API for cluster operations
+6. [x] Admin API for cluster operations (PR #147)
+7. [ ] Rolling upgrade procedure (deferred to Phase 4)
 
 **Testing**:
 - [x] CLI command parsing tests (5 tests)
-- [x] Response serialization tests (5 tests)
-- [ ] Rolling upgrade test
+- [x] Response serialization tests (10 tests total)
+- [ ] Rolling upgrade test (deferred)
 
 **CI adjustment**: None required
 
@@ -880,12 +887,12 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 
 ## Immediate Next Steps
 
-**Phase 1, 2, 3.1, 3.2 complete!** CRUSH algorithm with consensus-backed PG ownership.
+**Phase 1, 2, 3 complete!** Full distributed storage foundation with cluster CLI.
 
-**Next phase**: Phase 3 (Distributed Foundation) continued
-1. **Milestone 3.3**: Erasure coding (8+4 Reed-Solomon)
-2. **Milestone 3.4**: Primary-Backup replication
-3. **Milestone 3.5**: Self-healing rebalancing
+**Next phase**: Phase 4 (Geo-Distribution)
+1. **Milestone 4.1**: Hybrid Logical Clocks (production-ready)
+2. **Milestone 4.2**: Cross-region replication
+3. **Milestone 4.3**: Conflict resolution strategies
 
 **Completed milestones**:
 - [x] Milestone 1.1: Forward-compatible data model (HLC, placement_group, etc.)
@@ -901,8 +908,9 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 3.1: Raft consensus with openraft, RaftMetadataBackend, peer discovery
 - [x] Milestone 3.2: CRUSH algorithm with consensus-backed PG ownership (38 tests)
 - [x] Milestone 3.3: Erasure coding with storage integration (PRs #129, #131 - 37 tests)
-- [~] Milestone 3.4: Primary-backup replication (PRs #133, #135 - 55 tests, storage integration complete)
-- [x] Milestone 3.5: Failure detection + self-healing (PRs #137, #139, #141, #143 - 64 tests, phi accrual + heartbeat + repair + rebalance + scrub)
+- [x] Milestone 3.4: Primary-backup replication (PRs #133, #135 - 55 tests)
+- [x] Milestone 3.5: Failure detection + self-healing (PRs #137, #139, #141, #143 - 64 tests)
+- [x] Milestone 3.6: Cluster CLI + Operations (PRs #145, #147 - 15 tests)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
@@ -917,3 +925,5 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - Erasure coding (8+4 Reed-Solomon) with storage integration
 - Primary-backup replication with configurable durability levels
 - Phi Accrual failure detection with heartbeat monitoring
+- Cluster CLI for operational management (status, add/remove nodes, rebalance)
+- Admin API for programmatic cluster operations
