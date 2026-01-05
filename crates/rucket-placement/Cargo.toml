@@ -1,15 +1,21 @@
 [package]
 name = "rucket-placement"
-version = "0.1.1"
-edition = "2021"
-license = "Apache-2.0"
 description = "CRUSH algorithm for deterministic data placement in Rucket"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
-thiserror = "2"
-serde = { version = "1.0", features = ["derive"] }
+thiserror.workspace = true
+serde.workspace = true
 siphasher = "1.0"
-tracing = "0.1"
+tracing.workspace = true
 
 [dev-dependencies]
-proptest = "1.6"
+proptest.workspace = true
