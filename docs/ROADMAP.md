@@ -25,23 +25,23 @@
 | CI/CD pipeline | Complete | `.github/workflows/ci.yml` |
 | S3 compatibility tests | Complete | `scripts/s3-compat-tests.sh` |
 
-### What's Missing (per architecture.md)
+### Implementation Status (per architecture.md)
 
 | Component | Phase Required | Status |
 |-----------|----------------|--------|
-| HLC timestamps on objects | Phase 1 (prep) | **NOT STARTED** |
-| placement_group field | Phase 1 (prep) | **NOT STARTED** |
-| home_region field | Phase 1 (prep) | **NOT STARTED** |
-| storage_class field | Phase 1 (prep) | **NOT STARTED** |
-| PlacementPolicy trait | Phase 1 (prep) | **NOT STARTED** |
-| StorageEvent wrapper | Phase 1 (prep) | **NOT STARTED** |
-| Object Lock | Phase 2 | **NOT STARTED** |
-| SSE-S3 Encryption | Phase 2 | **NOT STARTED** |
-| Bucket Policies | Phase 2 | **NOT STARTED** |
-| Raft consensus | Phase 3 | **NOT STARTED** |
-| CRUSH placement | Phase 3 | **NOT STARTED** |
-| Erasure coding | Phase 3 | **NOT STARTED** |
-| Geo-replication | Phase 4 | **NOT STARTED** |
+| HLC timestamps on objects | Phase 1 (prep) | ✅ **COMPLETE** (PR #105) |
+| placement_group field | Phase 1 (prep) | ✅ **COMPLETE** (PR #105) |
+| home_region field | Phase 1 (prep) | ✅ **COMPLETE** (PR #105) |
+| storage_class field | Phase 1 (prep) | ✅ **COMPLETE** (PR #105) |
+| PlacementPolicy trait | Phase 1 (prep) | ✅ **COMPLETE** (PR #106) |
+| StorageEvent wrapper | Phase 1 (prep) | ✅ **COMPLETE** (PR #106) |
+| Object Lock | Phase 2 | ✅ **COMPLETE** (Milestone 2.1) |
+| SSE-S3 Encryption | Phase 2 | ✅ **COMPLETE** (Milestone 2.2) |
+| Bucket Policies | Phase 2 | ✅ **COMPLETE** (Milestone 2.3) |
+| Raft consensus | Phase 3 | ✅ **COMPLETE** (Milestone 3.1) |
+| CRUSH placement | Phase 3 | ✅ **COMPLETE** (Milestone 3.2) |
+| Erasure coding | Phase 3 | ✅ **COMPLETE** (Milestone 3.3) |
+| Geo-replication | Phase 4 | ✅ **COMPLETE** (Milestone 4.2) |
 
 ---
 
