@@ -1,0 +1,31 @@
+[package]
+name = "rucket-replication"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Primary-backup replication for Rucket distributed storage"
+keywords = ["replication", "distributed", "consensus"]
+
+[lints]
+workspace = true
+
+[dependencies]
+rucket-core.workspace = true
+
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+metrics.workspace = true
+bytes.workspace = true
+dashmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio-test.workspace = true
+proptest.workspace = true
+serde_json.workspace = true
