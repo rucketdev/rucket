@@ -6,6 +6,7 @@ use bytes::Bytes;
 use rucket_core::encryption::ServerSideEncryptionConfiguration;
 use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
+use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag, MultipartUpload,
     ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, TagSet, VersioningStatus,
@@ -154,6 +155,24 @@ pub trait StorageBackend: Send + Sync {
 
     /// Delete Server-Side Encryption Configuration for a bucket.
     async fn delete_encryption_configuration(&self, name: &str) -> Result<()>;
+
+    // Replication Configuration operations
+
+    /// Get Replication Configuration for a bucket.
+    async fn get_replication_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<ReplicationConfiguration>>;
+
+    /// Set Replication Configuration for a bucket.
+    async fn put_replication_configuration(
+        &self,
+        name: &str,
+        config: ReplicationConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Replication Configuration for a bucket.
+    async fn delete_replication_configuration(&self, name: &str) -> Result<()>;
 
     // Object operations
 

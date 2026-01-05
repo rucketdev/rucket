@@ -173,6 +173,20 @@ impl MetadataStateMachine {
                 }
             }
 
+            MetadataCommand::PutReplicationConfiguration { bucket, config } => {
+                match self.backend.put_replication_configuration(&bucket, config).await {
+                    Ok(()) => MetadataResponse::Ok,
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
+
+            MetadataCommand::DeleteReplicationConfiguration { bucket } => {
+                match self.backend.delete_replication_configuration(&bucket).await {
+                    Ok(()) => MetadataResponse::Ok,
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
+
             MetadataCommand::PutObjectMetadata { bucket, metadata, .. } => {
                 match self.backend.put_object(&bucket, metadata).await {
                     Ok(()) => MetadataResponse::Ok,

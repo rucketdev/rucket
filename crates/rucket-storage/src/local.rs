@@ -831,6 +831,25 @@ impl StorageBackend for LocalStorage {
         self.metadata.delete_encryption_configuration(name).await
     }
 
+    async fn get_replication_configuration(
+        &self,
+        name: &str,
+    ) -> Result<Option<rucket_core::replication::ReplicationConfiguration>> {
+        self.metadata.get_replication_configuration(name).await
+    }
+
+    async fn put_replication_configuration(
+        &self,
+        name: &str,
+        config: rucket_core::replication::ReplicationConfiguration,
+    ) -> Result<()> {
+        self.metadata.put_replication_configuration(name, config).await
+    }
+
+    async fn delete_replication_configuration(&self, name: &str) -> Result<()> {
+        self.metadata.delete_replication_configuration(name).await
+    }
+
     async fn put_object(
         &self,
         bucket: &str,

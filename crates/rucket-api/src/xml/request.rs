@@ -294,6 +294,198 @@ pub struct ApplyServerSideEncryptionByDefaultRequest {
     pub kms_master_key_id: Option<String>,
 }
 
+/// `ReplicationConfiguration` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "ReplicationConfiguration")]
+pub struct ReplicationConfigurationRequest {
+    /// IAM role ARN for replication.
+    #[serde(rename = "Role")]
+    pub role: String,
+    /// List of replication rules.
+    #[serde(rename = "Rule", default)]
+    pub rules: Vec<ReplicationRuleRequest>,
+}
+
+/// A replication rule in the request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationRuleRequest {
+    /// Unique identifier for the rule.
+    #[serde(rename = "ID")]
+    pub id: Option<String>,
+    /// Priority of the rule.
+    #[serde(rename = "Priority")]
+    pub priority: Option<u32>,
+    /// Status of the rule.
+    #[serde(rename = "Status")]
+    pub status: String,
+    /// Filter to select objects.
+    #[serde(rename = "Filter")]
+    pub filter: Option<ReplicationFilterRequest>,
+    /// Destination bucket configuration.
+    #[serde(rename = "Destination")]
+    pub destination: ReplicationDestinationRequest,
+    /// Delete marker replication settings.
+    #[serde(rename = "DeleteMarkerReplication")]
+    pub delete_marker_replication: Option<DeleteMarkerReplicationRequest>,
+    /// Source selection criteria.
+    #[serde(rename = "SourceSelectionCriteria")]
+    pub source_selection_criteria: Option<SourceSelectionCriteriaRequest>,
+    /// Existing object replication settings.
+    #[serde(rename = "ExistingObjectReplication")]
+    pub existing_object_replication: Option<ExistingObjectReplicationRequest>,
+}
+
+/// Replication filter in the request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationFilterRequest {
+    /// Key name prefix.
+    #[serde(rename = "Prefix")]
+    pub prefix: Option<String>,
+    /// Tag filter.
+    #[serde(rename = "Tag")]
+    pub tag: Option<ReplicationTagRequest>,
+    /// Logical AND of filters.
+    #[serde(rename = "And")]
+    pub and: Option<ReplicationFilterAndRequest>,
+}
+
+/// Logical AND filter for replication.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationFilterAndRequest {
+    /// Key name prefix.
+    #[serde(rename = "Prefix")]
+    pub prefix: Option<String>,
+    /// Tags to match.
+    #[serde(rename = "Tag", default)]
+    pub tags: Vec<ReplicationTagRequest>,
+}
+
+/// Tag in replication filter.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationTagRequest {
+    /// Tag key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Tag value.
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
+/// Destination bucket configuration in request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationDestinationRequest {
+    /// Destination bucket ARN.
+    #[serde(rename = "Bucket")]
+    pub bucket: String,
+    /// Optional account ID for cross-account replication.
+    #[serde(rename = "Account")]
+    pub account: Option<String>,
+    /// Storage class for replicated objects.
+    #[serde(rename = "StorageClass")]
+    pub storage_class: Option<String>,
+    /// Access control translation settings.
+    #[serde(rename = "AccessControlTranslation")]
+    pub access_control_translation: Option<AccessControlTranslationRequest>,
+    /// Encryption configuration.
+    #[serde(rename = "EncryptionConfiguration")]
+    pub encryption_configuration: Option<ReplicationEncryptionConfigurationRequest>,
+    /// Replication time control settings.
+    #[serde(rename = "ReplicationTime")]
+    pub replication_time: Option<ReplicationTimeRequest>,
+    /// Metrics configuration.
+    #[serde(rename = "Metrics")]
+    pub metrics: Option<ReplicationMetricsRequest>,
+}
+
+/// Access control translation settings in request.
+#[derive(Debug, Deserialize)]
+pub struct AccessControlTranslationRequest {
+    /// Owner override (Destination).
+    #[serde(rename = "Owner")]
+    pub owner: String,
+}
+
+/// Encryption configuration in request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationEncryptionConfigurationRequest {
+    /// KMS key ID for destination encryption.
+    #[serde(rename = "ReplicaKmsKeyID")]
+    pub replica_kms_key_id: Option<String>,
+}
+
+/// Replication time control in request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationTimeRequest {
+    /// Status of replication time control.
+    #[serde(rename = "Status")]
+    pub status: String,
+    /// Time threshold.
+    #[serde(rename = "Time")]
+    pub time: Option<ReplicationTimeValueRequest>,
+}
+
+/// Time value in request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationTimeValueRequest {
+    /// Minutes threshold.
+    #[serde(rename = "Minutes")]
+    pub minutes: u32,
+}
+
+/// Metrics configuration in request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicationMetricsRequest {
+    /// Status of metrics.
+    #[serde(rename = "Status")]
+    pub status: String,
+    /// Event threshold.
+    #[serde(rename = "EventThreshold")]
+    pub event_threshold: Option<ReplicationTimeValueRequest>,
+}
+
+/// Delete marker replication settings in request.
+#[derive(Debug, Deserialize)]
+pub struct DeleteMarkerReplicationRequest {
+    /// Status of delete marker replication.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
+/// Source selection criteria in request.
+#[derive(Debug, Deserialize)]
+pub struct SourceSelectionCriteriaRequest {
+    /// SSE-KMS encrypted objects settings.
+    #[serde(rename = "SseKmsEncryptedObjects")]
+    pub sse_kms_encrypted_objects: Option<SseKmsEncryptedObjectsRequest>,
+    /// Replica modifications settings.
+    #[serde(rename = "ReplicaModifications")]
+    pub replica_modifications: Option<ReplicaModificationsRequest>,
+}
+
+/// SSE-KMS encrypted objects settings in request.
+#[derive(Debug, Deserialize)]
+pub struct SseKmsEncryptedObjectsRequest {
+    /// Status.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
+/// Replica modifications settings in request.
+#[derive(Debug, Deserialize)]
+pub struct ReplicaModificationsRequest {
+    /// Status.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
+/// Existing object replication settings in request.
+#[derive(Debug, Deserialize)]
+pub struct ExistingObjectReplicationRequest {
+    /// Status.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
 #[cfg(test)]
 mod tests {
     use quick_xml::de::from_str;
@@ -404,5 +596,56 @@ mod tests {
             vec!["http://example.com", "http://www.example.com"]
         );
         assert_eq!(parsed.rules[1].allowed_methods, vec!["POST"]);
+    }
+
+    #[test]
+    fn test_parse_replication_configuration() {
+        let xml = r#"
+            <ReplicationConfiguration>
+                <Role>arn:aws:iam::123456789:role/replication</Role>
+                <Rule>
+                    <ID>rule-1</ID>
+                    <Status>Enabled</Status>
+                    <Priority>1</Priority>
+                    <Filter>
+                        <Prefix>logs/</Prefix>
+                    </Filter>
+                    <Destination>
+                        <Bucket>arn:aws:s3:::dest-bucket</Bucket>
+                        <StorageClass>STANDARD_IA</StorageClass>
+                    </Destination>
+                    <DeleteMarkerReplication>
+                        <Status>Enabled</Status>
+                    </DeleteMarkerReplication>
+                </Rule>
+                <Rule>
+                    <ID>rule-2</ID>
+                    <Status>Disabled</Status>
+                    <Destination>
+                        <Bucket>backup-bucket</Bucket>
+                    </Destination>
+                </Rule>
+            </ReplicationConfiguration>
+        "#;
+
+        let parsed: ReplicationConfigurationRequest = from_str(xml).unwrap();
+        assert_eq!(parsed.role, "arn:aws:iam::123456789:role/replication");
+        assert_eq!(parsed.rules.len(), 2);
+
+        // Check first rule
+        assert_eq!(parsed.rules[0].id, Some("rule-1".to_string()));
+        assert_eq!(parsed.rules[0].status, "Enabled");
+        assert_eq!(parsed.rules[0].priority, Some(1));
+        assert!(parsed.rules[0].filter.is_some());
+        assert_eq!(parsed.rules[0].filter.as_ref().unwrap().prefix, Some("logs/".to_string()));
+        assert_eq!(parsed.rules[0].destination.bucket, "arn:aws:s3:::dest-bucket");
+        assert_eq!(parsed.rules[0].destination.storage_class, Some("STANDARD_IA".to_string()));
+        assert!(parsed.rules[0].delete_marker_replication.is_some());
+        assert_eq!(parsed.rules[0].delete_marker_replication.as_ref().unwrap().status, "Enabled");
+
+        // Check second rule
+        assert_eq!(parsed.rules[1].id, Some("rule-2".to_string()));
+        assert_eq!(parsed.rules[1].status, "Disabled");
+        assert_eq!(parsed.rules[1].destination.bucket, "backup-bucket");
     }
 }

@@ -979,6 +979,198 @@ pub struct ApplyServerSideEncryptionByDefaultResponse {
     pub kms_master_key_id: Option<String>,
 }
 
+/// `ReplicationConfiguration` response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "ReplicationConfiguration")]
+pub struct ReplicationConfigurationResponse {
+    /// IAM role ARN for replication.
+    #[serde(rename = "Role")]
+    pub role: String,
+    /// List of replication rules.
+    #[serde(rename = "Rule", default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<ReplicationRuleResponse>,
+}
+
+/// A replication rule in the response.
+#[derive(Debug, Serialize)]
+pub struct ReplicationRuleResponse {
+    /// Unique identifier for the rule.
+    #[serde(rename = "ID", skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Priority of the rule.
+    #[serde(rename = "Priority", skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u32>,
+    /// Status of the rule.
+    #[serde(rename = "Status")]
+    pub status: String,
+    /// Filter to select objects.
+    #[serde(rename = "Filter", skip_serializing_if = "Option::is_none")]
+    pub filter: Option<ReplicationFilterResponse>,
+    /// Destination bucket configuration.
+    #[serde(rename = "Destination")]
+    pub destination: ReplicationDestinationResponse,
+    /// Delete marker replication settings.
+    #[serde(rename = "DeleteMarkerReplication", skip_serializing_if = "Option::is_none")]
+    pub delete_marker_replication: Option<DeleteMarkerReplicationResponse>,
+    /// Source selection criteria.
+    #[serde(rename = "SourceSelectionCriteria", skip_serializing_if = "Option::is_none")]
+    pub source_selection_criteria: Option<SourceSelectionCriteriaResponse>,
+    /// Existing object replication settings.
+    #[serde(rename = "ExistingObjectReplication", skip_serializing_if = "Option::is_none")]
+    pub existing_object_replication: Option<ExistingObjectReplicationResponse>,
+}
+
+/// Replication filter in the response.
+#[derive(Debug, Serialize)]
+pub struct ReplicationFilterResponse {
+    /// Key name prefix.
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    /// Tag filter.
+    #[serde(rename = "Tag", skip_serializing_if = "Option::is_none")]
+    pub tag: Option<ReplicationTagResponse>,
+    /// Logical AND of filters.
+    #[serde(rename = "And", skip_serializing_if = "Option::is_none")]
+    pub and: Option<ReplicationFilterAndResponse>,
+}
+
+/// Logical AND filter for replication.
+#[derive(Debug, Serialize)]
+pub struct ReplicationFilterAndResponse {
+    /// Key name prefix.
+    #[serde(rename = "Prefix", skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    /// Tags to match.
+    #[serde(rename = "Tag", default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<ReplicationTagResponse>,
+}
+
+/// Tag in replication filter.
+#[derive(Debug, Serialize)]
+pub struct ReplicationTagResponse {
+    /// Tag key.
+    #[serde(rename = "Key")]
+    pub key: String,
+    /// Tag value.
+    #[serde(rename = "Value")]
+    pub value: String,
+}
+
+/// Destination bucket configuration in response.
+#[derive(Debug, Serialize)]
+pub struct ReplicationDestinationResponse {
+    /// Destination bucket ARN.
+    #[serde(rename = "Bucket")]
+    pub bucket: String,
+    /// Optional account ID for cross-account replication.
+    #[serde(rename = "Account", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// Storage class for replicated objects.
+    #[serde(rename = "StorageClass", skip_serializing_if = "Option::is_none")]
+    pub storage_class: Option<String>,
+    /// Access control translation settings.
+    #[serde(rename = "AccessControlTranslation", skip_serializing_if = "Option::is_none")]
+    pub access_control_translation: Option<AccessControlTranslationResponse>,
+    /// Encryption configuration.
+    #[serde(rename = "EncryptionConfiguration", skip_serializing_if = "Option::is_none")]
+    pub encryption_configuration: Option<ReplicationEncryptionConfigurationResponse>,
+    /// Replication time control settings.
+    #[serde(rename = "ReplicationTime", skip_serializing_if = "Option::is_none")]
+    pub replication_time: Option<ReplicationTimeResponse>,
+    /// Metrics configuration.
+    #[serde(rename = "Metrics", skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<ReplicationMetricsResponse>,
+}
+
+/// Access control translation settings in response.
+#[derive(Debug, Serialize)]
+pub struct AccessControlTranslationResponse {
+    /// Owner override.
+    #[serde(rename = "Owner")]
+    pub owner: String,
+}
+
+/// Encryption configuration in response.
+#[derive(Debug, Serialize)]
+pub struct ReplicationEncryptionConfigurationResponse {
+    /// KMS key ID for destination encryption.
+    #[serde(rename = "ReplicaKmsKeyID", skip_serializing_if = "Option::is_none")]
+    pub replica_kms_key_id: Option<String>,
+}
+
+/// Replication time control in response.
+#[derive(Debug, Serialize)]
+pub struct ReplicationTimeResponse {
+    /// Status of replication time control.
+    #[serde(rename = "Status")]
+    pub status: String,
+    /// Time threshold.
+    #[serde(rename = "Time", skip_serializing_if = "Option::is_none")]
+    pub time: Option<ReplicationTimeValueResponse>,
+}
+
+/// Time value in response.
+#[derive(Debug, Serialize)]
+pub struct ReplicationTimeValueResponse {
+    /// Minutes threshold.
+    #[serde(rename = "Minutes")]
+    pub minutes: u32,
+}
+
+/// Metrics configuration in response.
+#[derive(Debug, Serialize)]
+pub struct ReplicationMetricsResponse {
+    /// Status of metrics.
+    #[serde(rename = "Status")]
+    pub status: String,
+    /// Event threshold.
+    #[serde(rename = "EventThreshold", skip_serializing_if = "Option::is_none")]
+    pub event_threshold: Option<ReplicationTimeValueResponse>,
+}
+
+/// Delete marker replication settings in response.
+#[derive(Debug, Serialize)]
+pub struct DeleteMarkerReplicationResponse {
+    /// Status of delete marker replication.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
+/// Source selection criteria in response.
+#[derive(Debug, Serialize)]
+pub struct SourceSelectionCriteriaResponse {
+    /// SSE-KMS encrypted objects settings.
+    #[serde(rename = "SseKmsEncryptedObjects", skip_serializing_if = "Option::is_none")]
+    pub sse_kms_encrypted_objects: Option<SseKmsEncryptedObjectsResponse>,
+    /// Replica modifications settings.
+    #[serde(rename = "ReplicaModifications", skip_serializing_if = "Option::is_none")]
+    pub replica_modifications: Option<ReplicaModificationsResponse>,
+}
+
+/// SSE-KMS encrypted objects settings in response.
+#[derive(Debug, Serialize)]
+pub struct SseKmsEncryptedObjectsResponse {
+    /// Status.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
+/// Replica modifications settings in response.
+#[derive(Debug, Serialize)]
+pub struct ReplicaModificationsResponse {
+    /// Status.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
+/// Existing object replication settings in response.
+#[derive(Debug, Serialize)]
+pub struct ExistingObjectReplicationResponse {
+    /// Status.
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors
