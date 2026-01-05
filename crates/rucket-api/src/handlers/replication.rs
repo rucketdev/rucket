@@ -10,12 +10,197 @@
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
+use quick_xml::de::from_str;
+use rucket_core::replication::{
+    AccessControlTranslation, DeleteMarkerReplication, EncryptionConfiguration,
+    ExistingObjectReplication, ReplicaModifications, ReplicationConfiguration,
+    ReplicationDestination, ReplicationFilter, ReplicationFilterAnd, ReplicationMetrics,
+    ReplicationRule, ReplicationTag, ReplicationTime, ReplicationTimeValue, RuleStatus,
+    SourceSelectionCriteria, SseKmsEncryptedObjects,
+};
 use rucket_core::types::VersioningStatus;
 use rucket_storage::StorageBackend;
 
 use super::bucket::AppState;
 use crate::error::ApiError;
+use crate::xml::request::ReplicationConfigurationRequest;
+use crate::xml::response::{
+    to_xml, AccessControlTranslationResponse, DeleteMarkerReplicationResponse,
+    ExistingObjectReplicationResponse, ReplicaModificationsResponse,
+    ReplicationConfigurationResponse, ReplicationDestinationResponse,
+    ReplicationEncryptionConfigurationResponse, ReplicationFilterAndResponse,
+    ReplicationFilterResponse, ReplicationMetricsResponse, ReplicationRuleResponse,
+    ReplicationTagResponse, ReplicationTimeResponse, ReplicationTimeValueResponse,
+    SourceSelectionCriteriaResponse, SseKmsEncryptedObjectsResponse,
+};
+
+/// Convert a request to the core type.
+fn convert_request_to_config(
+    request: ReplicationConfigurationRequest,
+) -> Result<ReplicationConfiguration, ApiError> {
+    let rules = request
+        .rules
+        .into_iter()
+        .map(|r| {
+            let status = RuleStatus::parse(&r.status).ok_or_else(|| {
+                ApiError::new(
+                    rucket_core::error::S3ErrorCode::MalformedXML,
+                    format!("Invalid rule status: {}", r.status),
+                )
+            })?;
+
+            let filter = r.filter.map(|f| ReplicationFilter {
+                prefix: f.prefix,
+                tag: f.tag.map(|t| ReplicationTag { key: t.key, value: t.value }),
+                and: f.and.map(|a| ReplicationFilterAnd {
+                    prefix: a.prefix,
+                    tags: a
+                        .tags
+                        .into_iter()
+                        .map(|t| ReplicationTag { key: t.key, value: t.value })
+                        .collect(),
+                }),
+            });
+
+            let destination = ReplicationDestination {
+                bucket: r.destination.bucket,
+                account: r.destination.account,
+                storage_class: r.destination.storage_class,
+                access_control_translation: r
+                    .destination
+                    .access_control_translation
+                    .map(|a| AccessControlTranslation { owner: a.owner }),
+                encryption_configuration: r
+                    .destination
+                    .encryption_configuration
+                    .map(|e| EncryptionConfiguration { replica_kms_key_id: e.replica_kms_key_id }),
+                replication_time: r.destination.replication_time.map(|rt| ReplicationTime {
+                    status: RuleStatus::parse(&rt.status).unwrap_or(RuleStatus::Disabled),
+                    time: rt.time.map(|t| ReplicationTimeValue { minutes: t.minutes }),
+                }),
+                metrics: r.destination.metrics.map(|m| ReplicationMetrics {
+                    status: RuleStatus::parse(&m.status).unwrap_or(RuleStatus::Disabled),
+                    event_threshold: m
+                        .event_threshold
+                        .map(|t| ReplicationTimeValue { minutes: t.minutes }),
+                }),
+            };
+
+            let delete_marker_replication =
+                r.delete_marker_replication.map(|d| DeleteMarkerReplication {
+                    status: RuleStatus::parse(&d.status).unwrap_or(RuleStatus::Disabled),
+                });
+
+            let source_selection_criteria =
+                r.source_selection_criteria.map(|s| SourceSelectionCriteria {
+                    sse_kms_encrypted_objects: s.sse_kms_encrypted_objects.map(|sse| {
+                        SseKmsEncryptedObjects {
+                            status: RuleStatus::parse(&sse.status).unwrap_or(RuleStatus::Disabled),
+                        }
+                    }),
+                    replica_modifications: s.replica_modifications.map(|rm| ReplicaModifications {
+                        status: RuleStatus::parse(&rm.status).unwrap_or(RuleStatus::Disabled),
+                    }),
+                });
+
+            let existing_object_replication =
+                r.existing_object_replication.map(|e| ExistingObjectReplication {
+                    status: RuleStatus::parse(&e.status).unwrap_or(RuleStatus::Disabled),
+                });
+
+            Ok(ReplicationRule {
+                id: r.id,
+                status,
+                priority: r.priority,
+                filter,
+                destination,
+                delete_marker_replication,
+                source_selection_criteria,
+                existing_object_replication,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+
+    Ok(ReplicationConfiguration { role: request.role, rules })
+}
+
+/// Convert the core type to a response.
+fn convert_config_to_response(
+    config: ReplicationConfiguration,
+) -> ReplicationConfigurationResponse {
+    ReplicationConfigurationResponse {
+        role: config.role,
+        rules: config
+            .rules
+            .into_iter()
+            .map(|r| ReplicationRuleResponse {
+                id: r.id,
+                priority: r.priority,
+                status: r.status.as_str().to_string(),
+                filter: r.filter.map(|f| ReplicationFilterResponse {
+                    prefix: f.prefix,
+                    tag: f.tag.map(|t| ReplicationTagResponse { key: t.key, value: t.value }),
+                    and: f.and.map(|a| ReplicationFilterAndResponse {
+                        prefix: a.prefix,
+                        tags: a
+                            .tags
+                            .into_iter()
+                            .map(|t| ReplicationTagResponse { key: t.key, value: t.value })
+                            .collect(),
+                    }),
+                }),
+                destination: ReplicationDestinationResponse {
+                    bucket: r.destination.bucket,
+                    account: r.destination.account,
+                    storage_class: r.destination.storage_class,
+                    access_control_translation: r
+                        .destination
+                        .access_control_translation
+                        .map(|a| AccessControlTranslationResponse { owner: a.owner }),
+                    encryption_configuration: r.destination.encryption_configuration.map(|e| {
+                        ReplicationEncryptionConfigurationResponse {
+                            replica_kms_key_id: e.replica_kms_key_id,
+                        }
+                    }),
+                    replication_time: r.destination.replication_time.map(|rt| {
+                        ReplicationTimeResponse {
+                            status: rt.status.as_str().to_string(),
+                            time: rt
+                                .time
+                                .map(|t| ReplicationTimeValueResponse { minutes: t.minutes }),
+                        }
+                    }),
+                    metrics: r.destination.metrics.map(|m| ReplicationMetricsResponse {
+                        status: m.status.as_str().to_string(),
+                        event_threshold: m
+                            .event_threshold
+                            .map(|t| ReplicationTimeValueResponse { minutes: t.minutes }),
+                    }),
+                },
+                delete_marker_replication: r.delete_marker_replication.map(|d| {
+                    DeleteMarkerReplicationResponse { status: d.status.as_str().to_string() }
+                }),
+                source_selection_criteria: r.source_selection_criteria.map(|s| {
+                    SourceSelectionCriteriaResponse {
+                        sse_kms_encrypted_objects: s.sse_kms_encrypted_objects.map(|sse| {
+                            SseKmsEncryptedObjectsResponse {
+                                status: sse.status.as_str().to_string(),
+                            }
+                        }),
+                        replica_modifications: s.replica_modifications.map(|rm| {
+                            ReplicaModificationsResponse { status: rm.status.as_str().to_string() }
+                        }),
+                    }
+                }),
+                existing_object_replication: r.existing_object_replication.map(|e| {
+                    ExistingObjectReplicationResponse { status: e.status.as_str().to_string() }
+                }),
+            })
+            .collect(),
+    }
+}
 
 /// `GET /{bucket}?replication` - Get bucket replication configuration.
 ///
@@ -24,7 +209,7 @@ use crate::error::ApiError;
 pub async fn get_bucket_replication(
     State(state): State<AppState>,
     Path(bucket): Path<String>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<Response, ApiError> {
     // Verify bucket exists
     if !state.storage.head_bucket(&bucket).await? {
         return Err(ApiError::new(
@@ -34,13 +219,23 @@ pub async fn get_bucket_replication(
         .with_resource(&bucket));
     }
 
-    // TODO: Implement replication configuration retrieval
-    // For now, return that replication is not configured
-    Err(ApiError::new(
-        rucket_core::error::S3ErrorCode::ReplicationConfigurationNotFoundError,
-        "The replication configuration was not found",
-    )
-    .with_resource(&bucket))
+    match state.storage.get_replication_configuration(&bucket).await? {
+        Some(config) => {
+            let response = convert_config_to_response(config);
+            let xml = to_xml(&response).map_err(|e| {
+                ApiError::new(
+                    rucket_core::error::S3ErrorCode::InternalError,
+                    format!("Failed to serialize response: {e}"),
+                )
+            })?;
+            Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+        }
+        None => Err(ApiError::new(
+            rucket_core::error::S3ErrorCode::ReplicationConfigurationNotFoundError,
+            "The replication configuration was not found",
+        )
+        .with_resource(&bucket)),
+    }
 }
 
 /// `PUT /{bucket}?replication` - Set bucket replication configuration.
@@ -71,8 +266,7 @@ pub async fn put_bucket_replication(
         .with_resource(&bucket));
     }
 
-    // TODO: Parse the XML body and store the replication configuration
-    // For now, just validate the body is not empty
+    // Parse the XML body
     if body.is_empty() {
         return Err(ApiError::new(
             rucket_core::error::S3ErrorCode::MalformedXML,
@@ -80,7 +274,34 @@ pub async fn put_bucket_replication(
         ));
     }
 
-    // Return success (placeholder)
+    let body_str = std::str::from_utf8(&body).map_err(|_| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::MalformedXML,
+            "Invalid UTF-8 in request body",
+        )
+    })?;
+
+    let request: ReplicationConfigurationRequest = from_str(body_str).map_err(|e| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::MalformedXML,
+            format!("Failed to parse replication configuration: {e}"),
+        )
+    })?;
+
+    // Convert to core type
+    let config = convert_request_to_config(request)?;
+
+    // Validate configuration
+    config.validate().map_err(|e| {
+        ApiError::new(
+            rucket_core::error::S3ErrorCode::MalformedXML,
+            format!("Invalid replication configuration: {e}"),
+        )
+    })?;
+
+    // Store the configuration
+    state.storage.put_replication_configuration(&bucket, config).await?;
+
     Ok(StatusCode::OK)
 }
 
@@ -100,8 +321,9 @@ pub async fn delete_bucket_replication(
         .with_resource(&bucket));
     }
 
-    // TODO: Delete replication configuration from storage
-    // For now, return success (idempotent delete)
+    // Delete the configuration (idempotent)
+    state.storage.delete_replication_configuration(&bucket).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -164,12 +386,22 @@ mod tests {
         // Create bucket without versioning
         state.storage.create_bucket("test-bucket").await.unwrap();
 
-        let result = put_bucket_replication(
-            State(state),
-            Path("test-bucket".to_string()),
-            Bytes::from("<ReplicationConfiguration></ReplicationConfiguration>"),
-        )
-        .await;
+        let xml = r#"
+            <ReplicationConfiguration>
+                <Role>arn:aws:iam::123456789:role/replication</Role>
+                <Rule>
+                    <ID>rule1</ID>
+                    <Status>Enabled</Status>
+                    <Destination>
+                        <Bucket>dest-bucket</Bucket>
+                    </Destination>
+                </Rule>
+            </ReplicationConfiguration>
+        "#;
+
+        let result =
+            put_bucket_replication(State(state), Path("test-bucket".to_string()), Bytes::from(xml))
+                .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -177,7 +409,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_put_replication_with_versioning() {
+    async fn test_put_and_get_replication_with_versioning() {
         let (state, _temp_dir) = create_test_state().await;
 
         // Create bucket with versioning enabled
@@ -188,14 +420,39 @@ mod tests {
             .await
             .unwrap();
 
-        let result = put_bucket_replication(
-            State(state),
+        let xml = r#"
+            <ReplicationConfiguration>
+                <Role>arn:aws:iam::123456789:role/replication</Role>
+                <Rule>
+                    <ID>rule1</ID>
+                    <Status>Enabled</Status>
+                    <Priority>1</Priority>
+                    <Filter>
+                        <Prefix>logs/</Prefix>
+                    </Filter>
+                    <Destination>
+                        <Bucket>dest-bucket</Bucket>
+                        <StorageClass>STANDARD_IA</StorageClass>
+                    </Destination>
+                    <DeleteMarkerReplication>
+                        <Status>Enabled</Status>
+                    </DeleteMarkerReplication>
+                </Rule>
+            </ReplicationConfiguration>
+        "#;
+
+        let put_result = put_bucket_replication(
+            State(state.clone()),
             Path("test-bucket".to_string()),
-            Bytes::from("<ReplicationConfiguration></ReplicationConfiguration>"),
+            Bytes::from(xml),
         )
         .await;
+        assert!(put_result.is_ok());
 
-        assert!(result.is_ok());
+        // Get the configuration back
+        let get_result =
+            get_bucket_replication(State(state), Path("test-bucket".to_string())).await;
+        assert!(get_result.is_ok());
     }
 
     #[tokio::test]
@@ -209,5 +466,29 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn test_put_replication_malformed_xml() {
+        let (state, _temp_dir) = create_test_state().await;
+
+        // Create bucket with versioning enabled
+        state.storage.create_bucket("test-bucket").await.unwrap();
+        state
+            .storage
+            .set_bucket_versioning("test-bucket", rucket_core::types::VersioningStatus::Enabled)
+            .await
+            .unwrap();
+
+        let result = put_bucket_replication(
+            State(state),
+            Path("test-bucket".to_string()),
+            Bytes::from("<invalid>"),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, rucket_core::error::S3ErrorCode::MalformedXML);
     }
 }

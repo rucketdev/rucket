@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use rucket_core::encryption::ServerSideEncryptionConfiguration;
 use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
+use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     CorsConfiguration, ObjectLockConfig, ObjectMetadata, ObjectRetention, TagSet, VersioningStatus,
 };
@@ -165,6 +166,20 @@ pub enum MetadataCommand {
 
     /// Delete server-side encryption configuration.
     DeleteEncryptionConfiguration {
+        /// Bucket name.
+        bucket: String,
+    },
+
+    /// Set replication configuration.
+    PutReplicationConfiguration {
+        /// Bucket name.
+        bucket: String,
+        /// Replication configuration.
+        config: ReplicationConfiguration,
+    },
+
+    /// Delete replication configuration.
+    DeleteReplicationConfiguration {
         /// Bucket name.
         bucket: String,
     },
@@ -408,6 +423,8 @@ impl MetadataCommand {
             | Self::DeleteLifecycleConfiguration { bucket }
             | Self::PutEncryptionConfiguration { bucket, .. }
             | Self::DeleteEncryptionConfiguration { bucket }
+            | Self::PutReplicationConfiguration { bucket, .. }
+            | Self::DeleteReplicationConfiguration { bucket }
             | Self::PutBucketLockConfig { bucket, .. }
             | Self::PutObjectMetadata { bucket, .. }
             | Self::DeleteObject { bucket, .. }
@@ -481,6 +498,8 @@ impl MetadataCommand {
             Self::DeleteLifecycleConfiguration { .. } => "DeleteLifecycleConfiguration",
             Self::PutEncryptionConfiguration { .. } => "PutEncryptionConfiguration",
             Self::DeleteEncryptionConfiguration { .. } => "DeleteEncryptionConfiguration",
+            Self::PutReplicationConfiguration { .. } => "PutReplicationConfiguration",
+            Self::DeleteReplicationConfiguration { .. } => "DeleteReplicationConfiguration",
             Self::PutBucketLockConfig { .. } => "PutBucketLockConfig",
             Self::PutObjectMetadata { .. } => "PutObjectMetadata",
             Self::DeleteObject { .. } => "DeleteObject",

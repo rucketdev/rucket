@@ -13,6 +13,7 @@ use rucket_core::error::S3ErrorCode;
 use rucket_core::hlc::HlcClock;
 use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
+use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
     ObjectRetention, Part, TagSet, VersioningStatus,
@@ -539,6 +540,24 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         response.to_unit_result()
     }
 
+    async fn put_replication_configuration(
+        &self,
+        bucket: &str,
+        config: ReplicationConfiguration,
+    ) -> Result<()> {
+        let command =
+            MetadataCommand::PutReplicationConfiguration { bucket: bucket.to_string(), config };
+        let response = self.propose(command).await?;
+        response.to_unit_result()
+    }
+
+    async fn delete_replication_configuration(&self, bucket: &str) -> Result<()> {
+        let command =
+            MetadataCommand::DeleteReplicationConfiguration { bucket: bucket.to_string() };
+        let response = self.propose(command).await?;
+        response.to_unit_result()
+    }
+
     // ========================================================================
     // Read Operations (direct to local store)
     // ========================================================================
@@ -697,6 +716,13 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         bucket: &str,
     ) -> Result<Option<ServerSideEncryptionConfiguration>> {
         self.local.get_encryption_configuration(bucket).await
+    }
+
+    async fn get_replication_configuration(
+        &self,
+        bucket: &str,
+    ) -> Result<Option<ReplicationConfiguration>> {
+        self.local.get_replication_configuration(bucket).await
     }
 
     // ========================================================================

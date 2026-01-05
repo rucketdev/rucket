@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use rucket_core::encryption::ServerSideEncryptionConfiguration;
 use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
+use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
     ObjectRetention, Part, TagSet, VersioningStatus,
@@ -649,6 +650,38 @@ pub trait MetadataBackend: Send + Sync + 'static {
     ///
     /// Returns an error if the bucket does not exist.
     async fn delete_encryption_configuration(&self, bucket: &str) -> Result<()>;
+
+    // === Replication Configuration Operations ===
+
+    /// Get Replication Configuration for a bucket.
+    ///
+    /// Returns `None` if no configuration is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_replication_configuration(
+        &self,
+        bucket: &str,
+    ) -> Result<Option<ReplicationConfiguration>>;
+
+    /// Set Replication Configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_replication_configuration(
+        &self,
+        bucket: &str,
+        config: ReplicationConfiguration,
+    ) -> Result<()>;
+
+    /// Delete Replication Configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_replication_configuration(&self, bucket: &str) -> Result<()>;
 
     // === Placement Group Ownership Operations ===
 

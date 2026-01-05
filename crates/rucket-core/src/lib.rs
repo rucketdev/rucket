@@ -15,6 +15,7 @@ pub mod hlc;
 pub mod lifecycle;
 pub mod policy;
 pub mod public_access_block;
+pub mod replication;
 pub mod types;
 
 pub use config::{
