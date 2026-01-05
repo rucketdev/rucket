@@ -275,7 +275,7 @@ impl PhiAccrualDetector {
     ///
     /// A node is suspected if its phi value exceeds the configured threshold.
     pub fn is_suspected(&self, node_id: &str) -> bool {
-        self.phi(node_id).is_none_or(|phi| phi > self.config.threshold)
+        self.phi(node_id).map_or(true, |phi| phi > self.config.threshold)
     }
 
     /// Returns true if the node is considered healthy.

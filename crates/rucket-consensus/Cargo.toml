@@ -1,12 +1,13 @@
 [package]
 name = "rucket-consensus"
+description = "Raft consensus for Rucket distributed object storage"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
-description = "Raft consensus for Rucket distributed object storage"
 
 [lints]
 workspace = true

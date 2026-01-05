@@ -1,9 +1,12 @@
 [package]
 name = "rucket-erasure"
+description = "Reed-Solomon erasure coding for Rucket distributed storage"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
-description = "Reed-Solomon erasure coding for Rucket distributed storage"
+repository.workspace = true
+authors.workspace = true
 keywords = ["erasure-coding", "reed-solomon"]
 
 [lints]
