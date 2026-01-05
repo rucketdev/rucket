@@ -319,6 +319,7 @@ pub use crate::streaming::{write_and_hash_with_sync as write_and_hash_with_strat
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
     use tempfile::TempDir;
 
     use super::*;
@@ -514,9 +515,11 @@ mod tests {
 
     // =========================================================================
     // Sync Counter Tests
+    // These tests use global counters and must run serially to avoid races.
     // =========================================================================
 
     #[tokio::test]
+    #[serial]
     async fn test_sync_counter_always_mode() {
         test_stats::reset();
         let temp_dir = TempDir::new().unwrap();
@@ -568,6 +571,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[serial]
     async fn test_sync_counter_periodic_background_sync() {
         // Reset at start and capture count - we only care about relative increase
         test_stats::reset();
@@ -668,6 +672,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_dir_sync_counter() {
         test_stats::reset();
 
