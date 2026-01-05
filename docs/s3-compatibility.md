@@ -16,6 +16,9 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 | Server-Side Encryption | Partial | SSE-S3 implemented; SSE-C/SSE-KMS pending |
 | Bucket Policies | Supported | Policy CRUD and request-time evaluation |
 | Object Tagging | Supported | Full tagging support including versioned objects |
+| Bucket Tagging | Supported | Full bucket tagging support |
+| Lifecycle Rules | Supported | Expiration and non-current version rules |
+| Replication | Supported | Cross-region async replication |
 
 ## Fully Supported Features
 
@@ -72,6 +75,19 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 - Policy evaluation on object operations
 - Principal, Action, Resource matching
 - Condition keys (IpAddress, SecureTransport, StringEquals)
+
+### Bucket Tagging
+- PutBucketTagging / GetBucketTagging / DeleteBucketTagging
+
+### Lifecycle Rules
+- PutBucketLifecycleConfiguration / GetBucketLifecycleConfiguration / DeleteBucketLifecycleConfiguration
+- Object expiration rules
+- Non-current version expiration
+
+### Replication
+- PutBucketReplication / GetBucketReplication / DeleteBucketReplication
+- Cross-region async replication
+- Replication status tracking
 
 ## Partially Supported Features
 
@@ -131,12 +147,11 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 
 **Rationale**: Single-user mode in Phase 1; bucket policies provide access control.
 
-### Lifecycle Rules
-- Expiration rules
-- Transition rules
-- NoncurrentVersion actions
+### Storage Classes
+- Transition rules between storage classes
+- Intelligent-Tiering
 
-**Rationale**: Planned for Phase 2.
+**Rationale**: Currently all data uses STANDARD storage class.
 
 ### Bucket Logging
 - Access logging to target bucket
@@ -150,8 +165,6 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 **Rationale**: Less common API; may implement in Phase 3.
 
 ### Other Missing Features
-- Bucket Tagging
-- Replication
 - Inventory
 - Analytics
 - Metrics
@@ -203,5 +216,6 @@ cargo test --package rucket --test s3_compat
 | Phase 2.1 | Object Lock (retention, legal hold) | Complete |
 | Phase 2.2 | Server-Side Encryption (SSE-S3) | Complete |
 | Phase 2.3 | Bucket Policies (CRUD + evaluation) | Complete |
-| Phase 3 | Lifecycle rules, ACLs, POST Object | Next |
-| Phase 4 | SSE-C/SSE-KMS, logging, replication | Future |
+| Phase 3 | Bucket tagging, lifecycle rules | Complete |
+| Phase 4 | Cross-region replication | Complete |
+| Phase 5 | ACLs, POST Object, SSE-C/SSE-KMS | Future |
