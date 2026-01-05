@@ -1,7 +1,7 @@
-//! Object retention tests.
+//! Object retention tests (stub file).
 //!
-//! These tests are for object retention which is not yet implemented in Rucket.
-//! All tests are marked with #[ignore].
+//! Note: Object retention IS implemented in Rucket and tested in `lock.rs`.
+//! These are additional stub tests for future comprehensive coverage.
 
 #![allow(dead_code)]
 

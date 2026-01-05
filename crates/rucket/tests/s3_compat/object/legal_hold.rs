@@ -1,7 +1,7 @@
-//! Object legal hold tests.
+//! Object legal hold tests (stub file).
 //!
-//! These tests are for object legal hold which is not yet implemented in Rucket.
-//! All tests are marked with #[ignore].
+//! Note: Legal hold IS implemented in Rucket and tested in `lock.rs`.
+//! These are additional stub tests for future comprehensive coverage.
 
 #![allow(dead_code)]
 

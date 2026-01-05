@@ -1,7 +1,7 @@
-//! Bucket encryption tests.
+//! Bucket encryption tests (stub file).
 //!
-//! These tests are for default bucket encryption which is not yet implemented in Rucket.
-//! All tests are marked with #[ignore].
+//! Note: Default bucket encryption IS implemented in Rucket (SSE-S3).
+//! These are stub tests; working SSE-S3 tests are in `encryption/sse_s3.rs`.
 //!
 //! Ported from:
 //! - Ceph s3-tests: test_encryption_*
