@@ -14,6 +14,7 @@ pub mod direct_io;
 pub mod backend;
 pub mod batch;
 pub mod crypto;
+pub mod erasure;
 pub mod events;
 pub mod local;
 pub mod metadata;
@@ -29,6 +30,11 @@ mod sync_durability_tests;
 pub use backend::{DeleteObjectResult, ObjectHeaders, PutObjectResult, StorageBackend};
 pub use batch::{BatchConfig, BatchWriter};
 pub use crypto::{CryptoError, EncryptionAlgorithm, EncryptionMetadata, SseS3Provider};
+// Erasure coding integration
+pub use erasure::{
+    ErasureObjectMetadata, ErasureStorageConfig, ErasureStorageError, ShardDecoder, ShardEncoder,
+    ShardLocation, ShardPlacement, DEFAULT_EC_THRESHOLD,
+};
 pub use events::{CollectingEventSink, EventHandler, NoOpEventSink, StorageEvent};
 pub use local::LocalStorage;
 pub use metadata::{MetadataBackend, RedbMetadataStore};
