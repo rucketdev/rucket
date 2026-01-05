@@ -22,4 +22,7 @@ pub use config::{
     SyncStrategy, WalConfig, WalSyncMode,
 };
 pub use error::{Error, Result};
-pub use hlc::{HlcClock, HlcTimestamp, MAX_CLOCK_SKEW_MS};
+pub use hlc::{
+    ClockError, ClockHealthMetrics, ClockResult, HlcClock, HlcTimestamp,
+    DRIFT_WARNING_THRESHOLD_MS, MAX_CLOCK_SKEW_MS,
+};
