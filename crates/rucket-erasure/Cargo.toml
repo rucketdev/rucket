@@ -1,0 +1,19 @@
+[package]
+name = "rucket-erasure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reed-Solomon erasure coding for Rucket distributed storage"
+keywords = ["erasure-coding", "reed-solomon"]
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+reed-solomon-erasure.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+rand.workspace = true
