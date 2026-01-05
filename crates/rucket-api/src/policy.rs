@@ -4,7 +4,9 @@
 //! in request handlers.
 
 use std::net::IpAddr;
+use std::str::FromStr;
 
+use axum::http::HeaderMap;
 use axum::Extension;
 use rucket_core::error::S3ErrorCode;
 use rucket_core::policy::{BucketPolicy, PolicyDecision, RequestContext, S3Action};
@@ -12,6 +14,87 @@ use rucket_storage::backend::StorageBackend;
 
 use crate::auth::AuthContext;
 use crate::error::ApiError;
+
+/// Information extracted from the HTTP request for policy evaluation.
+#[derive(Debug, Clone, Default)]
+pub struct RequestInfo {
+    /// The source IP address of the client.
+    ///
+    /// Extracted from `X-Forwarded-For` or `X-Real-IP` headers,
+    /// useful for policy conditions like `aws:SourceIp`.
+    pub source_ip: Option<IpAddr>,
+
+    /// Whether the request was made over HTTPS.
+    ///
+    /// Extracted from `X-Forwarded-Proto` header,
+    /// useful for policy conditions like `aws:SecureTransport`.
+    pub is_secure: bool,
+}
+
+impl RequestInfo {
+    /// Extract request info from HTTP headers.
+    ///
+    /// This function extracts:
+    /// - Source IP from `X-Forwarded-For` (first IP) or `X-Real-IP` headers
+    /// - HTTPS status from `X-Forwarded-Proto` header
+    ///
+    /// # Arguments
+    /// * `headers` - The HTTP request headers
+    ///
+    /// # Returns
+    /// A `RequestInfo` struct with extracted values
+    #[must_use]
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        let source_ip = Self::extract_source_ip(headers);
+        let is_secure = Self::extract_is_secure(headers);
+
+        Self { source_ip, is_secure }
+    }
+
+    /// Extract source IP address from headers.
+    ///
+    /// Checks headers in this order:
+    /// 1. `X-Forwarded-For` - Uses the first IP (original client)
+    /// 2. `X-Real-IP` - Fallback for some proxy configurations
+    fn extract_source_ip(headers: &HeaderMap) -> Option<IpAddr> {
+        // Try X-Forwarded-For first (standard proxy header)
+        // Format: "client, proxy1, proxy2" - we want the first (client) IP
+        if let Some(xff) = headers.get("x-forwarded-for") {
+            if let Ok(xff_str) = xff.to_str() {
+                // Get the first IP in the chain (original client)
+                if let Some(first_ip) = xff_str.split(',').next() {
+                    let trimmed = first_ip.trim();
+                    if let Ok(ip) = IpAddr::from_str(trimmed) {
+                        return Some(ip);
+                    }
+                }
+            }
+        }
+
+        // Try X-Real-IP as fallback (used by nginx, etc.)
+        if let Some(real_ip) = headers.get("x-real-ip") {
+            if let Ok(ip_str) = real_ip.to_str() {
+                if let Ok(ip) = IpAddr::from_str(ip_str.trim()) {
+                    return Some(ip);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Extract HTTPS status from headers.
+    ///
+    /// Checks `X-Forwarded-Proto` header for "https" value.
+    fn extract_is_secure(headers: &HeaderMap) -> bool {
+        if let Some(proto) = headers.get("x-forwarded-proto") {
+            if let Ok(proto_str) = proto.to_str() {
+                return proto_str.eq_ignore_ascii_case("https");
+            }
+        }
+        false
+    }
+}
 
 /// Error returned when a request is denied by bucket policy.
 pub fn access_denied_error() -> ApiError {
@@ -151,5 +234,108 @@ mod tests {
         // Other actions don't skip for non-owner
         assert!(!should_skip_policy_check(S3Action::GetObject, false));
         assert!(!should_skip_policy_check(S3Action::PutObject, false));
+    }
+
+    #[test]
+    fn test_request_info_default() {
+        let info = RequestInfo::default();
+        assert!(info.source_ip.is_none());
+        assert!(!info.is_secure);
+    }
+
+    #[test]
+    fn test_request_info_x_forwarded_for_single_ip() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "192.168.1.100".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert_eq!(info.source_ip, Some("192.168.1.100".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_request_info_x_forwarded_for_multiple_ips() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            "203.0.113.195, 70.41.3.18, 150.172.238.178".parse().unwrap(),
+        );
+        let info = RequestInfo::from_headers(&headers);
+        // Should get the first IP (original client)
+        assert_eq!(info.source_ip, Some("203.0.113.195".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_request_info_x_forwarded_for_ipv6() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "2001:db8::1".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert_eq!(info.source_ip, Some("2001:db8::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_request_info_x_real_ip() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-real-ip", "10.0.0.50".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert_eq!(info.source_ip, Some("10.0.0.50".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_request_info_x_forwarded_for_takes_precedence() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "192.168.1.1".parse().unwrap());
+        headers.insert("x-real-ip", "192.168.1.2".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        // X-Forwarded-For takes precedence
+        assert_eq!(info.source_ip, Some("192.168.1.1".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_request_info_invalid_ip() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "not-an-ip".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert!(info.source_ip.is_none());
+    }
+
+    #[test]
+    fn test_request_info_is_secure_https() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert!(info.is_secure);
+    }
+
+    #[test]
+    fn test_request_info_is_secure_http() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "http".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert!(!info.is_secure);
+    }
+
+    #[test]
+    fn test_request_info_is_secure_case_insensitive() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "HTTPS".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert!(info.is_secure);
+    }
+
+    #[test]
+    fn test_request_info_no_headers() {
+        let headers = HeaderMap::new();
+        let info = RequestInfo::from_headers(&headers);
+        assert!(info.source_ip.is_none());
+        assert!(!info.is_secure);
+    }
+
+    #[test]
+    fn test_request_info_combined() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "172.16.0.100".parse().unwrap());
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert_eq!(info.source_ip, Some("172.16.0.100".parse().unwrap()));
+        assert!(info.is_secure);
     }
 }
