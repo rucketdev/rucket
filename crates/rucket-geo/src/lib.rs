@@ -54,6 +54,7 @@
 pub mod config;
 pub mod conflict;
 pub mod error;
+pub mod placement;
 pub mod region;
 pub mod stream;
 pub mod types;
@@ -65,6 +66,10 @@ pub use config::{
 };
 pub use conflict::{ConflictResolution, ConflictResolver, LastWriteWinsResolver};
 pub use error::{GeoError, GeoResult};
+pub use placement::{
+    BucketGeoConfig, ConsistencyLevel, GeoPlacement, GeoPlacementBuilder, GeoPlacementConfig,
+    ReadPreference, ReadRoute, WriteRoute,
+};
 pub use region::{Region, RegionEndpoint, RegionId, RegionRegistry};
 pub use stream::{
     NoOpReplicationSink, ReplicationEntry, ReplicationSink, ReplicationSource, ReplicationStream,
