@@ -24,7 +24,6 @@ use crate::middleware::metrics_layer;
 pub struct RequestQuery {
     /// List type (for ListObjectsV2).
     #[serde(rename = "list-type")]
-    #[allow(dead_code)]
     list_type: Option<u32>,
     /// Uploads marker (for multipart).
     uploads: Option<String>,
