@@ -87,6 +87,25 @@ pub struct RebalanceResponse {
     pub estimated_duration: Option<String>,
 }
 
+/// Response from rebalance status query.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RebalanceStatusResponse {
+    /// Whether a rebalance is currently active.
+    pub active: bool,
+    /// Number of migrations pending.
+    pub pending_migrations: usize,
+    /// Number of migrations in progress.
+    pub in_progress_migrations: usize,
+    /// Total completed migrations (since manager start).
+    pub completed_migrations: usize,
+    /// Total failed migrations (since manager start).
+    pub failed_migrations: usize,
+    /// Total bytes transferred.
+    pub bytes_transferred: u64,
+    /// Current cluster members known to the rebalance manager.
+    pub cluster_members: Vec<String>,
+}
+
 /// Create an HTTP client for cluster operations.
 fn create_client() -> Result<Client> {
     Client::builder()
@@ -236,6 +255,24 @@ pub async fn handle_rebalance(args: RebalanceArgs) -> Result<()> {
     let client = create_client()?;
     let url = format!("{}/_cluster/rebalance", args.endpoint.trim_end_matches('/'));
 
+    // If --status flag is set, GET the status instead of triggering rebalance
+    if args.status {
+        let response =
+            client.get(&url).send().await.context("Failed to connect to cluster endpoint")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Rebalance status request failed ({}): {}", status, body);
+        }
+
+        let status: RebalanceStatusResponse =
+            response.json().await.context("Failed to parse rebalance status response")?;
+
+        print_rebalance_status(&status);
+        return Ok(());
+    }
+
     let body = serde_json::json!({
         "dry_run": args.dry_run,
         "max_concurrent": args.max_concurrent,
@@ -270,12 +307,38 @@ pub async fn handle_rebalance(args: RebalanceArgs) -> Result<()> {
     } else if result.initiated {
         println!("✓ Rebalance initiated");
         println!("  {} shards will be moved", result.shards_to_move);
-        println!("  Use 'rucket cluster status' to monitor progress");
+        println!("  Use 'rucket cluster rebalance --status' to monitor progress");
     } else {
         println!("✗ Failed to initiate rebalance: {}", result.message);
     }
 
     Ok(())
+}
+
+/// Print rebalance status in human-readable format.
+fn print_rebalance_status(status: &RebalanceStatusResponse) {
+    let status_icon = if status.active { "●" } else { "○" };
+    let status_text = if status.active { "ACTIVE" } else { "IDLE" };
+
+    println!("\n  Rebalance Status: {} {}", status_icon, status_text);
+    println!("  ─────────────────────────────────────────────");
+    println!("  Pending:          {}", status.pending_migrations);
+    println!("  In Progress:      {}", status.in_progress_migrations);
+    println!("  Completed:        {}", status.completed_migrations);
+    println!("  Failed:           {}", status.failed_migrations);
+    println!("  Bytes Transferred:{}", format_bytes(status.bytes_transferred));
+    println!();
+
+    if !status.cluster_members.is_empty() {
+        println!("  Known Members ({}):", status.cluster_members.len());
+        println!("  ─────────────────────────────────────────────");
+        for member in &status.cluster_members {
+            println!("    - {}", member);
+        }
+    } else {
+        println!("  No cluster members known to rebalance manager.");
+    }
+    println!();
 }
 
 /// Handle the cluster list-nodes command.
@@ -430,5 +493,29 @@ mod tests {
         let parsed: RebalanceResponse = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.shards_to_move, 100);
+    }
+
+    #[test]
+    fn test_rebalance_status_response() {
+        let response = RebalanceStatusResponse {
+            active: true,
+            pending_migrations: 5,
+            in_progress_migrations: 2,
+            completed_migrations: 10,
+            failed_migrations: 1,
+            bytes_transferred: 1073741824,
+            cluster_members: vec!["node-1".to_string(), "node-2".to_string()],
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: RebalanceStatusResponse = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.active);
+        assert_eq!(parsed.pending_migrations, 5);
+        assert_eq!(parsed.in_progress_migrations, 2);
+        assert_eq!(parsed.completed_migrations, 10);
+        assert_eq!(parsed.failed_migrations, 1);
+        assert_eq!(parsed.bytes_transferred, 1073741824);
+        assert_eq!(parsed.cluster_members.len(), 2);
     }
 }
