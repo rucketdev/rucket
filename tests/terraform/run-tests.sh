@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # OpenTofu/Terraform Integration Tests for Rucket S3 API
 #
@@ -13,7 +13,7 @@
 #   --keep-state   Keep Terraform state after tests (for debugging)
 #   --verbose      Show detailed output
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"

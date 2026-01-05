@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Generate code coverage report for Rucket
-set -e
+set -euo pipefail
 
 # Install cargo-llvm-cov if needed
 if ! command -v cargo-llvm-cov &> /dev/null; then
