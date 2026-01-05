@@ -461,7 +461,7 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.2: Placement Groups + CRUSH 🚧
+### Milestone 3.2: Placement Groups + CRUSH ✅
 
 **Status**: COMPLETE
 
@@ -543,9 +543,9 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.4: Primary-Backup Replication 🚧
+### Milestone 3.4: Primary-Backup Replication ✅
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE
 
 **Deliverable**: Configurable replication levels
 
