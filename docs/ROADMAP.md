@@ -214,7 +214,7 @@
 **Results**:
 - Initial pass rate: 42.3% (351/829)
 - After fixes: **36% (305/829)** with **0 errors** (down from 476)
-- Note: 90% target not achieved - failures are for unimplemented features (SSE, ACLs, policies) not S3 API bugs
+- Note: 90% target not achieved at that time - failures were for then-unimplemented features (SSE, ACLs) not S3 API bugs. SSE-S3 and policies have since been implemented in Phase 2.
 
 **Testing**:
 - [x] Full Ceph s3-tests run
