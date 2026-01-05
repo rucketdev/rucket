@@ -8,10 +8,15 @@ targets = [
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# Ignore unmaintained rustls-pemfile - it's a transitive dep from axum-server
-# and will be resolved when axum-server updates to use rustls-pki-types
-# Ignore unmaintained instant - it's a transitive dep from reed-solomon-erasure
-# via parking_lot v0.11.2 and there's no newer version available
+# Advisory ignores - review quarterly and remove when upstream fixes are available
+#
+# RUSTSEC-2025-0134: rustls-pemfile unmaintained (added 2026-01-05)
+# - Transitive dependency from axum-server
+# - Blocked on: axum-server updating to use rustls-pki-types
+#
+# RUSTSEC-2024-0384: instant unmaintained (added 2026-01-05)
+# - Transitive dependency from reed-solomon-erasure via parking_lot v0.11.2
+# - Blocked on: reed-solomon-erasure updating parking_lot to newer version
 ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2024-0384"]
 
 [licenses]
