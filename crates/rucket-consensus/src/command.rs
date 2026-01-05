@@ -15,6 +15,20 @@ use rucket_core::types::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Placement group ownership entry.
+///
+/// Tracks which nodes are responsible for a placement group.
+/// This is the result of running CRUSH algorithm on the cluster map.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PgOwnershipEntry {
+    /// Placement group ID.
+    pub pg_id: u32,
+    /// Primary node ID (CRUSH device ID).
+    pub primary_node: u64,
+    /// Replica node IDs (CRUSH device IDs).
+    pub replica_nodes: Vec<u64>,
+}
+
 /// Commands that go through Raft consensus.
 ///
 /// These are operations that must be linearizable across the cluster:
@@ -343,6 +357,35 @@ pub enum MetadataCommand {
         /// Upload ID.
         upload_id: String,
     },
+
+    // ========================================================================
+    // Placement Group Operations
+    // ========================================================================
+    /// Update placement group ownership.
+    ///
+    /// This is called when the cluster map changes and PG ownership
+    /// needs to be recalculated. All nodes must agree on PG ownership
+    /// to ensure consistent data routing.
+    UpdatePgOwnership {
+        /// Placement group ID.
+        pg_id: u32,
+        /// Primary node ID (CRUSH device ID).
+        primary_node: u64,
+        /// Replica node IDs (CRUSH device IDs).
+        replica_nodes: Vec<u64>,
+        /// Ownership epoch (incremented on each cluster map change).
+        epoch: u64,
+    },
+
+    /// Batch update of all placement group ownership.
+    ///
+    /// Used during initial cluster setup or major reconfiguration.
+    UpdateAllPgOwnership {
+        /// All PG ownership entries.
+        entries: Vec<PgOwnershipEntry>,
+        /// Ownership epoch.
+        epoch: u64,
+    },
 }
 
 impl MetadataCommand {
@@ -378,7 +421,10 @@ impl MetadataCommand {
             | Self::CompleteMultipartUpload { bucket, .. }
             | Self::AbortMultipartUpload { bucket, .. } => Some(bucket),
 
-            Self::PutPart { .. } | Self::DeleteParts { .. } => None,
+            Self::PutPart { .. }
+            | Self::DeleteParts { .. }
+            | Self::UpdatePgOwnership { .. }
+            | Self::UpdateAllPgOwnership { .. } => None,
         }
     }
 
@@ -449,6 +495,8 @@ impl MetadataCommand {
             Self::AbortMultipartUpload { .. } => "AbortMultipartUpload",
             Self::PutPart { .. } => "PutPart",
             Self::DeleteParts { .. } => "DeleteParts",
+            Self::UpdatePgOwnership { .. } => "UpdatePgOwnership",
+            Self::UpdateAllPgOwnership { .. } => "UpdateAllPgOwnership",
         }
     }
 }

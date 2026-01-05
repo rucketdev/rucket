@@ -319,6 +319,34 @@ impl MetadataStateMachine {
                     Err(e) => MetadataResponse::from_error(&e),
                 }
             }
+
+            MetadataCommand::UpdatePgOwnership { pg_id, primary_node, replica_nodes, epoch } => {
+                match self
+                    .backend
+                    .update_pg_ownership(pg_id, primary_node, replica_nodes, epoch)
+                    .await
+                {
+                    Ok(()) => MetadataResponse::PgOwnershipUpdated { count: 1, epoch },
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
+
+            MetadataCommand::UpdateAllPgOwnership { entries, epoch } => {
+                // Convert from command PgOwnershipEntry to storage PgOwnershipEntry
+                let storage_entries: Vec<rucket_storage::metadata::PgOwnershipEntry> = entries
+                    .into_iter()
+                    .map(|e| rucket_storage::metadata::PgOwnershipEntry {
+                        pg_id: e.pg_id,
+                        primary_node: e.primary_node,
+                        replica_nodes: e.replica_nodes,
+                    })
+                    .collect();
+
+                match self.backend.update_all_pg_ownership(storage_entries, epoch).await {
+                    Ok(count) => MetadataResponse::PgOwnershipUpdated { count, epoch },
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
         }
     }
 }

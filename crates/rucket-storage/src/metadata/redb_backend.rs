@@ -60,6 +60,12 @@ const BUCKET_LIFECYCLE: TableDefinition<'_, &str, &[u8]> = TableDefinition::new(
 const BUCKET_ENCRYPTION: TableDefinition<'_, &str, &[u8]> =
     TableDefinition::new("bucket_encryption");
 
+/// PG ownership table: pg_id (as string) -> StoredPgOwnership (bincode)
+const PG_OWNERSHIP: TableDefinition<'_, u32, &[u8]> = TableDefinition::new("pg_ownership");
+
+/// PG epoch table: key "epoch" -> u64
+const PG_EPOCH: TableDefinition<'_, &str, u64> = TableDefinition::new("pg_epoch");
+
 // === Stored Types (for bincode serialization) ===
 
 #[derive(Serialize, Deserialize)]
@@ -333,6 +339,32 @@ impl StoredPart {
 
     fn uuid(&self) -> Uuid {
         Uuid::from_bytes(self.uuid)
+    }
+}
+
+/// Stored representation of PG ownership.
+#[derive(Serialize, Deserialize)]
+struct StoredPgOwnership {
+    pg_id: u32,
+    primary_node: u64,
+    replica_nodes: Vec<u64>,
+}
+
+impl StoredPgOwnership {
+    fn from_entry(entry: &super::PgOwnershipEntry) -> Self {
+        Self {
+            pg_id: entry.pg_id,
+            primary_node: entry.primary_node,
+            replica_nodes: entry.replica_nodes.clone(),
+        }
+    }
+
+    fn to_entry(&self) -> super::PgOwnershipEntry {
+        super::PgOwnershipEntry {
+            pg_id: self.pg_id,
+            primary_node: self.primary_node,
+            replica_nodes: self.replica_nodes.clone(),
+        }
     }
 }
 
@@ -2870,6 +2902,177 @@ impl MetadataBackend for RedbMetadataStore {
         .await
         .map_err(db_err)?
     }
+
+    // === Placement Group Ownership Operations ===
+
+    async fn update_pg_ownership(
+        &self,
+        pg_id: u32,
+        primary_node: u64,
+        replica_nodes: Vec<u64>,
+        epoch: u64,
+    ) -> Result<()> {
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+
+        tokio::task::spawn_blocking(move || {
+            let stored = StoredPgOwnership { pg_id, primary_node, replica_nodes };
+
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                let mut pg_table = txn.open_table(PG_OWNERSHIP).map_err(db_err)?;
+                let serialized = bincode::serialize(&stored).map_err(|e| {
+                    Error::Database(format!("Failed to serialize PG ownership: {e}"))
+                })?;
+                pg_table.insert(pg_id, serialized.as_slice()).map_err(db_err)?;
+            }
+
+            {
+                let mut epoch_table = txn.open_table(PG_EPOCH).map_err(db_err)?;
+                epoch_table.insert("epoch", epoch).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn update_all_pg_ownership(
+        &self,
+        entries: Vec<super::PgOwnershipEntry>,
+        epoch: u64,
+    ) -> Result<u32> {
+        let db = Arc::clone(&self.db);
+        let durability = self.durability;
+        let count = entries.len() as u32;
+
+        tokio::task::spawn_blocking(move || {
+            let mut txn = db.begin_write().map_err(db_err)?;
+            txn.set_durability(durability).map_err(db_err)?;
+
+            {
+                // Clear existing entries and insert new ones
+                let mut pg_table = txn.open_table(PG_OWNERSHIP).map_err(db_err)?;
+
+                // Drain the table by removing all entries
+                let existing: Vec<u32> = pg_table
+                    .iter()
+                    .map_err(db_err)?
+                    .map(|r| r.map(|(k, _)| k.value()))
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(db_err)?;
+
+                for pg_id in existing {
+                    pg_table.remove(pg_id).map_err(db_err)?;
+                }
+
+                // Insert new entries
+                for entry in &entries {
+                    let stored = StoredPgOwnership::from_entry(entry);
+                    let serialized = bincode::serialize(&stored).map_err(|e| {
+                        Error::Database(format!("Failed to serialize PG ownership: {e}"))
+                    })?;
+                    pg_table.insert(entry.pg_id, serialized.as_slice()).map_err(db_err)?;
+                }
+            }
+
+            {
+                let mut epoch_table = txn.open_table(PG_EPOCH).map_err(db_err)?;
+                epoch_table.insert("epoch", epoch).map_err(db_err)?;
+            }
+
+            txn.commit().map_err(db_err)?;
+            Ok(count)
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_pg_ownership(&self, pg_id: u32) -> Result<Option<super::PgOwnershipEntry>> {
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let txn = db.begin_read().map_err(db_err)?;
+
+            // Table may not exist if no PG ownership has been set yet
+            let table = match txn.open_table(PG_OWNERSHIP) {
+                Ok(t) => t,
+                Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+                Err(e) => return Err(db_err(e)),
+            };
+
+            let result: Result<Option<super::PgOwnershipEntry>> =
+                match table.get(pg_id).map_err(db_err)? {
+                    Some(data) => {
+                        let stored: StoredPgOwnership = bincode::deserialize(data.value())
+                            .map_err(|e| {
+                                Error::Database(format!("Failed to deserialize PG ownership: {e}"))
+                            })?;
+                        Ok(Some(stored.to_entry()))
+                    }
+                    None => Ok(None),
+                };
+            result
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn get_pg_epoch(&self) -> Result<u64> {
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let txn = db.begin_read().map_err(db_err)?;
+
+            // Table may not exist if no PG ownership has been set yet
+            let table = match txn.open_table(PG_EPOCH) {
+                Ok(t) => t,
+                Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
+                Err(e) => return Err(db_err(e)),
+            };
+
+            match table.get("epoch").map_err(db_err)? {
+                Some(epoch) => Ok(epoch.value()),
+                None => Ok(0),
+            }
+        })
+        .await
+        .map_err(db_err)?
+    }
+
+    async fn list_pg_ownership(&self) -> Result<Vec<super::PgOwnershipEntry>> {
+        let db = Arc::clone(&self.db);
+
+        tokio::task::spawn_blocking(move || {
+            let txn = db.begin_read().map_err(db_err)?;
+
+            // Table may not exist if no PG ownership has been set yet
+            let table = match txn.open_table(PG_OWNERSHIP) {
+                Ok(t) => t,
+                Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+                Err(e) => return Err(db_err(e)),
+            };
+
+            let mut entries = Vec::new();
+            for result in table.iter().map_err(db_err)? {
+                let (_, data) = result.map_err(db_err)?;
+                let stored: StoredPgOwnership =
+                    bincode::deserialize(data.value()).map_err(|e| {
+                        Error::Database(format!("Failed to deserialize PG ownership: {e}"))
+                    })?;
+                entries.push(stored.to_entry());
+            }
+
+            let result: Result<Vec<super::PgOwnershipEntry>> = Ok(entries);
+            result
+        })
+        .await
+        .map_err(db_err)?
+    }
 }
 
 #[cfg(test)]
@@ -3109,5 +3312,62 @@ mod tests {
 
         let result = store.get_object_tagging("test-bucket", "nonexistent").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_ownership_basic() {
+        let store = RedbMetadataStore::open_in_memory().unwrap();
+
+        // Initially no PG ownership
+        assert!(store.get_pg_ownership(0).await.unwrap().is_none());
+        assert_eq!(store.get_pg_epoch().await.unwrap(), 0);
+        assert!(store.list_pg_ownership().await.unwrap().is_empty());
+
+        // Update single PG ownership
+        store.update_pg_ownership(0, 1, vec![2, 3], 1).await.unwrap();
+
+        // Verify single PG
+        let entry = store.get_pg_ownership(0).await.unwrap().unwrap();
+        assert_eq!(entry.pg_id, 0);
+        assert_eq!(entry.primary_node, 1);
+        assert_eq!(entry.replica_nodes, vec![2, 3]);
+        assert_eq!(store.get_pg_epoch().await.unwrap(), 1);
+
+        // List should return the entry
+        let entries = store.list_pg_ownership().await.unwrap();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_pg_ownership_batch_update() {
+        use super::super::PgOwnershipEntry;
+
+        let store = RedbMetadataStore::open_in_memory().unwrap();
+
+        // Add initial entries
+        store.update_pg_ownership(0, 1, vec![2, 3], 1).await.unwrap();
+        store.update_pg_ownership(1, 4, vec![5, 6], 1).await.unwrap();
+
+        // Batch update replaces all entries
+        let new_entries = vec![
+            PgOwnershipEntry { pg_id: 0, primary_node: 10, replica_nodes: vec![11, 12] },
+            PgOwnershipEntry { pg_id: 1, primary_node: 13, replica_nodes: vec![14, 15] },
+            PgOwnershipEntry { pg_id: 2, primary_node: 16, replica_nodes: vec![17, 18] },
+        ];
+        let count = store.update_all_pg_ownership(new_entries, 2).await.unwrap();
+        assert_eq!(count, 3);
+
+        // Verify epoch
+        assert_eq!(store.get_pg_epoch().await.unwrap(), 2);
+
+        // Verify all entries
+        let entries = store.list_pg_ownership().await.unwrap();
+        assert_eq!(entries.len(), 3);
+
+        let entry0 = store.get_pg_ownership(0).await.unwrap().unwrap();
+        assert_eq!(entry0.primary_node, 10);
+
+        let entry2 = store.get_pg_ownership(2).await.unwrap().unwrap();
+        assert_eq!(entry2.primary_node, 16);
     }
 }

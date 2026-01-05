@@ -649,4 +649,70 @@ pub trait MetadataBackend: Send + Sync + 'static {
     ///
     /// Returns an error if the bucket does not exist.
     async fn delete_encryption_configuration(&self, bucket: &str) -> Result<()>;
+
+    // === Placement Group Ownership Operations ===
+
+    /// Update ownership for a single placement group.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the update cannot be performed.
+    async fn update_pg_ownership(
+        &self,
+        pg_id: u32,
+        primary_node: u64,
+        replica_nodes: Vec<u64>,
+        epoch: u64,
+    ) -> Result<()>;
+
+    /// Update ownership for all placement groups.
+    ///
+    /// This replaces all existing PG ownership entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the update cannot be performed.
+    async fn update_all_pg_ownership(
+        &self,
+        entries: Vec<PgOwnershipEntry>,
+        epoch: u64,
+    ) -> Result<u32>;
+
+    /// Get ownership for a placement group.
+    ///
+    /// Returns `None` if no ownership is set for this PG.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query cannot be performed.
+    async fn get_pg_ownership(&self, pg_id: u32) -> Result<Option<PgOwnershipEntry>>;
+
+    /// Get the current PG ownership epoch.
+    ///
+    /// Returns 0 if no epoch is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query cannot be performed.
+    async fn get_pg_epoch(&self) -> Result<u64>;
+
+    /// List all PG ownership entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query cannot be performed.
+    async fn list_pg_ownership(&self) -> Result<Vec<PgOwnershipEntry>>;
+}
+
+/// Placement group ownership entry.
+///
+/// Tracks which nodes are responsible for a placement group.
+#[derive(Debug, Clone)]
+pub struct PgOwnershipEntry {
+    /// Placement group ID.
+    pub pg_id: u32,
+    /// Primary node ID (CRUSH device ID).
+    pub primary_node: u64,
+    /// Replica node IDs (CRUSH device IDs).
+    pub replica_nodes: Vec<u64>,
 }
