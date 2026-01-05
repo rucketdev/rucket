@@ -3690,6 +3690,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rucket-cluster"
+version = "0.1.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "metrics",
+ "parking_lot 0.12.5",
+ "proptest",
+ "rucket-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rucket-consensus"
 version = "0.1.1"
 dependencies = [
