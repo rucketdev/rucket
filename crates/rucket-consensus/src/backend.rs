@@ -680,6 +680,68 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
     ) -> Result<Option<ServerSideEncryptionConfiguration>> {
         self.local.get_encryption_configuration(bucket).await
     }
+
+    // ========================================================================
+    // Placement Group Operations (write via Raft, read from local)
+    // ========================================================================
+
+    async fn update_pg_ownership(
+        &self,
+        pg_id: u32,
+        primary_node: u64,
+        replica_nodes: Vec<u64>,
+        epoch: u64,
+    ) -> Result<()> {
+        let command =
+            MetadataCommand::UpdatePgOwnership { pg_id, primary_node, replica_nodes, epoch };
+        let response = self.propose(command).await?;
+        response.to_unit_result()
+    }
+
+    async fn update_all_pg_ownership(
+        &self,
+        entries: Vec<rucket_storage::metadata::PgOwnershipEntry>,
+        epoch: u64,
+    ) -> Result<u32> {
+        // Convert storage entries to command entries
+        let command_entries: Vec<crate::command::PgOwnershipEntry> = entries
+            .into_iter()
+            .map(|e| crate::command::PgOwnershipEntry {
+                pg_id: e.pg_id,
+                primary_node: e.primary_node,
+                replica_nodes: e.replica_nodes,
+            })
+            .collect();
+
+        let command = MetadataCommand::UpdateAllPgOwnership { entries: command_entries, epoch };
+        let response = self.propose(command).await?;
+
+        match response {
+            MetadataResponse::PgOwnershipUpdated { count, .. } => Ok(count),
+            MetadataResponse::Error { code, message } => {
+                Err(Error::s3(s3_code_from_string(&code), message))
+            }
+            _ => Err(Error::s3(
+                S3ErrorCode::InternalError,
+                "Unexpected response from update_all_pg_ownership",
+            )),
+        }
+    }
+
+    async fn get_pg_ownership(
+        &self,
+        pg_id: u32,
+    ) -> Result<Option<rucket_storage::metadata::PgOwnershipEntry>> {
+        self.local.get_pg_ownership(pg_id).await
+    }
+
+    async fn get_pg_epoch(&self) -> Result<u64> {
+        self.local.get_pg_epoch().await
+    }
+
+    async fn list_pg_ownership(&self) -> Result<Vec<rucket_storage::metadata::PgOwnershipEntry>> {
+        self.local.list_pg_ownership().await
+    }
 }
 
 #[cfg(test)]

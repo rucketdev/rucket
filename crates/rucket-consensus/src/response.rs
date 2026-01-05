@@ -67,6 +67,14 @@ pub enum MetadataResponse {
     /// Part metadata for a multipart upload.
     Part(Part),
 
+    /// PG ownership updated successfully.
+    PgOwnershipUpdated {
+        /// Number of PG entries updated.
+        count: u32,
+        /// Ownership epoch.
+        epoch: u64,
+    },
+
     /// Operation failed with an error.
     Error {
         /// S3-compatible error code (e.g., "NoSuchBucket", "BucketNotEmpty").
