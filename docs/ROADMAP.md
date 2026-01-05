@@ -558,20 +558,27 @@ Or via environment variables:
   - `LagTracker`: Per-replica lag monitoring with Prometheus metrics
   - `ReplicaClient` trait: Interface for replica communication
   - 49 unit tests covering all functionality
+- `crates/rucket-storage/src/replicated.rs` (PR #135): Storage integration
+  - `ReplicatedStorage<S: StorageBackend>`: Wrapper that intercepts writes
+  - Uses HLC timestamps for causal ordering
+  - Supports all three replication levels (Local, Replicated, Durable)
+  - Verifies quorum achievement for Durable level
+  - 6 unit tests for storage integration
 
 **Files to modify**:
 - `crates/rucket-replication/` (new crate) ✓
-- `crates/rucket-storage/src/local.rs`
+- `crates/rucket-storage/src/replicated.rs` ✓
 
 **Tasks**:
 1. [x] Implement replication levels: local, replicated, durable
 2. [x] Implement async replication to backups
 3. [x] Implement sync replication with quorum ack
 4. [x] Implement replication lag monitoring
-5. [ ] Wire replication into write path
+5. [x] Wire replication into write path (PR #135)
 
 **Testing**:
 - [x] Unit tests for replication logic (49 tests)
+- [x] Unit tests for storage integration (6 tests)
 - [ ] Integration tests for async/sync modes
 - [ ] Failure scenarios (backup down)
 
@@ -833,6 +840,7 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 3.1: Raft consensus with openraft, RaftMetadataBackend, peer discovery
 - [x] Milestone 3.2: CRUSH algorithm with consensus-backed PG ownership (38 tests)
 - [x] Milestone 3.3: Erasure coding with storage integration (PRs #129, #131 - 37 tests)
+- [~] Milestone 3.4: Primary-backup replication (PRs #133, #135 - 55 tests, storage integration complete)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
@@ -844,3 +852,5 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - Raft-based metadata consensus (52 tests)
 - CRUSH placement algorithm (rucket-placement crate)
 - Consensus-backed PG ownership tracking
+- Erasure coding (8+4 Reed-Solomon) with storage integration
+- Primary-backup replication with configurable durability levels
