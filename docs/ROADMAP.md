@@ -463,7 +463,7 @@ Or via environment variables:
 
 ### Milestone 3.2: Placement Groups + CRUSH 🚧
 
-**Status**: IN PROGRESS (Core algorithm & storage integration complete, PG ownership pending)
+**Status**: COMPLETE
 
 **Deliverable**: Deterministic data placement
 
@@ -479,6 +479,11 @@ Or via environment variables:
   - NodeRegistry for mapping CRUSH device IDs to network addresses
   - CrushPlacementBuilder for convenient cluster topology setup
   - 7 integration tests for CRUSH placement
+- `crates/rucket-consensus/`: PG ownership with Raft consensus
+  - PgOwnershipEntry and UpdatePgOwnership/UpdateAllPgOwnership commands
+  - MetadataStateMachine handles PG ownership commands
+  - RaftMetadataBackend routes writes via Raft, reads from local
+  - 2 unit tests for PG ownership CRUD operations
 
 **Tasks**:
 1. [x] Implement CRUSH algorithm (pure Rust implementation)
@@ -486,7 +491,7 @@ Or via environment variables:
 3. [x] Implement cluster map (nodes, weights, topology)
 4. [x] Implement zone-aware placement
 5. [x] Wire CRUSH into storage routing (CrushPlacementPolicy in rucket-storage)
-6. [ ] Implement PG ownership calculation with consensus
+6. [x] Implement PG ownership calculation with consensus
 
 **Testing**:
 - [x] Unit tests for CRUSH placement consistency (31 tests)
@@ -783,12 +788,12 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 
 ## Immediate Next Steps
 
-**Phase 1, 2, 3.1 complete, 3.2 nearly complete!** CRUSH algorithm and storage integration done.
+**Phase 1, 2, 3.1, 3.2 complete!** CRUSH algorithm with consensus-backed PG ownership.
 
 **Next phase**: Phase 3 (Distributed Foundation) continued
-1. **Milestone 3.2**: Implement PG ownership calculation with consensus
-2. **Milestone 3.3**: Erasure coding (8+4 Reed-Solomon)
-3. **Milestone 3.4**: Primary-Backup replication
+1. **Milestone 3.3**: Erasure coding (8+4 Reed-Solomon)
+2. **Milestone 3.4**: Primary-Backup replication
+3. **Milestone 3.5**: Self-healing rebalancing
 
 **Completed milestones**:
 - [x] Milestone 1.1: Forward-compatible data model (HLC, placement_group, etc.)
@@ -802,7 +807,7 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 2.4: Hardened WAL recovery with comprehensive durability tests
 - [x] Milestone 2.5: Production documentation (deployment, operations, security, troubleshooting)
 - [x] Milestone 3.1: Raft consensus with openraft, RaftMetadataBackend, peer discovery
-- [~] Milestone 3.2: CRUSH algorithm (core implementation done, 31 tests)
+- [x] Milestone 3.2: CRUSH algorithm with consensus-backed PG ownership (38 tests)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
@@ -813,3 +818,4 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - Complete operational documentation
 - Raft-based metadata consensus (52 tests)
 - CRUSH placement algorithm (rucket-placement crate)
+- Consensus-backed PG ownership tracking
