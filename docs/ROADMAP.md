@@ -543,23 +543,35 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.4: Primary-Backup Replication
+### Milestone 3.4: Primary-Backup Replication 🚧
+
+**Status**: IN PROGRESS
 
 **Deliverable**: Configurable replication levels
 
+**Implementation**:
+- `crates/rucket-replication/` (PR #133): Primary-backup replication crate
+  - `ReplicationLevel` enum: Local, Replicated, Durable
+  - `ReplicationConfig`: RF, queue size, timeout, lag threshold
+  - `AsyncReplicator`: Queue-based background replication with batching
+  - `SyncReplicator`: Quorum-based synchronous replication (RF/2+1 acks)
+  - `LagTracker`: Per-replica lag monitoring with Prometheus metrics
+  - `ReplicaClient` trait: Interface for replica communication
+  - 49 unit tests covering all functionality
+
 **Files to modify**:
-- `crates/rucket-replication/` (new crate)
+- `crates/rucket-replication/` (new crate) ✓
 - `crates/rucket-storage/src/local.rs`
 
 **Tasks**:
-1. [ ] Implement replication levels: local, replicated, durable
-2. [ ] Implement async replication to backups
-3. [ ] Implement sync replication with quorum ack
-4. [ ] Implement replication lag monitoring
+1. [x] Implement replication levels: local, replicated, durable
+2. [x] Implement async replication to backups
+3. [x] Implement sync replication with quorum ack
+4. [x] Implement replication lag monitoring
 5. [ ] Wire replication into write path
 
 **Testing**:
-- [ ] Unit tests for replication logic
+- [x] Unit tests for replication logic (49 tests)
 - [ ] Integration tests for async/sync modes
 - [ ] Failure scenarios (backup down)
 
