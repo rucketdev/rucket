@@ -10,7 +10,7 @@
 //! - **8 data shards**: The original data is split into 8 equal-sized pieces
 //! - **4 parity shards**: 4 redundancy shards are computed from the data
 //! - **Fault tolerance**: Can recover from up to 4 shard losses
-//! - **Storage overhead**: 1.5x (12 shards for 8 shards worth of data)
+//! - **Storage overhead**: 1.5x (50% overhead: 12 shards for 8 shards worth of data)
 //!
 //! # Example
 //!
