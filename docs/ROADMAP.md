@@ -651,20 +651,40 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.6: Cluster CLI + Operations
+### Milestone 3.6: Cluster CLI + Operations 🚧
+
+**Status**: IN PROGRESS
 
 **Deliverable**: Operational tooling
 
+**Implementation**:
+- `crates/rucket/src/cli.rs` (PR #145): Cluster subcommands and argument parsing
+  - `ClusterCommand` with subcommands: status, add-node, remove-node, rebalance, list-nodes
+  - `ClusterStatusArgs`, `AddNodeArgs`, `RemoveNodeArgs`, `RebalanceArgs`, `ListNodesArgs`
+  - `OutputFormat` enum for text/JSON output
+  - 5 new CLI parsing tests
+- `crates/rucket/src/cluster_cli.rs` (PR #145): HTTP-based cluster CLI handlers
+  - `ClusterStatus`, `NodeInfo` response types for API communication
+  - `handle_cluster_status`: Show cluster health, leader, term, and nodes
+  - `handle_add_node`: Add node with learner mode support
+  - `handle_remove_node`: Remove node with force option
+  - `handle_rebalance`: Trigger rebalancing with dry-run mode
+  - `handle_list_nodes`: List all cluster nodes
+  - Human-readable and JSON output formatting
+  - 5 unit tests for response serialization
+
 **Tasks**:
-1. [ ] Implement `rucket cluster status`
-2. [ ] Implement `rucket cluster add-node`
-3. [ ] Implement `rucket cluster remove-node`
-4. [ ] Implement `rucket cluster rebalance`
-5. [ ] Implement rolling upgrade procedure
-6. [ ] Admin API for cluster operations
+1. [x] Implement `rucket cluster status` (PR #145)
+2. [x] Implement `rucket cluster add-node` (PR #145)
+3. [x] Implement `rucket cluster remove-node` (PR #145)
+4. [x] Implement `rucket cluster rebalance` (PR #145)
+5. [x] Implement `rucket cluster list-nodes` (PR #145)
+6. [ ] Implement rolling upgrade procedure
+7. [ ] Admin API for cluster operations
 
 **Testing**:
-- [ ] CLI command tests
+- [x] CLI command parsing tests (5 tests)
+- [x] Response serialization tests (5 tests)
 - [ ] Rolling upgrade test
 
 **CI adjustment**: None required
