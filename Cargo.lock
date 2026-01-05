@@ -3806,6 +3806,7 @@ dependencies = [
  "rucket-core",
  "rucket-erasure",
  "rucket-placement",
+ "rucket-replication",
  "serde",
  "serde_json",
  "sha1",
