@@ -1,0 +1,15 @@
+[package]
+name = "rucket-placement"
+version = "0.1.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "CRUSH algorithm for deterministic data placement in Rucket"
+
+[dependencies]
+thiserror = "2"
+serde = { version = "1.0", features = ["derive"] }
+siphasher = "1.0"
+tracing = "0.1"
+
+[dev-dependencies]
+proptest = "1.6"

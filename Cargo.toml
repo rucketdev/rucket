@@ -6,6 +6,7 @@ members = [
     "crates/rucket-api",
     "crates/rucket-storage",
     "crates/rucket-consensus",
+    "crates/rucket-placement",
 ]
 
 [workspace.package]
@@ -37,6 +38,7 @@ rucket-core = { path = "crates/rucket-core" }
 rucket-api = { path = "crates/rucket-api" }
 rucket-storage = { path = "crates/rucket-storage" }
 rucket-consensus = { path = "crates/rucket-consensus" }
+rucket-placement = { path = "crates/rucket-placement" }
 
 # Async runtime
 tokio = { version = "1.43", features = ["full"] }
@@ -93,6 +95,9 @@ libc = "0.2"
 # Metrics
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
+
+# Hashing
+siphasher = "1.0"
 
 # Utils
 uuid = { version = "1.11", features = ["v4", "serde"] }
