@@ -7,6 +7,7 @@ members = [
     "crates/rucket-storage",
     "crates/rucket-consensus",
     "crates/rucket-placement",
+    "crates/rucket-erasure",
 ]
 
 [workspace.package]
@@ -39,6 +40,10 @@ rucket-api = { path = "crates/rucket-api" }
 rucket-storage = { path = "crates/rucket-storage" }
 rucket-consensus = { path = "crates/rucket-consensus" }
 rucket-placement = { path = "crates/rucket-placement" }
+rucket-erasure = { path = "crates/rucket-erasure" }
+
+# Erasure coding
+reed-solomon-erasure = "6.0"
 
 # Async runtime
 tokio = { version = "1.43", features = ["full"] }
