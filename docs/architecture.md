@@ -1253,8 +1253,9 @@ rucket serve --cluster --geo    # Multi-region replication
 
 **Clustering:**
 - Horizontal scaling across nodes
-- Consistent hashing / data placement
-- Architecture TBD (consensus, replication strategy)
+- CRUSH placement algorithm for data distribution
+- Raft consensus for metadata coordination
+- Primary-backup replication with configurable levels
 
 **Geo-Distribution:**
 - Cross-region replication (async by default, sync optional)
