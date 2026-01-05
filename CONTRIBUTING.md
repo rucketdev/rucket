@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Rucket!
 
 By contributing to this project, you certify that:
 
-1. The contribution was created by you and you have the right to submit it under the Apache-2.0 license.
+1. The contribution was created by you and you have the right to submit it under the AGPL-3.0 license.
 2. You understand and agree that your contribution is public and may be redistributed.
 
 **Sign-off your commits:**
