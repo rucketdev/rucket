@@ -3772,6 +3772,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "rucket-geo"
+version = "0.1.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "dashmap",
+ "metrics",
+ "rucket-core",
+ "rucket-replication",
+ "rucket-storage",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rucket-placement"
 version = "0.1.1"
 dependencies = [

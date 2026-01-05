@@ -16,7 +16,7 @@ use tracing::Level;
 
 use crate::auth::{auth_middleware, AuthContext, AuthState};
 use crate::handlers::bucket::{self, AppState};
-use crate::handlers::{minio, multipart, object};
+use crate::handlers::{minio, multipart, object, replication};
 use crate::middleware::metrics_layer;
 
 /// Query parameters to determine request type.
@@ -96,6 +96,8 @@ pub struct RequestQuery {
     /// Request payment configuration (not implemented).
     #[serde(rename = "requestPayment")]
     request_payment: Option<String>,
+    /// Bucket replication configuration.
+    replication: Option<String>,
     /// List object versions.
     versions: Option<String>,
     /// Bucket location.
@@ -290,6 +292,10 @@ async fn handle_bucket_put(
     if query.request_payment.is_some() {
         return bucket::put_bucket_request_payment(state, path).await.into_response();
     }
+    // Check for ?replication (PutBucketReplication)
+    if query.replication.is_some() {
+        return replication::put_bucket_replication(state, path, body).await.into_response();
+    }
     // Default: CreateBucket
     bucket::create_bucket(state, path, headers).await.into_response()
 }
@@ -323,6 +329,10 @@ async fn handle_bucket_delete(
     // Check for ?publicAccessBlock (DeletePublicAccessBlock)
     if query.public_access_block.is_some() {
         return bucket::delete_public_access_block(state, path).await.into_response();
+    }
+    // Check for ?replication (DeleteBucketReplication)
+    if query.replication.is_some() {
+        return replication::delete_bucket_replication(state, path).await.into_response();
     }
     // Default: DeleteBucket
     bucket::delete_bucket(state, path).await.into_response()
@@ -430,6 +440,10 @@ async fn handle_bucket_get(
     // Check for ?requestPayment (GetBucketRequestPayment - not implemented)
     if query.request_payment.is_some() {
         return bucket::get_bucket_request_payment(state, path).await.into_response();
+    }
+    // Check for ?replication (GetBucketReplication)
+    if query.replication.is_some() {
+        return replication::get_bucket_replication(state, path).await.into_response();
     }
     // Check for ?location (GetBucketLocation)
     if query.location.is_some() {
