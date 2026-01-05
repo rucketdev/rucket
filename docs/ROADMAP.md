@@ -586,21 +586,36 @@ Or via environment variables:
 
 ---
 
-### Milestone 3.5: Failure Detection + Self-Healing
+### Milestone 3.5: Failure Detection + Self-Healing 🚧
+
+**Status**: IN PROGRESS
 
 **Deliverable**: Automatic recovery from failures
 
+**Implementation**:
+- `crates/rucket-cluster/` (PR #137): Failure detection and cluster health monitoring
+  - `PhiAccrualDetector`: Probabilistic failure detector using phi accrual algorithm
+  - Sliding window of heartbeat inter-arrival times with normal distribution model
+  - Configurable threshold (default 8.0 ≈ 99.997% confidence)
+  - Thread-safe with lock-free atomic operations
+  - `HeartbeatManager`: Cluster-wide health monitoring
+  - Periodic heartbeat send/receive with gossip-based peer discovery
+  - Node state tracking (Healthy/Warning/Failed) with event emission
+  - Prometheus metrics integration
+  - 26 unit tests + 1 doc test
+
 **Files to modify**:
-- `crates/rucket-cluster/` (new crate)
+- `crates/rucket-cluster/` (new crate) ✓
 
 **Tasks**:
-1. [ ] Implement Phi Accrual Failure Detector
-2. [ ] Implement heartbeat monitoring (1s interval)
+1. [x] Implement Phi Accrual Failure Detector (PR #137)
+2. [x] Implement heartbeat monitoring (1s interval) (PR #137)
 3. [ ] Implement shard repair loop
 4. [ ] Implement rebalancing on node join/leave
 5. [ ] Implement background scrubbing
 
 **Testing**:
+- [x] Unit tests for failure detection (26 tests)
 - [ ] Failure injection tests
 - [ ] Recovery time measurement
 - [ ] Scrubbing correctness tests
@@ -841,6 +856,7 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - [x] Milestone 3.2: CRUSH algorithm with consensus-backed PG ownership (38 tests)
 - [x] Milestone 3.3: Erasure coding with storage integration (PRs #129, #131 - 37 tests)
 - [~] Milestone 3.4: Primary-backup replication (PRs #133, #135 - 55 tests, storage integration complete)
+- [~] Milestone 3.5: Failure detection (PR #137 - 27 tests, phi accrual + heartbeat manager)
 
 **Current state**: Distributed-ready with:
 - Full S3 API compatibility
@@ -854,3 +870,4 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 - Consensus-backed PG ownership tracking
 - Erasure coding (8+4 Reed-Solomon) with storage integration
 - Primary-backup replication with configurable durability levels
+- Phi Accrual failure detection with heartbeat monitoring
