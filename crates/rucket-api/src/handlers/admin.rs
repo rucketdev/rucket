@@ -48,6 +48,12 @@ pub struct ClusterStatusResponse {
     pub commit_index: u64,
     /// Last applied index.
     pub last_applied: u64,
+    /// Whether a rebalance operation is currently active.
+    pub rebalance_active: bool,
+    /// Number of pending shard migrations.
+    pub rebalance_pending: usize,
+    /// Number of in-progress shard migrations.
+    pub rebalance_in_progress: usize,
 }
 
 /// Information about a cluster node.
@@ -187,6 +193,15 @@ pub async fn get_cluster_status(State(state): State<AdminState>) -> Response {
     let node_count = nodes.len();
     let last_applied_index = metrics.last_applied.map(|l| l.index).unwrap_or(0);
 
+    // Get rebalance status if manager is available
+    let (rebalance_active, rebalance_pending, rebalance_in_progress) =
+        if let Some(manager) = &state.rebalance_manager {
+            let manager = manager.read().await;
+            (manager.is_active(), manager.pending_count(), manager.in_progress_count())
+        } else {
+            (false, 0, 0)
+        };
+
     let response = ClusterStatusResponse {
         healthy,
         leader_id: metrics.current_leader,
@@ -197,6 +212,9 @@ pub async fn get_cluster_status(State(state): State<AdminState>) -> Response {
         nodes,
         commit_index: last_applied_index,
         last_applied: last_applied_index,
+        rebalance_active,
+        rebalance_pending,
+        rebalance_in_progress,
     };
 
     Json(response).into_response()
@@ -481,11 +499,17 @@ mod tests {
             nodes: vec![],
             commit_index: 100,
             last_applied: 100,
+            rebalance_active: true,
+            rebalance_pending: 5,
+            rebalance_in_progress: 2,
         };
 
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("\"healthy\":true"));
         assert!(json.contains("\"leader_id\":1"));
+        assert!(json.contains("\"rebalance_active\":true"));
+        assert!(json.contains("\"rebalance_pending\":5"));
+        assert!(json.contains("\"rebalance_in_progress\":2"));
     }
 
     #[test]
