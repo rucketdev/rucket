@@ -24,6 +24,15 @@ pub const DEFAULT_BATCH_SIZE: usize = 100;
 /// Default interval between replication lag checks (ms).
 pub const DEFAULT_LAG_CHECK_INTERVAL_MS: u64 = 1_000;
 
+/// Default maximum number of retry attempts.
+pub const DEFAULT_MAX_RETRIES: u32 = 5;
+
+/// Default initial backoff in milliseconds for retry.
+pub const DEFAULT_INITIAL_BACKOFF_MS: u64 = 100;
+
+/// Default maximum backoff in milliseconds for retry.
+pub const DEFAULT_MAX_BACKOFF_MS: u64 = 30_000;
+
 /// Configuration for the replication subsystem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -59,6 +68,15 @@ pub struct ReplicationConfig {
     /// When true, writes with `Durable` level will fall back to
     /// `Replicated` level if quorum is unavailable.
     pub allow_degraded_writes: bool,
+
+    /// Maximum number of retry attempts for failed replications.
+    pub max_retries: u32,
+
+    /// Initial backoff duration in milliseconds before first retry.
+    pub initial_backoff_ms: u64,
+
+    /// Maximum backoff duration in milliseconds (cap for exponential growth).
+    pub max_backoff_ms: u64,
 }
 
 impl Default for ReplicationConfig {
@@ -73,6 +91,9 @@ impl Default for ReplicationConfig {
             batch_size: DEFAULT_BATCH_SIZE,
             lag_check_interval_ms: DEFAULT_LAG_CHECK_INTERVAL_MS,
             allow_degraded_writes: false,
+            max_retries: DEFAULT_MAX_RETRIES,
+            initial_backoff_ms: DEFAULT_INITIAL_BACKOFF_MS,
+            max_backoff_ms: DEFAULT_MAX_BACKOFF_MS,
         }
     }
 }
@@ -131,6 +152,24 @@ impl ReplicationConfig {
         self
     }
 
+    /// Sets the maximum number of retries.
+    pub fn max_retries(mut self, retries: u32) -> Self {
+        self.max_retries = retries;
+        self
+    }
+
+    /// Sets the initial backoff duration.
+    pub fn initial_backoff(mut self, backoff: Duration) -> Self {
+        self.initial_backoff_ms = backoff.as_millis() as u64;
+        self
+    }
+
+    /// Sets the maximum backoff duration.
+    pub fn max_backoff(mut self, backoff: Duration) -> Self {
+        self.max_backoff_ms = backoff.as_millis() as u64;
+        self
+    }
+
     /// Returns the timeout as a Duration.
     pub fn timeout_duration(&self) -> Duration {
         Duration::from_millis(self.timeout_ms)
@@ -144,6 +183,24 @@ impl ReplicationConfig {
     /// Returns the lag check interval as a Duration.
     pub fn lag_check_interval(&self) -> Duration {
         Duration::from_millis(self.lag_check_interval_ms)
+    }
+
+    /// Returns the initial backoff as a Duration.
+    pub fn initial_backoff_duration(&self) -> Duration {
+        Duration::from_millis(self.initial_backoff_ms)
+    }
+
+    /// Returns the maximum backoff as a Duration.
+    pub fn max_backoff_duration(&self) -> Duration {
+        Duration::from_millis(self.max_backoff_ms)
+    }
+
+    /// Calculates the backoff duration for a given retry attempt.
+    ///
+    /// Uses exponential backoff: `min(initial_backoff * 2^retry, max_backoff)`
+    pub fn backoff_for_retry(&self, retry: u32) -> Duration {
+        let backoff_ms = self.initial_backoff_ms.saturating_mul(1u64 << retry.min(20));
+        Duration::from_millis(backoff_ms.min(self.max_backoff_ms))
     }
 
     /// Calculates the quorum size for this replication factor.
@@ -172,6 +229,12 @@ impl ReplicationConfig {
         if self.batch_size == 0 {
             return Err(ConfigValidationError::InvalidBatchSize);
         }
+        if self.initial_backoff_ms == 0 {
+            return Err(ConfigValidationError::InvalidBackoff);
+        }
+        if self.max_backoff_ms < self.initial_backoff_ms {
+            return Err(ConfigValidationError::InvalidBackoff);
+        }
         Ok(())
     }
 }
@@ -194,6 +257,10 @@ pub enum ConfigValidationError {
     /// Batch size must be at least 1.
     #[error("batch size must be at least 1")]
     InvalidBatchSize,
+
+    /// Backoff configuration is invalid.
+    #[error("initial_backoff must be positive and max_backoff must be >= initial_backoff")]
+    InvalidBackoff,
 }
 
 #[cfg(test)]
@@ -211,6 +278,9 @@ mod tests {
         assert_eq!(config.lag_threshold_ms, 30_000);
         assert_eq!(config.batch_size, 100);
         assert!(!config.allow_degraded_writes);
+        assert_eq!(config.max_retries, 5);
+        assert_eq!(config.initial_backoff_ms, 100);
+        assert_eq!(config.max_backoff_ms, 30_000);
     }
 
     #[test]
@@ -223,7 +293,10 @@ mod tests {
             .timeout(Duration::from_secs(10))
             .lag_threshold(Duration::from_secs(60))
             .batch_size(50)
-            .allow_degraded_writes(true);
+            .allow_degraded_writes(true)
+            .max_retries(10)
+            .initial_backoff(Duration::from_millis(200))
+            .max_backoff(Duration::from_secs(60));
 
         assert!(!config.enabled);
         assert_eq!(config.default_level, ReplicationLevel::Durable);
@@ -233,6 +306,9 @@ mod tests {
         assert_eq!(config.lag_threshold_ms, 60_000);
         assert_eq!(config.batch_size, 50);
         assert!(config.allow_degraded_writes);
+        assert_eq!(config.max_retries, 10);
+        assert_eq!(config.initial_backoff_ms, 200);
+        assert_eq!(config.max_backoff_ms, 60_000);
     }
 
     #[test]
@@ -277,6 +353,38 @@ mod tests {
 
         let config = ReplicationConfig { batch_size: 0, ..Default::default() };
         assert!(config.validate().is_err());
+
+        // Backoff validation
+        let config = ReplicationConfig { initial_backoff_ms: 0, ..Default::default() };
+        assert!(config.validate().is_err());
+
+        let config = ReplicationConfig {
+            initial_backoff_ms: 1000,
+            max_backoff_ms: 500,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_backoff_calculation() {
+        let config = ReplicationConfig::new()
+            .initial_backoff(Duration::from_millis(100))
+            .max_backoff(Duration::from_secs(10));
+
+        // Exponential backoff: 100ms * 2^retry
+        assert_eq!(config.backoff_for_retry(0), Duration::from_millis(100)); // 100 * 1
+        assert_eq!(config.backoff_for_retry(1), Duration::from_millis(200)); // 100 * 2
+        assert_eq!(config.backoff_for_retry(2), Duration::from_millis(400)); // 100 * 4
+        assert_eq!(config.backoff_for_retry(3), Duration::from_millis(800)); // 100 * 8
+        assert_eq!(config.backoff_for_retry(4), Duration::from_millis(1600)); // 100 * 16
+        assert_eq!(config.backoff_for_retry(5), Duration::from_millis(3200)); // 100 * 32
+        assert_eq!(config.backoff_for_retry(6), Duration::from_millis(6400)); // 100 * 64
+
+        // Should cap at max_backoff (10s)
+        assert_eq!(config.backoff_for_retry(7), Duration::from_secs(10)); // 100 * 128 = 12800 > 10000
+        assert_eq!(config.backoff_for_retry(10), Duration::from_secs(10));
+        assert_eq!(config.backoff_for_retry(100), Duration::from_secs(10));
     }
 
     #[test]
