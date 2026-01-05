@@ -28,7 +28,9 @@ pub struct ApplyServerSideEncryptionByDefault {
     /// The server-side encryption algorithm (AES256 or aws:kms).
     pub sse_algorithm: SseAlgorithm,
     /// KMS master key ID (only for aws:kms algorithm).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Note: We don't use skip_serializing_if here because bincode requires
+    /// the field to be present for deserialization (binary formats are positional).
+    #[serde(default)]
     pub kms_master_key_id: Option<String>,
 }
 
