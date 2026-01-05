@@ -11,6 +11,10 @@
 //! Unlike the unit tests in `chaos_tests.rs` which only test the `ChaosController`
 //! infrastructure, these tests exercise the REAL OpenRaft implementation with
 //! actual fault injection.
+//!
+//! This module requires the `chaos-testing` feature to be enabled.
+
+#![cfg(feature = "chaos-testing")]
 
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
