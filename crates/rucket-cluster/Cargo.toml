@@ -1,0 +1,33 @@
+[package]
+name = "rucket-cluster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cluster management and failure detection for Rucket distributed storage"
+
+[dependencies]
+rucket-core.workspace = true
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+async-trait.workspace = true
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+# Metrics
+metrics.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Utilities
+chrono = { workspace = true, features = ["serde"] }
+dashmap.workspace = true
+parking_lot = "0.12"
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+proptest = "1.5"
