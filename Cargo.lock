@@ -3781,6 +3781,7 @@ dependencies = [
  "dashmap",
  "metrics",
  "rucket-core",
+ "rucket-placement",
  "rucket-replication",
  "rucket-storage",
  "serde",

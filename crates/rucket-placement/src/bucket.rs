@@ -82,7 +82,9 @@ impl DeviceInfo {
 pub enum FailureDomain {
     /// Root of the cluster (no specific domain).
     Root,
-    /// Datacenter/region level.
+    /// Geographic region (e.g., us-east-1, eu-west-1).
+    Region,
+    /// Datacenter within a region.
     Datacenter,
     /// Availability zone within a datacenter.
     Zone,
@@ -99,7 +101,8 @@ impl FailureDomain {
     #[must_use]
     pub fn level(self) -> u8 {
         match self {
-            Self::Root => 5,
+            Self::Root => 6,
+            Self::Region => 5,
             Self::Datacenter => 4,
             Self::Zone => 3,
             Self::Rack => 2,
@@ -291,7 +294,8 @@ mod tests {
 
     #[test]
     fn test_failure_domain_levels() {
-        assert!(FailureDomain::Root.level() > FailureDomain::Datacenter.level());
+        assert!(FailureDomain::Root.level() > FailureDomain::Region.level());
+        assert!(FailureDomain::Region.level() > FailureDomain::Datacenter.level());
         assert!(FailureDomain::Datacenter.level() > FailureDomain::Zone.level());
         assert!(FailureDomain::Zone.level() > FailureDomain::Rack.level());
         assert!(FailureDomain::Rack.level() > FailureDomain::Host.level());

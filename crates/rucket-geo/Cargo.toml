@@ -15,6 +15,7 @@ workspace = true
 rucket-core.workspace = true
 rucket-storage.workspace = true
 rucket-replication.workspace = true
+rucket-placement.workspace = true
 
 tokio.workspace = true
 async-trait.workspace = true
