@@ -463,24 +463,29 @@ Or via environment variables:
 
 ### Milestone 3.2: Placement Groups + CRUSH 🚧
 
-**Status**: IN PROGRESS (Core algorithm complete, integration pending)
+**Status**: IN PROGRESS (Core algorithm & storage integration complete, PG ownership pending)
 
 **Deliverable**: Deterministic data placement
 
-**Implementation** (`crates/rucket-placement/`):
-- Pure Rust CRUSH implementation using SipHash-1-3
-- Straw2 algorithm for weighted, disruption-minimal selection
-- Failure domain hierarchy (root > datacenter > zone > rack > host > device)
-- ClusterMap for hierarchical topology management
-- Placement rules: replicated, zone-aware, rack-aware
-- 31 tests covering distribution, determinism, and failure isolation
+**Implementation**:
+- `crates/rucket-placement/`: Pure Rust CRUSH using SipHash-1-3
+  - Straw2 algorithm for weighted, disruption-minimal selection
+  - Failure domain hierarchy (root > datacenter > zone > rack > host > device)
+  - ClusterMap for hierarchical topology management
+  - Placement rules: replicated, zone-aware, rack-aware
+  - 31 tests covering distribution, determinism, and failure isolation
+- `crates/rucket-storage/src/placement.rs`: Storage integration
+  - CrushPlacementPolicy implementing PlacementPolicy trait
+  - NodeRegistry for mapping CRUSH device IDs to network addresses
+  - CrushPlacementBuilder for convenient cluster topology setup
+  - 7 integration tests for CRUSH placement
 
 **Tasks**:
 1. [x] Implement CRUSH algorithm (pure Rust implementation)
 2. [x] Implement CRUSHPlacement policy
 3. [x] Implement cluster map (nodes, weights, topology)
 4. [x] Implement zone-aware placement
-5. [ ] Wire CRUSH into storage routing
+5. [x] Wire CRUSH into storage routing (CrushPlacementPolicy in rucket-storage)
 6. [ ] Implement PG ownership calculation with consensus
 
 **Testing**:
@@ -778,10 +783,10 @@ Phase 4.1 (HLC Prod) ─────→ Phase 4.2 (CRR)
 
 ## Immediate Next Steps
 
-**Phase 1, 2, 3.1 complete, 3.2 in progress!** CRUSH algorithm implemented.
+**Phase 1, 2, 3.1 complete, 3.2 nearly complete!** CRUSH algorithm and storage integration done.
 
 **Next phase**: Phase 3 (Distributed Foundation) continued
-1. **Milestone 3.2**: Wire CRUSH into storage routing (core algorithm done)
+1. **Milestone 3.2**: Implement PG ownership calculation with consensus
 2. **Milestone 3.3**: Erasure coding (8+4 Reed-Solomon)
 3. **Milestone 3.4**: Primary-Backup replication
 
