@@ -20,6 +20,7 @@ pub mod local;
 pub mod metadata;
 pub mod metrics;
 pub mod placement;
+pub mod replicated;
 pub mod streaming;
 pub mod sync;
 pub mod wal;
@@ -41,5 +42,6 @@ pub use metadata::{MetadataBackend, RedbMetadataStore};
 pub use placement::{
     NodeId, PlacementPolicy, PlacementResult, SharedPlacementPolicy, SingleNodePlacement,
 };
+pub use replicated::ReplicatedStorage;
 pub use sync::SyncManager;
 pub use wal::{RecoveryManager, RecoveryStats, WalEntry, WalReader, WalWriter, WalWriterConfig};

@@ -19,6 +19,7 @@ bench = ["libc"]
 rucket-core.workspace = true
 rucket-placement.workspace = true
 rucket-erasure.workspace = true
+rucket-replication.workspace = true
 
 tokio.workspace = true
 redb.workspace = true
