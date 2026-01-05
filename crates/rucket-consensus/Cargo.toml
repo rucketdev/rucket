@@ -55,6 +55,9 @@ anyhow.workspace = true
 thiserror.workspace = true
 bytes.workspace = true
 
+# DNS resolution with SRV support
+hickory-resolver = { version = "0.25", features = ["tokio"] }
+
 # Optional: AWS SDK for EC2 discovery
 aws-config = { workspace = true, optional = true }
 aws-sdk-ec2 = { version = "1", optional = true }
