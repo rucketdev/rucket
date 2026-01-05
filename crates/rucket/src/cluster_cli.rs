@@ -33,6 +33,15 @@ pub struct ClusterStatus {
     pub commit_index: u64,
     /// Last applied index.
     pub last_applied: u64,
+    /// Whether a rebalance operation is currently active.
+    #[serde(default)]
+    pub rebalance_active: bool,
+    /// Number of pending shard migrations.
+    #[serde(default)]
+    pub rebalance_pending: usize,
+    /// Number of in-progress shard migrations.
+    #[serde(default)]
+    pub rebalance_in_progress: usize,
 }
 
 /// Information about a cluster node.
@@ -160,6 +169,16 @@ fn print_cluster_status(status: &ClusterStatus) {
     println!("  Commit Index:   {}", status.commit_index);
     println!("  Last Applied:   {}", status.last_applied);
     println!("  Node Count:     {}", status.node_count);
+
+    // Show rebalance status if there's any activity
+    if status.rebalance_active || status.rebalance_pending > 0 || status.rebalance_in_progress > 0 {
+        println!(
+            "  Rebalance:      {} ({} pending, {} in progress)",
+            if status.rebalance_active { "ACTIVE" } else { "IDLE" },
+            status.rebalance_pending,
+            status.rebalance_in_progress
+        );
+    }
     println!();
 
     if !status.nodes.is_empty() {
@@ -442,6 +461,9 @@ mod tests {
             }],
             commit_index: 100,
             last_applied: 100,
+            rebalance_active: true,
+            rebalance_pending: 5,
+            rebalance_in_progress: 2,
         };
 
         let json = serde_json::to_string(&status).unwrap();
@@ -450,6 +472,9 @@ mod tests {
         assert!(parsed.healthy);
         assert_eq!(parsed.leader_id, Some(1));
         assert_eq!(parsed.node_count, 3);
+        assert!(parsed.rebalance_active);
+        assert_eq!(parsed.rebalance_pending, 5);
+        assert_eq!(parsed.rebalance_in_progress, 2);
     }
 
     #[test]
