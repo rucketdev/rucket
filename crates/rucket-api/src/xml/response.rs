@@ -180,7 +180,7 @@ impl From<&ObjectMetadata> for ObjectEntry {
             etag: meta.etag.as_str().to_string(),
             size: meta.size,
             owner: None,
-            storage_class: "STANDARD".to_string(),
+            storage_class: meta.storage_class.as_str().to_string(),
         }
     }
 }
@@ -194,7 +194,7 @@ impl ObjectEntry {
             etag: meta.etag.as_str().to_string(),
             size: meta.size,
             owner: Some(Owner::default()),
-            storage_class: "STANDARD".to_string(),
+            storage_class: meta.storage_class.as_str().to_string(),
         }
     }
 
@@ -316,7 +316,7 @@ impl From<&rucket_core::types::MultipartUpload> for MultipartUploadEntry {
             upload_id: upload.upload_id.clone(),
             initiator: Owner::default(),
             owner: Owner::default(),
-            storage_class: "STANDARD".to_string(),
+            storage_class: upload.storage_class.as_str().to_string(),
             initiated: format_s3_timestamp(&upload.initiated),
         }
     }
@@ -547,7 +547,7 @@ impl ObjectVersion {
             etag: meta.etag.as_str().to_string(),
             size: meta.size,
             owner: Owner::default(),
-            storage_class: "STANDARD".to_string(),
+            storage_class: meta.storage_class.as_str().to_string(),
         }
     }
 }

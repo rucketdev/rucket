@@ -16,7 +16,7 @@ use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
-    ObjectRetention, Part, TagSet, VersioningStatus,
+    ObjectRetention, Part, StorageClass, TagSet, VersioningStatus,
 };
 use rucket_core::{Error, Result};
 use rucket_storage::metadata::{ListVersionsResult, MetadataBackend};
@@ -274,6 +274,7 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         content_encoding: Option<&str>,
         content_language: Option<&str>,
         expires: Option<&str>,
+        storage_class: StorageClass,
     ) -> Result<MultipartUpload> {
         let command = MetadataCommand::CreateMultipartUpload {
             bucket: bucket.to_string(),
@@ -286,6 +287,7 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
             content_encoding: content_encoding.map(String::from),
             content_language: content_language.map(String::from),
             expires: expires.map(String::from),
+            storage_class,
         };
         let response = self.propose(command).await?;
         response.to_unit_result()?;

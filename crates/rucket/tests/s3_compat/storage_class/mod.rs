@@ -12,7 +12,6 @@ use crate::S3TestContext;
 /// Test putting object with STANDARD storage class.
 /// Ceph: test_storage_class_standard
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_standard() {
     let ctx = S3TestContext::new().await;
 
@@ -27,13 +26,17 @@ async fn test_storage_class_standard() {
         .expect("Should accept STANDARD storage class");
 
     let response = ctx.head("standard.txt").await;
-    assert_eq!(response.storage_class(), Some(&StorageClass::Standard));
+    // S3 doesn't return storage class header for STANDARD - it's implied when absent
+    let class = response.storage_class();
+    assert!(
+        class.is_none() || class == Some(&StorageClass::Standard),
+        "Default should be STANDARD"
+    );
 }
 
 /// Test putting object with REDUCED_REDUNDANCY storage class.
 /// Ceph: test_storage_class_reduced
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_reduced_redundancy() {
     let ctx = S3TestContext::new().await;
 
@@ -51,7 +54,6 @@ async fn test_storage_class_reduced_redundancy() {
 /// Test putting object with STANDARD_IA storage class.
 /// Ceph: test_storage_class_ia
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_standard_ia() {
     let ctx = S3TestContext::new().await;
 
@@ -69,7 +71,6 @@ async fn test_storage_class_standard_ia() {
 /// Test putting object with ONEZONE_IA storage class.
 /// Ceph: test_storage_class_onezone_ia
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_onezone_ia() {
     let ctx = S3TestContext::new().await;
 
@@ -87,7 +88,6 @@ async fn test_storage_class_onezone_ia() {
 /// Test putting object with INTELLIGENT_TIERING storage class.
 /// Ceph: test_storage_class_intelligent_tiering
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_intelligent_tiering() {
     let ctx = S3TestContext::new().await;
 
@@ -105,7 +105,6 @@ async fn test_storage_class_intelligent_tiering() {
 /// Test putting object with GLACIER storage class.
 /// Ceph: test_storage_class_glacier
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_glacier() {
     let ctx = S3TestContext::new().await;
 
@@ -123,7 +122,6 @@ async fn test_storage_class_glacier() {
 /// Test putting object with DEEP_ARCHIVE storage class.
 /// Ceph: test_storage_class_deep
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_deep_archive() {
     let ctx = S3TestContext::new().await;
 
@@ -141,7 +139,6 @@ async fn test_storage_class_deep_archive() {
 /// Test copy object preserves storage class.
 /// Ceph: test_storage_class_copy
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_copy() {
     let ctx = S3TestContext::new().await;
 
@@ -172,7 +169,6 @@ async fn test_storage_class_copy() {
 /// Test copy object with different storage class.
 /// Ceph: test_storage_class_copy_change
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_copy_change() {
     let ctx = S3TestContext::new().await;
 
@@ -203,7 +199,6 @@ async fn test_storage_class_copy_change() {
 /// Test multipart upload with storage class.
 /// Ceph: test_storage_class_multipart
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_multipart() {
     let ctx = S3TestContext::new().await;
 
@@ -257,7 +252,7 @@ async fn test_storage_class_multipart() {
 /// Test lifecycle transition changes storage class.
 /// Ceph: test_storage_class_transition
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
+#[ignore = "Lifecycle transitions not implemented"]
 async fn test_storage_class_lifecycle_transition() {
     let _ctx = S3TestContext::new().await;
     // Would need lifecycle configuration and waiting
@@ -266,7 +261,6 @@ async fn test_storage_class_lifecycle_transition() {
 /// Test default storage class.
 /// Ceph: test_storage_class_default
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_default() {
     let ctx = S3TestContext::new().await;
 
@@ -284,7 +278,7 @@ async fn test_storage_class_default() {
 /// Test restore from GLACIER.
 /// Ceph: test_storage_class_restore
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
+#[ignore = "RestoreObject API not implemented"]
 async fn test_storage_class_restore() {
     let ctx = S3TestContext::new().await;
 
@@ -322,7 +316,6 @@ async fn test_storage_class_restore() {
 /// Test listing objects returns storage class.
 /// Ceph: test_storage_class_list
 #[tokio::test]
-#[ignore = "Storage classes not implemented"]
 async fn test_storage_class_list() {
     let ctx = S3TestContext::new().await;
 

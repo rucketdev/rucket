@@ -13,8 +13,8 @@ use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
-    BucketInfo, CorsConfiguration, CorsRule, ETag, MultipartUpload, ObjectMetadata, Part, Tag,
-    TagSet, VersioningStatus,
+    BucketInfo, CorsConfiguration, CorsRule, ETag, MultipartUpload, ObjectMetadata, Part,
+    StorageClass, Tag, TagSet, VersioningStatus,
 };
 use rucket_core::{Result, SyncStrategy};
 use serde::{Deserialize, Serialize};
@@ -271,6 +271,8 @@ struct StoredMultipartUpload {
     content_language: Option<String>,
     #[serde(default)]
     expires: Option<String>,
+    #[serde(default)]
+    storage_class: StorageClass,
 }
 
 impl StoredMultipartUpload {
@@ -287,6 +289,7 @@ impl StoredMultipartUpload {
             content_encoding: upload.content_encoding.clone(),
             content_language: upload.content_language.clone(),
             expires: upload.expires.clone(),
+            storage_class: upload.storage_class,
         }
     }
 
@@ -306,6 +309,7 @@ impl StoredMultipartUpload {
             content_encoding: self.content_encoding.clone(),
             content_language: self.content_language.clone(),
             expires: self.expires.clone(),
+            storage_class: self.storage_class,
         }
     }
 }
@@ -1145,6 +1149,7 @@ impl MetadataBackend for RedbMetadataStore {
         content_encoding: Option<&str>,
         content_language: Option<&str>,
         expires: Option<&str>,
+        storage_class: StorageClass,
     ) -> Result<MultipartUpload> {
         let bucket = bucket.to_string();
         let key = key.to_string();
@@ -1188,6 +1193,7 @@ impl MetadataBackend for RedbMetadataStore {
                     content_encoding: content_encoding.clone(),
                     content_language: content_language.clone(),
                     expires: expires.clone(),
+                    storage_class,
                 };
                 let stored = StoredMultipartUpload::from_multipart_upload(&upload);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
@@ -1210,6 +1216,7 @@ impl MetadataBackend for RedbMetadataStore {
                 content_encoding,
                 content_language,
                 expires,
+                storage_class,
             })
         })
         .await

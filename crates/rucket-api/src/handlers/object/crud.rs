@@ -13,7 +13,7 @@ use chrono::Utc;
 use percent_encoding::percent_decode_str;
 use rucket_core::error::S3ErrorCode;
 use rucket_core::policy::S3Action;
-use rucket_core::types::{ChecksumAlgorithm, Tag, TagSet};
+use rucket_core::types::{ChecksumAlgorithm, StorageClass, Tag, TagSet};
 use rucket_storage::streaming::compute_checksum;
 use rucket_storage::{ObjectHeaders, StorageBackend};
 
@@ -86,6 +86,12 @@ pub async fn put_object(
         .and_then(|v| v.to_str().ok())
         .and_then(ChecksumAlgorithm::parse);
 
+    // Parse storage class from header
+    let storage_class = headers
+        .get("x-amz-storage-class")
+        .and_then(|v| v.to_str().ok())
+        .and_then(StorageClass::parse);
+
     // Parse client-provided checksum value for validation
     let client_checksum = parse_client_checksum(&headers).map_err(|e| {
         ApiError::new(S3ErrorCode::BadDigest, format!("Invalid checksum format: {e}"))
@@ -105,6 +111,7 @@ pub async fn put_object(
             .and_then(|v| v.to_str().ok())
             .map(String::from),
         checksum_algorithm,
+        storage_class,
     };
 
     // Decode AWS chunked encoding if present
@@ -399,6 +406,11 @@ pub async fn get_object(
         response = response.header("x-amz-server-side-encryption", sse.as_str());
     }
 
+    // Add storage class header if not STANDARD
+    if meta.storage_class != StorageClass::Standard {
+        response = response.header("x-amz-storage-class", meta.storage_class.as_str());
+    }
+
     response
         .body(Body::from(data))
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
@@ -464,6 +476,11 @@ async fn get_object_range(
     // Add server-side encryption header if object is encrypted
     if let Some(ref sse) = meta.server_side_encryption {
         response = response.header("x-amz-server-side-encryption", sse.as_str());
+    }
+
+    // Add storage class header if not STANDARD
+    if meta.storage_class != StorageClass::Standard {
+        response = response.header("x-amz-storage-class", meta.storage_class.as_str());
     }
 
     response
@@ -583,6 +600,11 @@ fn get_object_version_range(
     // Add server-side encryption header if object is encrypted
     if let Some(ref sse) = meta.server_side_encryption {
         response = response.header("x-amz-server-side-encryption", sse.as_str());
+    }
+
+    // Add storage class header if not STANDARD
+    if meta.storage_class != StorageClass::Standard {
+        response = response.header("x-amz-storage-class", meta.storage_class.as_str());
     }
 
     response
@@ -805,6 +827,11 @@ pub async fn head_object(
         response = response.header("x-amz-server-side-encryption", sse.as_str());
     }
 
+    // Add storage class header if not STANDARD (STANDARD is the default and often omitted)
+    if meta.storage_class != StorageClass::Standard {
+        response = response.header("x-amz-storage-class", meta.storage_class.as_str());
+    }
+
     response
         .body(Body::empty())
         .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
@@ -893,9 +920,19 @@ pub async fn copy_object(
     let metadata_directive =
         headers.get("x-amz-metadata-directive").and_then(|v| v.to_str().ok()).unwrap_or("COPY");
 
-    // Check for copy-to-self without metadata replacement
-    // Per S3, copying an object to itself is only allowed with MetadataDirective=REPLACE
-    if src_bucket == dst_bucket && src_key == dst_key && metadata_directive != "REPLACE" {
+    // Parse storage class - can be changed independent of MetadataDirective
+    let requested_storage_class = headers
+        .get("x-amz-storage-class")
+        .and_then(|v| v.to_str().ok())
+        .and_then(StorageClass::parse);
+
+    // Check for copy-to-self without metadata replacement or storage class change
+    // Per S3, copying an object to itself is only allowed if changing metadata, storage class, etc.
+    if src_bucket == dst_bucket
+        && src_key == dst_key
+        && metadata_directive != "REPLACE"
+        && requested_storage_class.is_none()
+    {
         return Err(ApiError::new(
             S3ErrorCode::InvalidRequest,
             "This copy request is illegal because it is trying to copy an object to itself without changing the object's metadata, storage class, website redirect location or encryption attributes.",
@@ -903,6 +940,7 @@ pub async fn copy_object(
     }
 
     // If MetadataDirective=REPLACE, extract new headers and metadata from request
+    // If MetadataDirective=COPY but storage_class is specified, only override storage class
     let (new_headers, new_metadata) = if metadata_directive == "REPLACE" {
         let object_headers = ObjectHeaders {
             content_type: headers
@@ -928,9 +966,23 @@ pub async fn copy_object(
                 .map(String::from),
             // For copy with REPLACE, we don't support changing checksum algorithm
             checksum_algorithm: None,
+            storage_class: requested_storage_class,
         };
         let user_metadata = extract_user_metadata(&headers);
         (Some(object_headers), Some(user_metadata))
+    } else if requested_storage_class.is_some() {
+        // MetadataDirective=COPY but storage class is specified - only override storage class
+        let object_headers = ObjectHeaders {
+            content_type: None,
+            cache_control: None,
+            content_disposition: None,
+            content_encoding: None,
+            expires: None,
+            content_language: None,
+            checksum_algorithm: None,
+            storage_class: requested_storage_class,
+        };
+        (Some(object_headers), None)
     } else {
         (None, None)
     };

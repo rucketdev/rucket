@@ -119,7 +119,7 @@ pub async fn get_object_attributes(
                 response.object_size = Some(metadata.size as i64);
             }
             ObjectAttribute::StorageClass => {
-                response.storage_class = Some("STANDARD".to_string());
+                response.storage_class = Some(metadata.storage_class.as_str().to_string());
             }
             ObjectAttribute::Checksum => {
                 // We store CRC32C, so include it if available

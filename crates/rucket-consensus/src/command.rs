@@ -11,7 +11,8 @@ use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
-    CorsConfiguration, ObjectLockConfig, ObjectMetadata, ObjectRetention, TagSet, VersioningStatus,
+    CorsConfiguration, ObjectLockConfig, ObjectMetadata, ObjectRetention, StorageClass, TagSet,
+    VersioningStatus,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -324,6 +325,8 @@ pub enum MetadataCommand {
         content_language: Option<String>,
         /// Expires header.
         expires: Option<String>,
+        /// Storage class.
+        storage_class: StorageClass,
     },
 
     /// Complete a multipart upload.

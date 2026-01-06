@@ -9,7 +9,7 @@ use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
-    ObjectRetention, Part, TagSet, VersioningStatus,
+    ObjectRetention, Part, StorageClass, TagSet, VersioningStatus,
 };
 use rucket_core::Result;
 use uuid::Uuid;
@@ -262,6 +262,7 @@ pub trait MetadataBackend: Send + Sync + 'static {
         content_encoding: Option<&str>,
         content_language: Option<&str>,
         expires: Option<&str>,
+        storage_class: StorageClass,
     ) -> Result<MultipartUpload>;
 
     /// Get multipart upload info.
