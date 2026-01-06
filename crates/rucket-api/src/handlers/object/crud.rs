@@ -295,9 +295,13 @@ pub async fn get_object(
     // Parse Range header if present
     let range_header = headers.get("range").and_then(|v| v.to_str().ok());
 
-    // Handle range request for non-versioned objects using efficient storage method
+    // Parse SSE-C headers to check if client expects encrypted object
+    let has_sse_c_headers = parse_sse_c_headers(&headers)?.is_some();
+
+    // Handle range request for non-versioned, non-SSE-C objects using efficient storage method
+    // For SSE-C objects, we must decrypt the full object first, then extract the range
     if let Some(range) = range_header {
-        if version_id.is_none() {
+        if version_id.is_none() && !has_sse_c_headers {
             return get_object_range(state, &bucket, &key, range).await;
         }
     }
@@ -327,7 +331,7 @@ pub async fn get_object(
         data
     };
 
-    // Handle range request for versioned objects (extract range from full data)
+    // Handle range request for versioned or SSE-C objects (extract range from decrypted/full data)
     if let Some(range) = range_header {
         return get_object_version_range(meta, data, range);
     }
@@ -595,14 +599,19 @@ pub fn parse_range_header(header: &str) -> Result<RangeSpec, ApiError> {
     }
 }
 
-/// Handle range request for a versioned object by extracting the range from loaded data.
+/// Handle range request for a versioned or SSE-C object by extracting the range from loaded data.
+///
+/// Note: For SSE-C encrypted objects, `data` contains the decrypted plaintext, which may be
+/// smaller than `meta.size` (which contains the ciphertext size). We use `data.len()` for
+/// range calculations to handle both cases correctly.
 fn get_object_version_range(
     meta: rucket_core::types::ObjectMetadata,
     data: Bytes,
     range_header: &str,
 ) -> Result<Response, ApiError> {
     let range_spec = parse_range_header(range_header)?;
-    let size = meta.size;
+    // Use actual data length for range calculations (handles both encrypted and unencrypted)
+    let size = data.len() as u64;
 
     // Calculate actual start and end
     let (start, end) = match range_spec {
