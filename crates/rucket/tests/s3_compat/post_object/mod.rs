@@ -1,5 +1,5 @@
 //! POST object (browser upload) tests.
 //!
-//! All tests are marked #[ignore] as POST object is not implemented.
+//! Tests for browser-based form uploads using multipart/form-data.
 
 pub mod form;

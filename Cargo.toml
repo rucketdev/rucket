@@ -65,6 +65,7 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http = "1.2"
 http-body-util = "0.1"
 bytes = "1.9"
+multer = "3.1"
 
 # TLS
 rustls-pemfile = "2.0"
@@ -84,6 +85,7 @@ bincode = "1.3"
 
 # Async utilities
 async-trait = "0.1"
+futures-util = "0.3"
 
 # Concurrency
 dashmap = "6.1"
@@ -138,7 +140,7 @@ predicates = "3.1"
 rand = "0.8"
 proptest = "1.5"
 rcgen = "0.13"
-reqwest = { version = "0.12", features = ["rustls-tls", "native-tls-vendored"] }
+reqwest = { version = "0.12", features = ["rustls-tls", "native-tls-vendored", "multipart"] }
 
 # Benchmarking
 criterion = { version = "0.8", features = ["async_tokio"] }
