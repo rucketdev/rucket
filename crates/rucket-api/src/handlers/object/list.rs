@@ -384,6 +384,14 @@ pub async fn delete_objects(
     )
     .await?;
 
+    // Validate that delete list is not empty
+    if request.objects.is_empty() {
+        return Err(ApiError::new(
+            S3ErrorCode::MalformedXML,
+            "The XML you provided was not well-formed or did not validate against our published schema",
+        ));
+    }
+
     // S3 limits DeleteObjects to 1000 keys
     if request.objects.len() > 1000 {
         return Err(ApiError::new(
