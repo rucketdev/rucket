@@ -417,33 +417,214 @@ async fn test_sse_c_content_size() {
 // Tests that require additional features not yet implemented
 // =============================================================================
 
-/// Test SSE-C copy.
-/// Requires SSE-C support in copy_object handler.
+/// Test SSE-C copy - copy encrypted object with same key.
 #[tokio::test]
-#[ignore = "SSE-C copy not implemented"]
 async fn test_sse_c_copy() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    let content = b"Content to copy with SSE-C";
+
+    // PUT source object with SSE-C
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-source.txt")
+        .body(ByteStream::from(content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT source with SSE-C should succeed");
+
+    // Copy with same key (source and dest both use same key)
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-dest.txt")
+        .copy_source(format!("{}/sse-c-source.txt", ctx.bucket))
+        .copy_source_sse_customer_algorithm("AES256")
+        .copy_source_sse_customer_key(&key_base64)
+        .copy_source_sse_customer_key_md5(&key_md5)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("Copy with SSE-C should succeed");
+
+    // Verify we can read the copied object
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-dest.txt")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("GET copied object should succeed");
+
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), content, "Copied content should match");
 }
 
-/// Test SSE-C copy requires source key.
+/// Test SSE-C copy requires source key when source is encrypted.
 #[tokio::test]
-#[ignore = "SSE-C copy not implemented"]
 async fn test_sse_c_copy_source_key() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    // PUT source object with SSE-C
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-requires-key.txt")
+        .body(ByteStream::from(b"encrypted content".to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT source with SSE-C should succeed");
+
+    // Try to copy without providing source SSE-C headers - should fail
+    let result = ctx
+        .client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-dest-no-key.txt")
+        .copy_source(format!("{}/sse-c-requires-key.txt", ctx.bucket))
+        .send()
+        .await;
+
+    assert!(result.is_err(), "Copy without source SSE-C headers should fail");
 }
 
-/// Test SSE-C copy with wrong source key.
+/// Test SSE-C copy with wrong source key fails.
 #[tokio::test]
-#[ignore = "SSE-C copy not implemented"]
 async fn test_sse_c_copy_wrong_source_key() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    let wrong_key = generate_wrong_key();
+    let wrong_key_base64 = key_to_base64(&wrong_key);
+    let wrong_key_md5 = key_to_md5_base64(&wrong_key);
+
+    // PUT source object with correct key
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-wrong-key.txt")
+        .body(ByteStream::from(b"encrypted content".to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT source with SSE-C should succeed");
+
+    // Try to copy with wrong source key - should fail
+    let result = ctx
+        .client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-dest-wrong-key.txt")
+        .copy_source(format!("{}/sse-c-wrong-key.txt", ctx.bucket))
+        .copy_source_sse_customer_algorithm("AES256")
+        .copy_source_sse_customer_key(&wrong_key_base64)
+        .copy_source_sse_customer_key_md5(&wrong_key_md5)
+        .send()
+        .await;
+
+    assert!(result.is_err(), "Copy with wrong source key should fail");
 }
 
-/// Test SSE-C copy to new key.
+/// Test SSE-C copy to new encryption key.
 #[tokio::test]
-#[ignore = "SSE-C copy not implemented"]
 async fn test_sse_c_copy_new_key() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    let source_key = generate_sse_c_key();
+    let source_key_base64 = key_to_base64(&source_key);
+    let source_key_md5 = key_to_md5_base64(&source_key);
+
+    // Generate a different destination key
+    let dest_key = generate_wrong_key(); // Reuse as a different key
+    let dest_key_base64 = key_to_base64(&dest_key);
+    let dest_key_md5 = key_to_md5_base64(&dest_key);
+
+    let content = b"Content to re-encrypt";
+
+    // PUT source object with source key
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-rekey-source.txt")
+        .body(ByteStream::from(content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&source_key_base64)
+        .sse_customer_key_md5(&source_key_md5)
+        .send()
+        .await
+        .expect("PUT source with SSE-C should succeed");
+
+    // Copy with different destination key (re-encrypt)
+    ctx.client
+        .copy_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-rekey-dest.txt")
+        .copy_source(format!("{}/sse-c-rekey-source.txt", ctx.bucket))
+        .copy_source_sse_customer_algorithm("AES256")
+        .copy_source_sse_customer_key(&source_key_base64)
+        .copy_source_sse_customer_key_md5(&source_key_md5)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&dest_key_base64)
+        .sse_customer_key_md5(&dest_key_md5)
+        .send()
+        .await
+        .expect("Copy with different SSE-C key should succeed");
+
+    // Verify we can read the copied object with the NEW key
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-rekey-dest.txt")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&dest_key_base64)
+        .sse_customer_key_md5(&dest_key_md5)
+        .send()
+        .await
+        .expect("GET with new key should succeed");
+
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), content, "Content should match after re-encryption");
+
+    // Verify old key doesn't work on the destination
+    let result = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-rekey-dest.txt")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&source_key_base64)
+        .sse_customer_key_md5(&source_key_md5)
+        .send()
+        .await;
+
+    assert!(result.is_err(), "GET with old key should fail on re-encrypted object");
 }
 
 /// Test SSE-C with range request.

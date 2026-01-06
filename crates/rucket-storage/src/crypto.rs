@@ -297,7 +297,7 @@ impl SseS3Provider {
 // =============================================================================
 
 /// Parsed SSE-C headers from a request.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SseCHeaders {
     /// The encryption algorithm (must be "AES256").
     pub algorithm: String,
