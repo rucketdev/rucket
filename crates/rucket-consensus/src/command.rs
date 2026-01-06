@@ -355,6 +355,10 @@ pub enum MetadataCommand {
         expires: Option<String>,
         /// Storage class.
         storage_class: StorageClass,
+        /// SSE-C algorithm.
+        sse_customer_algorithm: Option<String>,
+        /// SSE-C key MD5.
+        sse_customer_key_md5: Option<String>,
     },
 
     /// Complete a multipart upload.

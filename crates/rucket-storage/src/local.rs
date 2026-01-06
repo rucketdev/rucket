@@ -22,6 +22,7 @@ use uuid::Uuid;
 use crate::backend::{
     DeleteObjectResult, ListObjectsResult, ObjectHeaders, PutObjectResult, StorageBackend,
 };
+use crate::crypto::SseCProvider;
 use crate::metadata::{ListVersionsResult, MetadataBackend, RedbMetadataStore};
 use crate::streaming::{compute_checksum, compute_crc32c};
 use crate::sync::{write_and_hash_with_strategy, SyncManager};
@@ -1502,6 +1503,8 @@ impl StorageBackend for LocalStorage {
                 headers.content_language.as_deref(),
                 headers.expires.as_deref(),
                 headers.storage_class.unwrap_or_default(),
+                headers.sse_customer_algorithm.as_deref(),
+                headers.sse_customer_key_md5.as_deref(),
             )
             .await
     }
@@ -1566,6 +1569,7 @@ impl StorageBackend for LocalStorage {
         key: &str,
         upload_id: &str,
         parts: &[(u32, String)],
+        sse_c_key: Option<&[u8; 32]>,
     ) -> Result<ETag> {
         // Check bucket exists
         if !self.metadata.bucket_exists(bucket).await? {
@@ -1647,9 +1651,19 @@ impl StorageBackend for LocalStorage {
             part_count += 1;
         }
 
-        // Encrypt the final concatenated data if encryption is enabled
-        let (final_data, encryption_metadata) = if let Some(ref provider) = self.encryption_provider
-        {
+        // Encrypt the final concatenated data
+        // Priority: SSE-C (customer key) > SSE-S3 (server-managed key) > no encryption
+        let (final_data, encryption_metadata, sse_c_nonce) = if let Some(sse_c_key) = sse_c_key {
+            // SSE-C encryption with customer-provided key
+            let sse_c_provider = SseCProvider::from_key(sse_c_key).map_err(|e| {
+                Error::s3(S3ErrorCode::InternalError, format!("Invalid SSE-C key: {e}"))
+            })?;
+            let (encrypted, nonce) = sse_c_provider.encrypt(&concatenated_data).map_err(|e| {
+                Error::s3(S3ErrorCode::InternalError, format!("SSE-C encryption failed: {e}"))
+            })?;
+            (encrypted, None, Some(nonce))
+        } else if let Some(ref provider) = self.encryption_provider {
+            // SSE-S3 encryption with server-managed key
             let (encrypted, enc_meta) =
                 provider.encrypt(final_uuid, &concatenated_data).map_err(|e| {
                     Error::s3(
@@ -1657,9 +1671,9 @@ impl StorageBackend for LocalStorage {
                         format!("Final object encryption failed: {e}"),
                     )
                 })?;
-            (encrypted, Some(enc_meta))
+            (encrypted, Some(enc_meta), None)
         } else {
-            (Bytes::from(concatenated_data), None)
+            (Bytes::from(concatenated_data), None, None)
         };
 
         // Write final file
@@ -1699,7 +1713,17 @@ impl StorageBackend for LocalStorage {
 
         // Store encryption metadata if encryption was used
         if let Some(ref enc_meta) = encryption_metadata {
+            // SSE-S3 encryption
             meta = meta.with_encryption(enc_meta.algorithm.as_s3_header(), enc_meta.nonce.clone());
+        } else if let Some(nonce) = sse_c_nonce {
+            // SSE-C encryption - use stored algorithm/key_md5 from upload record
+            if let (Some(algorithm), Some(key_md5)) =
+                (&upload.sse_customer_algorithm, &upload.sse_customer_key_md5)
+            {
+                meta.sse_customer_algorithm = Some(algorithm.clone());
+                meta.sse_customer_key_md5 = Some(key_md5.clone());
+                meta.encryption_nonce = Some(nonce);
+            }
         }
 
         self.metadata.put_object(bucket, meta).await?;

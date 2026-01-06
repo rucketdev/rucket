@@ -330,12 +330,16 @@ pub trait StorageBackend: Send + Sync {
     ) -> Result<ETag>;
 
     /// Complete a multipart upload by combining all parts.
+    ///
+    /// If `sse_c_key` is provided, the assembled object will be encrypted with SSE-C.
+    /// The key must be exactly 32 bytes (256 bits) for AES-256.
     async fn complete_multipart_upload(
         &self,
         bucket: &str,
         key: &str,
         upload_id: &str,
         parts: &[(u32, String)],
+        sse_c_key: Option<&[u8; 32]>,
     ) -> Result<ETag>;
 
     /// Abort a multipart upload, cleaning up all parts.

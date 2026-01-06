@@ -689,16 +689,175 @@ async fn test_sse_c_range() {
 
 /// Test SSE-C multipart.
 #[tokio::test]
-#[ignore = "SSE-C multipart not implemented"]
 async fn test_sse_c_multipart() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    // Create multipart upload with SSE-C
+    let create_response = ctx
+        .client
+        .create_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart.txt")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("CreateMultipartUpload should succeed");
+    let upload_id = create_response.upload_id().expect("Should have upload ID");
+
+    // Upload parts with SSE-C
+    let part1_content = b"This is part 1 of the multipart SSE-C upload. ";
+    let part1_response = ctx
+        .client
+        .upload_part()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart.txt")
+        .upload_id(upload_id)
+        .part_number(1)
+        .body(ByteStream::from(part1_content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("UploadPart 1 should succeed");
+    let etag1 = part1_response.e_tag().expect("Should have ETag");
+
+    let part2_content = b"This is part 2 of the multipart SSE-C upload.";
+    let part2_response = ctx
+        .client
+        .upload_part()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart.txt")
+        .upload_id(upload_id)
+        .part_number(2)
+        .body(ByteStream::from(part2_content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("UploadPart 2 should succeed");
+    let etag2 = part2_response.e_tag().expect("Should have ETag");
+
+    // Complete multipart upload with SSE-C
+    let complete_response = ctx
+        .client
+        .complete_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart.txt")
+        .upload_id(upload_id)
+        .multipart_upload(
+            aws_sdk_s3::types::CompletedMultipartUpload::builder()
+                .parts(
+                    aws_sdk_s3::types::CompletedPart::builder().part_number(1).e_tag(etag1).build(),
+                )
+                .parts(
+                    aws_sdk_s3::types::CompletedPart::builder().part_number(2).e_tag(etag2).build(),
+                )
+                .build(),
+        )
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("CompleteMultipartUpload should succeed");
+
+    // Verify the object was created
+    assert!(complete_response.e_tag().is_some(), "Should have ETag");
+
+    // GET the object with SSE-C
+    let get_response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart.txt")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("GET should succeed");
+
+    let data = get_response.body.collect().await.unwrap().into_bytes();
+    let expected: Vec<u8> = [part1_content.as_slice(), part2_content.as_slice()].concat();
+    assert_eq!(data.as_ref(), expected.as_slice(), "Content should match concatenated parts");
 }
 
 /// Test SSE-C multipart upload different keys per part fails.
 #[tokio::test]
-#[ignore = "SSE-C multipart not implemented"]
 async fn test_sse_c_multipart_different_keys() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    let wrong_key = generate_wrong_key();
+    let wrong_key_base64 = key_to_base64(&wrong_key);
+    let wrong_key_md5 = key_to_md5_base64(&wrong_key);
+
+    // Create multipart upload with SSE-C
+    let create_response = ctx
+        .client
+        .create_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart-wrongkey.txt")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("CreateMultipartUpload should succeed");
+    let upload_id = create_response.upload_id().expect("Should have upload ID");
+
+    // Upload part 1 with correct key
+    let part1_response = ctx
+        .client
+        .upload_part()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart-wrongkey.txt")
+        .upload_id(upload_id)
+        .part_number(1)
+        .body(ByteStream::from(b"Part 1 content".to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await;
+    assert!(part1_response.is_ok(), "UploadPart 1 with correct key should succeed");
+
+    // Upload part 2 with wrong key - should fail
+    let part2_response = ctx
+        .client
+        .upload_part()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart-wrongkey.txt")
+        .upload_id(upload_id)
+        .part_number(2)
+        .body(ByteStream::from(b"Part 2 content".to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&wrong_key_base64)
+        .sse_customer_key_md5(&wrong_key_md5)
+        .send()
+        .await;
+    assert!(part2_response.is_err(), "UploadPart 2 with wrong key should fail");
+
+    // Clean up - abort the upload
+    ctx.client
+        .abort_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key("sse-c-multipart-wrongkey.txt")
+        .upload_id(upload_id)
+        .send()
+        .await
+        .expect("AbortMultipartUpload should succeed");
 }
 
 /// Test SSE-C presigned URL.

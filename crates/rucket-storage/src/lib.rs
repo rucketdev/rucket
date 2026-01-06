@@ -30,7 +30,9 @@ mod sync_durability_tests;
 
 pub use backend::{DeleteObjectResult, ObjectHeaders, PutObjectResult, StorageBackend};
 pub use batch::{BatchConfig, BatchWriter};
-pub use crypto::{CryptoError, EncryptionAlgorithm, EncryptionMetadata, SseS3Provider};
+pub use crypto::{
+    CryptoError, EncryptionAlgorithm, EncryptionMetadata, SseCHeaders, SseCProvider, SseS3Provider,
+};
 // Erasure coding integration
 pub use erasure::{
     ErasureObjectMetadata, ErasureStorageConfig, ErasureStorageError, ShardDecoder, ShardEncoder,
