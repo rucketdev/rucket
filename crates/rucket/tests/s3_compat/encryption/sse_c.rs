@@ -708,11 +708,121 @@ async fn test_sse_c_presigned() {
     let _ctx = S3TestContext::new().await;
 }
 
-/// Test SSE-C with versioning.
+/// Test SSE-C with versioning - upload multiple versions and retrieve them.
 #[tokio::test]
-#[ignore = "SSE-C versioning not fully tested"]
 async fn test_sse_c_versioning() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    // Enable versioning on the bucket
+    ctx.client
+        .put_bucket_versioning()
+        .bucket(&ctx.bucket)
+        .versioning_configuration(
+            aws_sdk_s3::types::VersioningConfiguration::builder()
+                .status(aws_sdk_s3::types::BucketVersioningStatus::Enabled)
+                .build(),
+        )
+        .send()
+        .await
+        .expect("Enable versioning should succeed");
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    // PUT version 1 with SSE-C
+    let v1_content = b"Version 1 content with SSE-C";
+    let v1_response = ctx
+        .client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-versioned.txt")
+        .body(ByteStream::from(v1_content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT v1 should succeed");
+    let v1_id = v1_response.version_id().expect("Should have version ID");
+
+    // PUT version 2 with same SSE-C key
+    let v2_content = b"Version 2 - updated content with SSE-C";
+    let v2_response = ctx
+        .client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-versioned.txt")
+        .body(ByteStream::from(v2_content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT v2 should succeed");
+    let v2_id = v2_response.version_id().expect("Should have version ID");
+
+    // GET latest version (v2) with SSE-C
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-versioned.txt")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("GET latest should succeed");
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), v2_content, "Latest version should be v2");
+
+    // GET specific version (v1) with SSE-C
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-versioned.txt")
+        .version_id(v1_id)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("GET v1 should succeed");
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), v1_content, "Version 1 content should match");
+
+    // GET specific version (v2) with SSE-C
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-versioned.txt")
+        .version_id(v2_id)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("GET v2 should succeed");
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), v2_content, "Version 2 content should match");
+
+    // HEAD specific version with SSE-C
+    let response = ctx
+        .client
+        .head_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-versioned.txt")
+        .version_id(v1_id)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("HEAD v1 should succeed");
+    assert_eq!(response.sse_customer_algorithm(), Some("AES256"), "Should return SSE-C algorithm");
 }
 
 /// Test SSE-C upload part copy.
