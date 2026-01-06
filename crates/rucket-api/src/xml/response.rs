@@ -450,6 +450,12 @@ pub struct DeletedObject {
     /// Version ID (if versioning enabled).
     #[serde(rename = "VersionId", skip_serializing_if = "Option::is_none")]
     pub version_id: Option<String>,
+    /// Whether a delete marker was created (vs. permanent delete).
+    #[serde(rename = "DeleteMarker", skip_serializing_if = "Option::is_none")]
+    pub delete_marker: Option<bool>,
+    /// Version ID of the delete marker (if one was created).
+    #[serde(rename = "DeleteMarkerVersionId", skip_serializing_if = "Option::is_none")]
+    pub delete_marker_version_id: Option<String>,
 }
 
 /// Error deleting an object.

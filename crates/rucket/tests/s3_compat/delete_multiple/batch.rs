@@ -218,7 +218,6 @@ async fn test_delete_objects_versioned_returns_version_ids() {
 /// Test delete objects creates delete markers.
 /// Ceph: test_delete_objects_creates_delete_markers
 #[tokio::test]
-#[ignore = "Delete marker response field not implemented"]
 async fn test_delete_objects_creates_delete_markers() {
     let ctx = S3TestContext::with_versioning().await;
 
