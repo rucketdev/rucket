@@ -253,17 +253,28 @@ async fn test_delete_objects_partial_failure() {
 
 /// Test delete objects empty list.
 /// Ceph: test_delete_objects_empty
+/// Note: Uses raw HTTP request because the AWS SDK prevents building an empty Delete request.
 #[tokio::test]
 async fn test_delete_objects_empty_list() {
     let ctx = S3TestContext::new().await;
 
-    let delete = Delete::builder().build().unwrap();
+    // Build empty delete XML (bypasses AWS SDK client-side validation)
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?><Delete></Delete>"#;
 
-    let result = ctx.client.delete_objects().bucket(&ctx.bucket).delete(delete).send().await;
+    // Send raw POST request to /{bucket}?delete
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/{}?delete", ctx.endpoint, ctx.bucket))
+        .header("Content-Type", "application/xml")
+        .body(xml)
+        .send()
+        .await
+        .expect("Request should send");
 
-    // Empty delete should succeed or error depending on implementation
-    // AWS returns MalformedXML
-    assert!(result.is_err() || result.unwrap().deleted().is_empty());
+    // AWS returns MalformedXML for empty delete list
+    assert_eq!(response.status(), 400);
+    let body = response.text().await.unwrap();
+    assert!(body.contains("MalformedXML"), "Expected MalformedXML error, got: {}", body);
 }
 
 /// Test delete objects with prefix pattern.
