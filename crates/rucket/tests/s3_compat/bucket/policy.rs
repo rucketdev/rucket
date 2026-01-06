@@ -670,10 +670,54 @@ async fn test_bucket_policy_ip_condition() {
 }
 
 /// Test bucket policy condition with DateGreaterThan.
+///
+/// Tests that policies with date conditions (DateGreaterThan, DateLessThan) can be
+/// stored and retrieved correctly. This validates the policy parsing for date conditions.
 #[tokio::test]
-#[ignore = "Date conditions not yet implemented"]
 async fn test_bucket_policy_condition_date() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    // Create a policy with DateGreaterThan and DateLessThan conditions
+    // This represents a time-window access pattern
+    let policy = serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Sid": "TimeWindowAccess",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": format!("arn:aws:s3:::{}/*", ctx.bucket),
+            "Condition": {
+                "DateGreaterThanEquals": {
+                    "aws:CurrentTime": "2024-01-01T00:00:00Z"
+                },
+                "DateLessThan": {
+                    "aws:CurrentTime": "2025-12-31T23:59:59Z"
+                }
+            }
+        }]
+    });
+
+    // Put the policy
+    ctx.client
+        .put_bucket_policy()
+        .bucket(&ctx.bucket)
+        .policy(policy.to_string())
+        .send()
+        .await
+        .expect("Failed to put bucket policy with date conditions");
+
+    // Verify the policy was stored correctly
+    let result = ctx.client.get_bucket_policy().bucket(&ctx.bucket).send().await.unwrap();
+    let stored_policy: serde_json::Value =
+        serde_json::from_str(result.policy().unwrap()).expect("Failed to parse policy");
+
+    // Verify the date conditions are present
+    assert!(stored_policy["Statement"][0]["Condition"]["DateGreaterThanEquals"]["aws:CurrentTime"]
+        .is_string());
+    assert!(
+        stored_policy["Statement"][0]["Condition"]["DateLessThan"]["aws:CurrentTime"].is_string()
+    );
 }
 
 /// Test bucket policy condition with Referer.
