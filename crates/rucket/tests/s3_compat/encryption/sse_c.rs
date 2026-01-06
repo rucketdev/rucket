@@ -629,9 +629,62 @@ async fn test_sse_c_copy_new_key() {
 
 /// Test SSE-C with range request.
 #[tokio::test]
-#[ignore = "SSE-C range not implemented"]
 async fn test_sse_c_range() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    // Content with known pattern for range verification
+    let content = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    // PUT with SSE-C
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-range.txt")
+        .body(ByteStream::from(content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT with SSE-C should succeed");
+
+    // GET with range and SSE-C (bytes 10-19 = "ABCDEFGHIJ")
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-range.txt")
+        .range("bytes=10-19")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("GET with range and SSE-C should succeed");
+
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), b"ABCDEFGHIJ", "Range should return correct bytes");
+
+    // GET with suffix range (last 5 bytes = "VWXYZ")
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key("sse-c-range.txt")
+        .range("bytes=-5")
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("GET with suffix range and SSE-C should succeed");
+
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), b"VWXYZ", "Suffix range should return last 5 bytes");
 }
 
 /// Test SSE-C multipart.
