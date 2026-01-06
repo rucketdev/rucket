@@ -599,14 +599,19 @@ pub fn parse_range_header(header: &str) -> Result<RangeSpec, ApiError> {
     }
 }
 
-/// Handle range request for a versioned object by extracting the range from loaded data.
+/// Handle range request for a versioned or SSE-C object by extracting the range from loaded data.
+///
+/// Note: For SSE-C encrypted objects, `data` contains the decrypted plaintext, which may be
+/// smaller than `meta.size` (which contains the ciphertext size). We use `data.len()` for
+/// range calculations to handle both cases correctly.
 fn get_object_version_range(
     meta: rucket_core::types::ObjectMetadata,
     data: Bytes,
     range_header: &str,
 ) -> Result<Response, ApiError> {
     let range_spec = parse_range_header(range_header)?;
-    let size = meta.size;
+    // Use actual data length for range calculations (handles both encrypted and unencrypted)
+    let size = data.len() as u64;
 
     // Calculate actual start and end
     let (start, end) = match range_spec {
