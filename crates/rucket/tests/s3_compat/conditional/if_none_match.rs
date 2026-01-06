@@ -134,7 +134,6 @@ async fn test_if_none_match_get_different() {
 /// Test If-None-Match on HEAD returns 304 when matching.
 /// Ceph: test_if_none_match_head
 #[tokio::test]
-#[ignore = "If-None-Match on HEAD not implemented"]
 async fn test_if_none_match_head_matching() {
     let ctx = S3TestContext::new().await;
 
