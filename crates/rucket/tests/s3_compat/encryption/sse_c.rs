@@ -1130,7 +1130,226 @@ async fn test_sse_c_versioning() {
 /// UploadPartCopy with SSE-C source requires decrypting the source object
 /// with x-amz-copy-source-server-side-encryption-customer-* headers.
 #[tokio::test]
-#[ignore = "SSE-C UploadPartCopy source decryption not implemented"]
 async fn test_sse_c_upload_part_copy() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+    let src_key = "sse-c-source-for-upload-part-copy.txt";
+    let dst_key = "sse-c-dest-multipart-copy.txt";
+
+    // Content large enough for a single part
+    let content =
+        b"SSE-C source content for UploadPartCopy test - needs to be decrypted from source!";
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    // PUT source object with SSE-C
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key(src_key)
+        .body(ByteStream::from(content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT source object should succeed");
+
+    // Create multipart upload for destination (non-encrypted for simplicity)
+    let create_response = ctx
+        .client
+        .create_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .send()
+        .await
+        .expect("CreateMultipartUpload should succeed");
+
+    let upload_id = create_response.upload_id().expect("Should have upload ID");
+
+    // UploadPartCopy from SSE-C encrypted source
+    let copy_response = ctx
+        .client
+        .upload_part_copy()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .upload_id(upload_id)
+        .part_number(1)
+        .copy_source(format!("{}/{}", ctx.bucket, src_key))
+        .copy_source_sse_customer_algorithm("AES256")
+        .copy_source_sse_customer_key(&key_base64)
+        .copy_source_sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("UploadPartCopy should succeed");
+
+    let etag = copy_response
+        .copy_part_result()
+        .expect("Should have copy result")
+        .e_tag()
+        .expect("Should have ETag")
+        .to_string();
+
+    // Complete multipart upload
+    ctx.client
+        .complete_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .upload_id(upload_id)
+        .multipart_upload(
+            aws_sdk_s3::types::CompletedMultipartUpload::builder()
+                .parts(
+                    aws_sdk_s3::types::CompletedPart::builder().part_number(1).e_tag(etag).build(),
+                )
+                .build(),
+        )
+        .send()
+        .await
+        .expect("CompleteMultipartUpload should succeed");
+
+    // GET the destination object (not encrypted) and verify content
+    let response = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .send()
+        .await
+        .expect("GET should succeed");
+
+    let data = response.body.collect().await.unwrap().into_bytes();
+    assert_eq!(data.as_ref(), content, "Content should match original");
+}
+
+/// Test SSE-C upload part copy fails without source SSE-C headers.
+#[tokio::test]
+async fn test_sse_c_upload_part_copy_missing_source_headers() {
+    let ctx = S3TestContext::new().await;
+    let src_key = "sse-c-source-missing-headers.txt";
+    let dst_key = "sse-c-dest-missing-headers.txt";
+    let content = b"SSE-C source content - headers required for copy!";
+
+    let key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&key);
+    let key_md5 = key_to_md5_base64(&key);
+
+    // PUT source object with SSE-C
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key(src_key)
+        .body(ByteStream::from(content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .send()
+        .await
+        .expect("PUT source object should succeed");
+
+    // Create multipart upload
+    let create_response = ctx
+        .client
+        .create_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .send()
+        .await
+        .expect("CreateMultipartUpload should succeed");
+
+    let upload_id = create_response.upload_id().expect("Should have upload ID");
+
+    // UploadPartCopy WITHOUT source SSE-C headers should fail
+    let result = ctx
+        .client
+        .upload_part_copy()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .upload_id(upload_id)
+        .part_number(1)
+        .copy_source(format!("{}/{}", ctx.bucket, src_key))
+        // No copy_source_sse_customer_* headers
+        .send()
+        .await;
+
+    assert!(result.is_err(), "UploadPartCopy without SSE-C headers should fail");
+
+    // Cleanup: abort the multipart upload
+    ctx.client
+        .abort_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .upload_id(upload_id)
+        .send()
+        .await
+        .expect("AbortMultipartUpload should succeed");
+}
+
+/// Test SSE-C upload part copy fails with wrong source key.
+#[tokio::test]
+async fn test_sse_c_upload_part_copy_wrong_source_key() {
+    let ctx = S3TestContext::new().await;
+    let src_key = "sse-c-source-wrong-key.txt";
+    let dst_key = "sse-c-dest-wrong-key.txt";
+    let content = b"SSE-C source content - wrong key test!";
+
+    let correct_key = generate_sse_c_key();
+    let correct_key_base64 = key_to_base64(&correct_key);
+    let correct_key_md5 = key_to_md5_base64(&correct_key);
+
+    let wrong_key = generate_wrong_key();
+    let wrong_key_base64 = key_to_base64(&wrong_key);
+    let wrong_key_md5 = key_to_md5_base64(&wrong_key);
+
+    // PUT source object with correct key
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key(src_key)
+        .body(ByteStream::from(content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&correct_key_base64)
+        .sse_customer_key_md5(&correct_key_md5)
+        .send()
+        .await
+        .expect("PUT source object should succeed");
+
+    // Create multipart upload
+    let create_response = ctx
+        .client
+        .create_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .send()
+        .await
+        .expect("CreateMultipartUpload should succeed");
+
+    let upload_id = create_response.upload_id().expect("Should have upload ID");
+
+    // UploadPartCopy with wrong source SSE-C key should fail
+    let result = ctx
+        .client
+        .upload_part_copy()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .upload_id(upload_id)
+        .part_number(1)
+        .copy_source(format!("{}/{}", ctx.bucket, src_key))
+        .copy_source_sse_customer_algorithm("AES256")
+        .copy_source_sse_customer_key(&wrong_key_base64)
+        .copy_source_sse_customer_key_md5(&wrong_key_md5)
+        .send()
+        .await;
+
+    assert!(result.is_err(), "UploadPartCopy with wrong SSE-C key should fail");
+
+    // Cleanup: abort the multipart upload
+    ctx.client
+        .abort_multipart_upload()
+        .bucket(&ctx.bucket)
+        .key(dst_key)
+        .upload_id(upload_id)
+        .send()
+        .await
+        .expect("AbortMultipartUpload should succeed");
 }

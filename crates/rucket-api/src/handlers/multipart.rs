@@ -17,7 +17,8 @@ use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
 use crate::handlers::object::s3_url_decode;
 use crate::handlers::object::sse_c::{
-    parse_sse_c_headers, HEADER_SSE_CUSTOMER_ALGORITHM, HEADER_SSE_CUSTOMER_KEY_MD5,
+    decrypt_sse_c, is_sse_c_encrypted, parse_copy_source_sse_c_headers, parse_sse_c_headers,
+    HEADER_SSE_CUSTOMER_ALGORITHM, HEADER_SSE_CUSTOMER_KEY_MD5,
 };
 use crate::xml::request::CompleteMultipartUpload;
 use crate::xml::response::{
@@ -291,11 +292,44 @@ pub async fn upload_part_copy(
     // URL-decode the source key
     let src_key = s3_url_decode(src_key);
 
+    // Parse SSE-C copy source headers for decrypting the source object
+    let source_sse_c = parse_copy_source_sse_c_headers(&headers)?;
+
+    // Get source object metadata to check if it's SSE-C encrypted
+    let src_meta = state.storage.head_object(src_bucket, &src_key).await?;
+    let source_is_sse_c_encrypted = is_sse_c_encrypted(&src_meta);
+
+    // If source is SSE-C encrypted, source SSE-C headers are required
+    if source_is_sse_c_encrypted && source_sse_c.is_none() {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidRequest,
+            "The object was stored using a form of Server Side Encryption. The correct parameters must be provided to retrieve the object.",
+        ));
+    }
+
+    // Validate source SSE-C key matches (if source is encrypted)
+    if source_is_sse_c_encrypted {
+        if let Some(ref source_headers) = source_sse_c {
+            let stored_key_md5 = src_meta.sse_customer_key_md5.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    S3ErrorCode::InternalError,
+                    "SSE-C encrypted object is missing key MD5",
+                )
+            })?;
+            if source_headers.key_md5 != *stored_key_md5 {
+                return Err(ApiError::new(
+                    S3ErrorCode::AccessDenied,
+                    "The encryption key provided does not match the key used to encrypt this object",
+                ));
+            }
+        }
+    }
+
     // Check for x-amz-copy-source-range header
     let copy_range = headers.get("x-amz-copy-source-range").and_then(|v| v.to_str().ok());
 
     // Get the source data (full object or range)
-    let data = if let Some(range_header) = copy_range {
+    let mut data = if let Some(range_header) = copy_range {
         // Parse range: bytes=start-end
         let range_spec = range_header.strip_prefix("bytes=").ok_or_else(|| {
             ApiError::new(S3ErrorCode::InvalidRequest, "Invalid x-amz-copy-source-range format")
@@ -316,6 +350,25 @@ pub async fn upload_part_copy(
         let (_, data) = state.storage.get_object(src_bucket, &src_key).await?;
         data
     };
+
+    // Decrypt source data if it's SSE-C encrypted
+    if source_is_sse_c_encrypted {
+        if let Some(ref source_headers) = source_sse_c {
+            let nonce = src_meta.encryption_nonce.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    S3ErrorCode::InternalError,
+                    "SSE-C encrypted object is missing encryption nonce",
+                )
+            })?;
+            let stored_key_md5 = src_meta.sse_customer_key_md5.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    S3ErrorCode::InternalError,
+                    "SSE-C encrypted object is missing key MD5",
+                )
+            })?;
+            data = decrypt_sse_c(source_headers, data, nonce, stored_key_md5)?;
+        }
+    }
 
     // Upload the part
     let etag = state.storage.upload_part(&bucket, &key, &upload_id, part_number, data).await?;
