@@ -293,6 +293,10 @@ struct StoredMultipartUpload {
     expires: Option<String>,
     #[serde(default)]
     storage_class: StorageClass,
+    #[serde(default)]
+    sse_customer_algorithm: Option<String>,
+    #[serde(default)]
+    sse_customer_key_md5: Option<String>,
 }
 
 impl StoredMultipartUpload {
@@ -310,6 +314,8 @@ impl StoredMultipartUpload {
             content_language: upload.content_language.clone(),
             expires: upload.expires.clone(),
             storage_class: upload.storage_class,
+            sse_customer_algorithm: upload.sse_customer_algorithm.clone(),
+            sse_customer_key_md5: upload.sse_customer_key_md5.clone(),
         }
     }
 
@@ -330,6 +336,8 @@ impl StoredMultipartUpload {
             content_language: self.content_language.clone(),
             expires: self.expires.clone(),
             storage_class: self.storage_class,
+            sse_customer_algorithm: self.sse_customer_algorithm.clone(),
+            sse_customer_key_md5: self.sse_customer_key_md5.clone(),
         }
     }
 }
@@ -1174,6 +1182,8 @@ impl MetadataBackend for RedbMetadataStore {
         content_language: Option<&str>,
         expires: Option<&str>,
         storage_class: StorageClass,
+        sse_customer_algorithm: Option<&str>,
+        sse_customer_key_md5: Option<&str>,
     ) -> Result<MultipartUpload> {
         let bucket = bucket.to_string();
         let key = key.to_string();
@@ -1184,6 +1194,8 @@ impl MetadataBackend for RedbMetadataStore {
         let content_encoding = content_encoding.map(String::from);
         let content_language = content_language.map(String::from);
         let expires = expires.map(String::from);
+        let sse_customer_algorithm = sse_customer_algorithm.map(String::from);
+        let sse_customer_key_md5 = sse_customer_key_md5.map(String::from);
         let now = Utc::now();
         let db = Arc::clone(&self.db);
         let durability = self.durability;
@@ -1218,6 +1230,8 @@ impl MetadataBackend for RedbMetadataStore {
                     content_language: content_language.clone(),
                     expires: expires.clone(),
                     storage_class,
+                    sse_customer_algorithm: sse_customer_algorithm.clone(),
+                    sse_customer_key_md5: sse_customer_key_md5.clone(),
                 };
                 let stored = StoredMultipartUpload::from_multipart_upload(&upload);
                 let serialized = bincode::serialize(&stored).map_err(db_err)?;
@@ -1241,6 +1255,8 @@ impl MetadataBackend for RedbMetadataStore {
                 content_language,
                 expires,
                 storage_class,
+                sse_customer_algorithm,
+                sse_customer_key_md5,
             })
         })
         .await

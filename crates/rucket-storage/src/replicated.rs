@@ -687,10 +687,11 @@ impl<S: StorageBackend> StorageBackend for ReplicatedStorage<S> {
         key: &str,
         upload_id: &str,
         parts: &[(u32, String)],
+        sse_c_key: Option<&[u8; 32]>,
     ) -> Result<ETag> {
         // Note: The completed multipart should be replicated
         // For now, just pass through - full multipart replication is complex
-        self.inner.complete_multipart_upload(bucket, key, upload_id, parts).await
+        self.inner.complete_multipart_upload(bucket, key, upload_id, parts, sse_c_key).await
     }
 
     async fn abort_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str) -> Result<()> {
@@ -1189,6 +1190,8 @@ mod tests {
                 content_language: headers.content_language.clone(),
                 expires: headers.expires.clone(),
                 storage_class: headers.storage_class.unwrap_or_default(),
+                sse_customer_algorithm: headers.sse_customer_algorithm.clone(),
+                sse_customer_key_md5: headers.sse_customer_key_md5.clone(),
             })
         }
 
@@ -1209,6 +1212,7 @@ mod tests {
             key: &str,
             upload_id: &str,
             parts: &[(u32, String)],
+            _sse_c_key: Option<&[u8; 32]>,
         ) -> Result<ETag> {
             Ok(ETag::from("\"complete-etag\"".to_string()))
         }

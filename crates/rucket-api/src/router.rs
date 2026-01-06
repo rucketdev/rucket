@@ -714,7 +714,7 @@ async fn handle_object_post(
             upload_id: query.upload_id,
             part_number: query.part_number,
         };
-        return multipart::complete_multipart_upload(state, path, Query(mp_query), body)
+        return multipart::complete_multipart_upload(state, path, Query(mp_query), headers, body)
             .await
             .into_response();
     }

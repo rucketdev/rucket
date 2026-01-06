@@ -306,6 +306,8 @@ pub trait MetadataBackend: Send + Sync + 'static {
         content_language: Option<&str>,
         expires: Option<&str>,
         storage_class: StorageClass,
+        sse_customer_algorithm: Option<&str>,
+        sse_customer_key_md5: Option<&str>,
     ) -> Result<MultipartUpload>;
 
     /// Get multipart upload info.

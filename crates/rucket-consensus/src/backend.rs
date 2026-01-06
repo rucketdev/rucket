@@ -276,6 +276,8 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         content_language: Option<&str>,
         expires: Option<&str>,
         storage_class: StorageClass,
+        sse_customer_algorithm: Option<&str>,
+        sse_customer_key_md5: Option<&str>,
     ) -> Result<MultipartUpload> {
         let command = MetadataCommand::CreateMultipartUpload {
             bucket: bucket.to_string(),
@@ -289,6 +291,8 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
             content_language: content_language.map(String::from),
             expires: expires.map(String::from),
             storage_class,
+            sse_customer_algorithm: sse_customer_algorithm.map(String::from),
+            sse_customer_key_md5: sse_customer_key_md5.map(String::from),
         };
         let response = self.propose(command).await?;
         response.to_unit_result()?;

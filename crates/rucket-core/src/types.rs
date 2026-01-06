@@ -839,6 +839,12 @@ pub struct MultipartUpload {
     /// Storage class for the final object.
     #[serde(default)]
     pub storage_class: StorageClass,
+    /// SSE-C algorithm if customer-provided encryption is used.
+    #[serde(default)]
+    pub sse_customer_algorithm: Option<String>,
+    /// MD5 hash of the customer-provided encryption key (base64-encoded).
+    #[serde(default)]
+    pub sse_customer_key_md5: Option<String>,
 }
 
 /// Represents a part in a multipart upload.

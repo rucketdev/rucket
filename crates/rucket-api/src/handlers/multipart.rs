@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -15,6 +16,9 @@ use serde::Deserialize;
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
 use crate::handlers::object::s3_url_decode;
+use crate::handlers::object::sse_c::{
+    parse_sse_c_headers, HEADER_SSE_CUSTOMER_ALGORITHM, HEADER_SSE_CUSTOMER_KEY_MD5,
+};
 use crate::xml::request::CompleteMultipartUpload;
 use crate::xml::response::{
     to_xml, CompleteMultipartUploadResponse, CopyPartResult, InitiateMultipartUploadResponse,
@@ -127,6 +131,14 @@ pub async fn create_multipart_upload(
         .and_then(|v| v.to_str().ok())
         .and_then(StorageClass::parse);
 
+    // Parse SSE-C headers
+    let sse_c_headers = parse_sse_c_headers(&headers)?;
+    let (sse_customer_algorithm, sse_customer_key_md5) = if let Some(ref sse_c) = sse_c_headers {
+        (Some(sse_c.algorithm.clone()), Some(sse_c.key_md5.clone()))
+    } else {
+        (None, None)
+    };
+
     let object_headers = ObjectHeaders {
         content_type: headers.get("content-type").and_then(|v| v.to_str().ok()).map(String::from),
         cache_control: headers.get("cache-control").and_then(|v| v.to_str().ok()).map(String::from),
@@ -145,26 +157,38 @@ pub async fn create_multipart_upload(
         expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
         checksum_algorithm: None,
         storage_class,
-        // SSE-C is not currently supported for multipart uploads
-        sse_customer_algorithm: None,
-        sse_customer_key_md5: None,
+        sse_customer_algorithm,
+        sse_customer_key_md5,
+        // Nonce is generated during complete_multipart_upload when encrypting the assembled data
         encryption_nonce: None,
     };
 
     let upload =
         state.storage.create_multipart_upload(&bucket, &key, object_headers, user_metadata).await?;
 
-    let response = InitiateMultipartUploadResponse {
+    let response_body = InitiateMultipartUploadResponse {
         bucket: upload.bucket,
         key: upload.key,
         upload_id: upload.upload_id,
     };
 
-    let xml = to_xml(&response).map_err(|e| {
+    let xml = to_xml(&response_body).map_err(|e| {
         ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
-    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+    // Build response with headers
+    let mut response =
+        Response::builder().status(StatusCode::OK).header("Content-Type", "application/xml");
+
+    if let Some(ref sse_c) = sse_c_headers {
+        response = response
+            .header(HEADER_SSE_CUSTOMER_ALGORITHM, sse_c.algorithm.as_str())
+            .header(HEADER_SSE_CUSTOMER_KEY_MD5, sse_c.key_md5.as_str());
+    }
+
+    response
+        .body(Body::from(xml))
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `PUT /{bucket}/{key}?partNumber=N&uploadId=ID` - Upload part.
@@ -174,7 +198,7 @@ pub async fn upload_part(
     Query(query): Query<MultipartQuery>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     let upload_id = query
         .upload_id
         .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
@@ -183,12 +207,58 @@ pub async fn upload_part(
         ApiError::new(S3ErrorCode::InvalidRequest, "Missing partNumber parameter")
     })?;
 
+    // Get upload info to check SSE-C requirements
+    let upload = state.storage.get_multipart_upload(&upload_id).await?;
+
+    // Parse SSE-C headers from request
+    let sse_c_headers = parse_sse_c_headers(&headers)?;
+
+    // Validate SSE-C headers match the upload
+    match (&upload.sse_customer_algorithm, &sse_c_headers) {
+        // Upload requires SSE-C but no headers provided
+        (Some(_), None) => {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidRequest,
+                "This upload was initiated with SSE-C encryption. You must provide the same encryption headers for each part.",
+            ));
+        }
+        // Upload doesn't use SSE-C but headers provided
+        (None, Some(_)) => {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidRequest,
+                "SSE-C headers provided but this upload was not initiated with SSE-C encryption.",
+            ));
+        }
+        // Both have SSE-C - validate key matches
+        (Some(_), Some(sse_c)) => {
+            if upload.sse_customer_key_md5.as_ref() != Some(&sse_c.key_md5) {
+                return Err(ApiError::new(
+                    S3ErrorCode::AccessDenied,
+                    "The encryption key provided does not match the key used to initiate this upload.",
+                ));
+            }
+        }
+        // Neither uses SSE-C - OK
+        (None, None) => {}
+    }
+
     // Decode AWS chunked encoding if present
     let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
 
     let etag = state.storage.upload_part(&bucket, &key, &upload_id, part_number, body).await?;
 
-    Ok((StatusCode::OK, [("ETag", etag.to_string())]))
+    // Build response with headers
+    let mut response = Response::builder().status(StatusCode::OK).header("ETag", etag.as_str());
+
+    if let Some(sse_c) = sse_c_headers {
+        response = response
+            .header(HEADER_SSE_CUSTOMER_ALGORITHM, sse_c.algorithm.as_str())
+            .header(HEADER_SSE_CUSTOMER_KEY_MD5, sse_c.key_md5.as_str());
+    }
+
+    response
+        .body(Body::empty())
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `PUT /{bucket}/{key}?partNumber=N&uploadId=ID` with `x-amz-copy-source` - Upload part copy.
@@ -265,11 +335,48 @@ pub async fn complete_multipart_upload(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<MultipartQuery>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let upload_id = query
         .upload_id
         .ok_or_else(|| ApiError::new(S3ErrorCode::InvalidRequest, "Missing uploadId parameter"))?;
+
+    // Get upload info to check SSE-C requirements
+    let upload = state.storage.get_multipart_upload(&upload_id).await?;
+
+    // Parse SSE-C headers from request
+    let sse_c_headers = parse_sse_c_headers(&headers)?;
+
+    // Validate SSE-C headers match the upload
+    let sse_c_key: Option<[u8; 32]> = match (&upload.sse_customer_algorithm, &sse_c_headers) {
+        // Upload requires SSE-C but no headers provided
+        (Some(_), None) => {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidRequest,
+                "This upload was initiated with SSE-C encryption. You must provide the same encryption headers to complete the upload.",
+            ));
+        }
+        // Upload doesn't use SSE-C but headers provided
+        (None, Some(_)) => {
+            return Err(ApiError::new(
+                S3ErrorCode::InvalidRequest,
+                "SSE-C headers provided but this upload was not initiated with SSE-C encryption.",
+            ));
+        }
+        // Both have SSE-C - validate key matches and extract the key
+        (Some(_), Some(sse_c)) => {
+            if upload.sse_customer_key_md5.as_ref() != Some(&sse_c.key_md5) {
+                return Err(ApiError::new(
+                    S3ErrorCode::AccessDenied,
+                    "The encryption key provided does not match the key used to initiate this upload.",
+                ));
+            }
+            Some(sse_c.key)
+        }
+        // Neither uses SSE-C - OK
+        (None, None) => None,
+    };
 
     // Parse the XML request body
     let request: CompleteMultipartUpload =
@@ -294,20 +401,35 @@ pub async fn complete_multipart_upload(
         }
     }
 
-    let etag = state.storage.complete_multipart_upload(&bucket, &key, &upload_id, &parts).await?;
+    let etag = state
+        .storage
+        .complete_multipart_upload(&bucket, &key, &upload_id, &parts, sse_c_key.as_ref())
+        .await?;
 
-    let response = CompleteMultipartUploadResponse {
+    let response_body = CompleteMultipartUploadResponse {
         location: format!("/{bucket}/{key}"),
         bucket: bucket.clone(),
         key: key.clone(),
         etag: etag.to_string(),
     };
 
-    let xml = to_xml(&response).map_err(|e| {
+    let xml = to_xml(&response_body).map_err(|e| {
         ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
     })?;
 
-    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+    // Build response with headers
+    let mut response =
+        Response::builder().status(StatusCode::OK).header("Content-Type", "application/xml");
+
+    if let Some(sse_c) = sse_c_headers {
+        response = response
+            .header(HEADER_SSE_CUSTOMER_ALGORITHM, sse_c.algorithm.as_str())
+            .header(HEADER_SSE_CUSTOMER_KEY_MD5, sse_c.key_md5.as_str());
+    }
+
+    response
+        .body(Body::from(xml))
+        .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()))
 }
 
 /// `DELETE /{bucket}/{key}?uploadId=ID` - Abort multipart upload.

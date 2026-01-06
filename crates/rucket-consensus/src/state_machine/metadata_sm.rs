@@ -303,6 +303,8 @@ impl MetadataStateMachine {
                 content_language,
                 expires,
                 storage_class,
+                sse_customer_algorithm,
+                sse_customer_key_md5,
             } => {
                 match self
                     .backend
@@ -318,6 +320,8 @@ impl MetadataStateMachine {
                         content_language.as_deref(),
                         expires.as_deref(),
                         storage_class,
+                        sse_customer_algorithm.as_deref(),
+                        sse_customer_key_md5.as_deref(),
                     )
                     .await
                 {
