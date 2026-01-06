@@ -293,6 +293,35 @@ mod tests {
         // Create bucket
         state.storage.create_bucket("test-bucket").await.unwrap();
 
+        // First test direct storage layer
+        let config = rucket_core::types::WebsiteConfiguration {
+            index_document: Some(rucket_core::types::IndexDocument {
+                suffix: "index.html".to_string(),
+            }),
+            error_document: Some(rucket_core::types::ErrorDocument {
+                key: "error.html".to_string(),
+            }),
+            redirect_all_requests_to: None,
+            routing_rules: vec![],
+        };
+
+        // Direct storage put
+        state
+            .storage
+            .put_bucket_website("test-bucket", config.clone())
+            .await
+            .expect("Direct put should succeed");
+
+        // Direct storage get
+        let direct_get = state.storage.get_bucket_website("test-bucket").await;
+        assert!(direct_get.is_ok(), "Direct get failed: {:?}", direct_get.err());
+        let stored = direct_get.unwrap();
+        assert!(stored.is_some(), "Stored config should exist");
+        assert_eq!(stored.unwrap(), config);
+
+        // Now test via handlers (clear the config first)
+        state.storage.delete_bucket_website("test-bucket").await.unwrap();
+
         let xml = r#"
             <WebsiteConfiguration>
                 <IndexDocument>
@@ -310,11 +339,14 @@ mod tests {
             Bytes::from(xml),
         )
         .await;
-        assert!(put_result.is_ok());
+        assert!(put_result.is_ok(), "Put failed: {:?}", put_result.err());
 
         // Get the configuration back
         let get_result = get_bucket_website(State(state), Path("test-bucket".to_string())).await;
-        assert!(get_result.is_ok());
+        if let Err(ref e) = get_result {
+            eprintln!("Get error: {:?}", e);
+        }
+        assert!(get_result.is_ok(), "Get failed: {:?}", get_result.err());
     }
 
     #[tokio::test]

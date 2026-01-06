@@ -969,7 +969,7 @@ pub struct RedirectAllRequestsTo {
     /// The host name to redirect to.
     pub host_name: String,
     /// The protocol to use for the redirect (http or https).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub protocol: Option<WebsiteRedirectProtocol>,
 }
 
@@ -977,10 +977,10 @@ pub struct RedirectAllRequestsTo {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoutingRuleCondition {
     /// Redirect only if the object key starts with this prefix.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub key_prefix_equals: Option<String>,
     /// Redirect only if the HTTP error code matches.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub http_error_code_returned_equals: Option<String>,
 }
 
@@ -988,19 +988,19 @@ pub struct RoutingRuleCondition {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoutingRuleRedirect {
     /// The host name to redirect to.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub host_name: Option<String>,
     /// The HTTP redirect code (e.g., 301, 302).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub http_redirect_code: Option<String>,
     /// The protocol to use for the redirect.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub protocol: Option<WebsiteRedirectProtocol>,
     /// Replace the key prefix with this value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub replace_key_prefix_with: Option<String>,
     /// Replace the entire key with this value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub replace_key_with: Option<String>,
 }
 
@@ -1008,7 +1008,7 @@ pub struct RoutingRuleRedirect {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoutingRule {
     /// The condition that must be met for the redirect to apply.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub condition: Option<RoutingRuleCondition>,
     /// The redirect action to take.
     pub redirect: RoutingRuleRedirect,
@@ -1018,16 +1018,16 @@ pub struct RoutingRule {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebsiteConfiguration {
     /// The index document configuration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub index_document: Option<IndexDocument>,
     /// The error document configuration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub error_document: Option<ErrorDocument>,
     /// Redirect all requests to another host.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub redirect_all_requests_to: Option<RedirectAllRequestsTo>,
     /// Routing rules for conditional redirects.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub routing_rules: Vec<RoutingRule>,
 }
 
