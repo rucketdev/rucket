@@ -31,7 +31,7 @@ rucket-storage = { path = "../rucket-storage" }
 openraft = { version = "0.9", features = ["serde", "tracing-log", "storage-v2"] }
 
 # gRPC
-tonic = "0.12"
+tonic = "0.14"
 prost = "0.13"
 
 # Storage
