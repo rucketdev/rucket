@@ -15,8 +15,9 @@ use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
-    BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
-    ObjectRetention, Part, StorageClass, TagSet, VersioningStatus, WebsiteConfiguration,
+    BucketInfo, BucketLoggingStatus, CorsConfiguration, MultipartUpload, ObjectLockConfig,
+    ObjectMetadata, ObjectRetention, Part, StorageClass, TagSet, VersioningStatus,
+    WebsiteConfiguration,
 };
 use rucket_core::{Error, Result};
 use rucket_storage::metadata::{ListVersionsResult, MetadataBackend};
@@ -572,6 +573,18 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
         response.to_unit_result()
     }
 
+    async fn put_bucket_logging(&self, bucket: &str, config: BucketLoggingStatus) -> Result<()> {
+        let command = MetadataCommand::PutBucketLogging { bucket: bucket.to_string(), config };
+        let response = self.propose(command).await?;
+        response.to_unit_result()
+    }
+
+    async fn delete_bucket_logging(&self, bucket: &str) -> Result<()> {
+        let command = MetadataCommand::DeleteBucketLogging { bucket: bucket.to_string() };
+        let response = self.propose(command).await?;
+        response.to_unit_result()
+    }
+
     // ========================================================================
     // Read Operations (direct to local store)
     // ========================================================================
@@ -741,6 +754,10 @@ impl<B: MetadataBackend> MetadataBackend for RaftMetadataBackend<B> {
 
     async fn get_bucket_website(&self, bucket: &str) -> Result<Option<WebsiteConfiguration>> {
         self.local.get_bucket_website(bucket).await
+    }
+
+    async fn get_bucket_logging(&self, bucket: &str) -> Result<Option<BucketLoggingStatus>> {
+        self.local.get_bucket_logging(bucket).await
     }
 
     // ========================================================================

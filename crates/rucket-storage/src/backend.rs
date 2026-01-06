@@ -8,8 +8,8 @@ use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
-    BucketInfo, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag, MultipartUpload,
-    ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, StorageClass, TagSet,
+    BucketInfo, BucketLoggingStatus, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag,
+    MultipartUpload, ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, StorageClass, TagSet,
     VersioningStatus, WebsiteConfiguration,
 };
 use rucket_core::Result;
@@ -187,6 +187,17 @@ pub trait StorageBackend: Send + Sync {
 
     /// Delete Website Configuration for a bucket.
     async fn delete_bucket_website(&self, name: &str) -> Result<()>;
+
+    // Logging Configuration operations
+
+    /// Get Logging Configuration for a bucket.
+    async fn get_bucket_logging(&self, name: &str) -> Result<Option<BucketLoggingStatus>>;
+
+    /// Set Logging Configuration for a bucket.
+    async fn put_bucket_logging(&self, name: &str, config: BucketLoggingStatus) -> Result<()>;
+
+    /// Delete Logging Configuration for a bucket.
+    async fn delete_bucket_logging(&self, name: &str) -> Result<()>;
 
     // Object operations
 

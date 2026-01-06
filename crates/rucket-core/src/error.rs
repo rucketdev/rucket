@@ -81,6 +81,8 @@ pub enum S3ErrorCode {
     InvalidTag,
     /// The bucket policy is malformed.
     MalformedPolicy,
+    /// The target bucket for logging does not exist.
+    InvalidTargetBucketForLogging,
 }
 
 impl S3ErrorCode {
@@ -116,7 +118,8 @@ impl S3ErrorCode {
             | Self::InvalidBucketState
             | Self::MalformedXML
             | Self::InvalidTag
-            | Self::MalformedPolicy => 400,
+            | Self::MalformedPolicy
+            | Self::InvalidTargetBucketForLogging => 400,
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
@@ -173,6 +176,7 @@ impl S3ErrorCode {
             Self::MalformedXML => "MalformedXML",
             Self::InvalidTag => "InvalidTag",
             Self::MalformedPolicy => "MalformedPolicy",
+            Self::InvalidTargetBucketForLogging => "InvalidTargetBucketForLogging",
         }
     }
 }

@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod bucket;
+pub mod logging;
 pub mod minio;
 pub mod multipart;
 pub mod object;
