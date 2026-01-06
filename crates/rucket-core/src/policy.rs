@@ -688,6 +688,8 @@ fn get_condition_value(key: &str, ctx: &RequestContext) -> Option<String> {
         "aws:SourceIp" => ctx.source_ip.map(|ip| ip.to_string()),
         "aws:SecureTransport" => Some(ctx.secure_transport.to_string()),
         "aws:Referer" => ctx.referer.clone(),
+        "aws:CurrentTime" => Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+        "aws:EpochTime" => Some(chrono::Utc::now().timestamp().to_string()),
         "s3:prefix" => ctx.key.clone(),
         "s3:x-amz-acl" => ctx.context_values.get("x-amz-acl").cloned(),
         _ => ctx.context_values.get(key).cloned(),
@@ -788,6 +790,66 @@ fn evaluate_condition(
             let expect_null = cv.as_bool().unwrap_or(false);
             (ctx_value.is_none()) == expect_null
         }),
+
+        // Date conditions
+        "DateEquals" => {
+            if let Some(v) = ctx_value {
+                condition_values
+                    .iter()
+                    .any(|cv| cv.as_str().map(|date_str| dates_equal(v, date_str)).unwrap_or(false))
+            } else {
+                false
+            }
+        }
+        "DateNotEquals" => {
+            if let Some(v) = ctx_value {
+                !condition_values
+                    .iter()
+                    .any(|cv| cv.as_str().map(|date_str| dates_equal(v, date_str)).unwrap_or(false))
+            } else {
+                true
+            }
+        }
+        "DateLessThan" => {
+            if let Some(v) = ctx_value {
+                condition_values.iter().any(|cv| {
+                    cv.as_str().map(|date_str| date_less_than(v, date_str)).unwrap_or(false)
+                })
+            } else {
+                false
+            }
+        }
+        "DateLessThanEquals" => {
+            if let Some(v) = ctx_value {
+                condition_values.iter().any(|cv| {
+                    cv.as_str()
+                        .map(|date_str| date_less_than(v, date_str) || dates_equal(v, date_str))
+                        .unwrap_or(false)
+                })
+            } else {
+                false
+            }
+        }
+        "DateGreaterThan" => {
+            if let Some(v) = ctx_value {
+                condition_values.iter().any(|cv| {
+                    cv.as_str().map(|date_str| date_greater_than(v, date_str)).unwrap_or(false)
+                })
+            } else {
+                false
+            }
+        }
+        "DateGreaterThanEquals" => {
+            if let Some(v) = ctx_value {
+                condition_values.iter().any(|cv| {
+                    cv.as_str()
+                        .map(|date_str| date_greater_than(v, date_str) || dates_equal(v, date_str))
+                        .unwrap_or(false)
+                })
+            } else {
+                false
+            }
+        }
 
         // Unknown operator - fail safe (deny)
         _ => false,
@@ -900,8 +962,56 @@ fn ip_matches_cidr(ip_str: &str, cidr: &str) -> bool {
     }
 }
 
+/// Parses a date string in ISO 8601 format or as epoch seconds.
+fn parse_date(date_str: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    use chrono::{DateTime, TimeZone, Utc};
+
+    // Try parsing as ISO 8601 format (e.g., "2024-01-15T12:00:00Z")
+    if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
+        return Some(dt.with_timezone(&Utc));
+    }
+
+    // Try parsing as ISO 8601 without timezone (assume UTC)
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S") {
+        return Utc.from_local_datetime(&dt).single();
+    }
+
+    // Try parsing as epoch seconds
+    if let Ok(epoch) = date_str.parse::<i64>() {
+        return Utc.timestamp_opt(epoch, 0).single();
+    }
+
+    None
+}
+
+/// Checks if two date strings represent the same point in time.
+fn dates_equal(date1: &str, date2: &str) -> bool {
+    match (parse_date(date1), parse_date(date2)) {
+        (Some(d1), Some(d2)) => d1 == d2,
+        _ => false,
+    }
+}
+
+/// Checks if date1 is before date2.
+fn date_less_than(date1: &str, date2: &str) -> bool {
+    match (parse_date(date1), parse_date(date2)) {
+        (Some(d1), Some(d2)) => d1 < d2,
+        _ => false,
+    }
+}
+
+/// Checks if date1 is after date2.
+fn date_greater_than(date1: &str, date2: &str) -> bool {
+    match (parse_date(date1), parse_date(date2)) {
+        (Some(d1), Some(d2)) => d1 > d2,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use chrono::{Datelike, Timelike};
+
     use super::*;
 
     #[test]
@@ -1355,5 +1465,363 @@ mod tests {
         )
         .with_referer("https://hotlinker.com/stolen");
         assert_eq!(policy.evaluate(&ctx), PolicyDecision::Deny);
+    }
+
+    #[test]
+    fn test_parse_date_iso8601() {
+        let dt = parse_date("2024-01-15T12:00:00Z");
+        assert!(dt.is_some());
+        let dt = dt.unwrap();
+        assert_eq!(dt.year(), 2024);
+        assert_eq!(dt.month(), 1);
+        assert_eq!(dt.day(), 15);
+        assert_eq!(dt.hour(), 12);
+    }
+
+    #[test]
+    fn test_parse_date_epoch() {
+        // 1705320000 = 2024-01-15T12:00:00Z
+        let dt = parse_date("1705320000");
+        assert!(dt.is_some());
+        let dt = dt.unwrap();
+        assert_eq!(dt.year(), 2024);
+        assert_eq!(dt.month(), 1);
+        assert_eq!(dt.day(), 15);
+    }
+
+    #[test]
+    fn test_parse_date_invalid() {
+        assert!(parse_date("invalid-date").is_none());
+        assert!(parse_date("").is_none());
+    }
+
+    #[test]
+    fn test_dates_equal() {
+        assert!(dates_equal("2024-01-15T12:00:00Z", "2024-01-15T12:00:00Z"));
+        assert!(!dates_equal("2024-01-15T12:00:00Z", "2024-01-15T12:00:01Z"));
+        // Same time in different formats
+        assert!(dates_equal("1705320000", "2024-01-15T12:00:00Z"));
+    }
+
+    #[test]
+    fn test_date_less_than() {
+        assert!(date_less_than("2024-01-15T11:00:00Z", "2024-01-15T12:00:00Z"));
+        assert!(!date_less_than("2024-01-15T12:00:00Z", "2024-01-15T11:00:00Z"));
+        assert!(!date_less_than("2024-01-15T12:00:00Z", "2024-01-15T12:00:00Z"));
+    }
+
+    #[test]
+    fn test_date_greater_than() {
+        assert!(date_greater_than("2024-01-15T13:00:00Z", "2024-01-15T12:00:00Z"));
+        assert!(!date_greater_than("2024-01-15T11:00:00Z", "2024-01-15T12:00:00Z"));
+        assert!(!date_greater_than("2024-01-15T12:00:00Z", "2024-01-15T12:00:00Z"));
+    }
+
+    #[test]
+    fn test_evaluate_date_equals_condition() {
+        // Test DateEquals by using a custom context value
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "Condition": {
+                    "DateEquals": {
+                        "custom:date": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+        let mut ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        ctx.context_values.insert("custom:date".to_string(), "2024-01-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Different date - should not match
+        ctx.context_values.insert("custom:date".to_string(), "2024-01-16T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_evaluate_date_not_equals_condition() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "Condition": {
+                    "DateNotEquals": {
+                        "custom:date": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Different date - should be allowed
+        let mut ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        ctx.context_values.insert("custom:date".to_string(), "2024-01-16T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Same date - should not match
+        ctx.context_values.insert("custom:date".to_string(), "2024-01-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_evaluate_date_less_than_condition() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "Condition": {
+                    "DateLessThan": {
+                        "custom:date": "2024-12-31T23:59:59Z"
+                    }
+                }
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Date before cutoff - allowed
+        let mut ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        ctx.context_values.insert("custom:date".to_string(), "2024-06-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Date after cutoff - not allowed
+        ctx.context_values.insert("custom:date".to_string(), "2025-01-01T00:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // Same date - not allowed (must be strictly less than)
+        ctx.context_values.insert("custom:date".to_string(), "2024-12-31T23:59:59Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_evaluate_date_greater_than_condition() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "Condition": {
+                    "DateGreaterThan": {
+                        "custom:date": "2024-01-01T00:00:00Z"
+                    }
+                }
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Date after cutoff - allowed
+        let mut ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        ctx.context_values.insert("custom:date".to_string(), "2024-06-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Date before cutoff - not allowed
+        ctx.context_values.insert("custom:date".to_string(), "2023-12-31T23:59:59Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_evaluate_date_less_than_equals_condition() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "Condition": {
+                    "DateLessThanEquals": {
+                        "custom:date": "2024-12-31T23:59:59Z"
+                    }
+                }
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        let mut ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+
+        // Same date - allowed (includes equals)
+        ctx.context_values.insert("custom:date".to_string(), "2024-12-31T23:59:59Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Before - allowed
+        ctx.context_values.insert("custom:date".to_string(), "2024-06-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // After - not allowed
+        ctx.context_values.insert("custom:date".to_string(), "2025-01-01T00:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_evaluate_date_greater_than_equals_condition() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "Condition": {
+                    "DateGreaterThanEquals": {
+                        "custom:date": "2024-01-01T00:00:00Z"
+                    }
+                }
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        let mut ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+
+        // Same date - allowed (includes equals)
+        ctx.context_values.insert("custom:date".to_string(), "2024-01-01T00:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // After - allowed
+        ctx.context_values.insert("custom:date".to_string(), "2024-06-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Before - not allowed
+        ctx.context_values.insert("custom:date".to_string(), "2023-12-31T23:59:59Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_evaluate_time_limited_access() {
+        // Common use case: grant access only during a specific time window
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Sid": "TimeWindowAccess",
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "Condition": {
+                    "DateGreaterThanEquals": {
+                        "custom:date": "2024-01-01T00:00:00Z"
+                    },
+                    "DateLessThan": {
+                        "custom:date": "2024-12-31T23:59:59Z"
+                    }
+                }
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Within window - allowed
+        let mut ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        ctx.context_values.insert("custom:date".to_string(), "2024-06-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Before window - not allowed
+        ctx.context_values.insert("custom:date".to_string(), "2023-06-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // After window - not allowed
+        ctx.context_values.insert("custom:date".to_string(), "2025-06-15T12:00:00Z".to_string());
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_get_condition_value_current_time() {
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+
+        // aws:CurrentTime should return an ISO 8601 formatted date
+        let value = get_condition_value("aws:CurrentTime", &ctx);
+        assert!(value.is_some());
+        let time_str = value.unwrap();
+        // Should be parseable as ISO 8601
+        assert!(parse_date(&time_str).is_some());
+        // Should contain expected format chars
+        assert!(time_str.contains("T"));
+        assert!(time_str.ends_with("Z"));
+    }
+
+    #[test]
+    fn test_get_condition_value_epoch_time() {
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+
+        // aws:EpochTime should return a numeric epoch timestamp
+        let value = get_condition_value("aws:EpochTime", &ctx);
+        assert!(value.is_some());
+        let epoch_str = value.unwrap();
+        // Should be parseable as a number
+        let epoch: i64 = epoch_str.parse().expect("Should be a valid number");
+        // Should be a reasonable timestamp (after 2020)
+        assert!(epoch > 1577836800); // 2020-01-01
     }
 }
