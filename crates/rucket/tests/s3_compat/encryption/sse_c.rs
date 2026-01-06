@@ -1,11 +1,12 @@
 //! SSE-C (customer-provided key) encryption tests.
 
+use std::time::Duration;
+
+use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use base64::Engine;
 use md5::{Digest, Md5};
 
-// Allow unused for tests that are ignored
-#[allow(unused_imports)]
 use crate::S3TestContext;
 
 /// Generate a 256-bit (32-byte) customer key for SSE-C.
@@ -860,11 +861,152 @@ async fn test_sse_c_multipart_different_keys() {
         .expect("AbortMultipartUpload should succeed");
 }
 
-/// Test SSE-C presigned URL.
+/// Test SSE-C with presigned URLs.
+/// This test verifies that SSE-C encryption works with presigned PUT and GET URLs.
 #[tokio::test]
-#[ignore = "SSE-C presigned not implemented"]
 async fn test_sse_c_presigned() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new_with_auth().await;
+    let key = "sse-c-presigned-object.txt";
+    let content = b"SSE-C presigned content - secret data!";
+
+    let sse_key = generate_sse_c_key();
+    let key_base64 = key_to_base64(&sse_key);
+    let key_md5 = key_to_md5_base64(&sse_key);
+
+    let presigning_config = PresigningConfig::builder()
+        .expires_in(Duration::from_secs(3600))
+        .build()
+        .expect("valid presigning config");
+
+    // Generate a presigned PUT URL with SSE-C headers
+    let presigned_put = ctx
+        .client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key(key)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .presigned(presigning_config.clone())
+        .await
+        .expect("Failed to generate presigned PUT URL");
+
+    // Use reqwest to upload the object with SSE-C headers
+    let client = reqwest::Client::new();
+    let response = client
+        .put(presigned_put.uri())
+        .header("x-amz-server-side-encryption-customer-algorithm", "AES256")
+        .header("x-amz-server-side-encryption-customer-key", &key_base64)
+        .header("x-amz-server-side-encryption-customer-key-MD5", &key_md5)
+        .body(content.to_vec())
+        .send()
+        .await
+        .expect("Failed to make presigned PUT request");
+
+    assert!(
+        response.status().is_success(),
+        "PUT should succeed, got {} - {}",
+        response.status(),
+        response.text().await.unwrap_or_default()
+    );
+
+    // Generate a presigned GET URL with SSE-C headers
+    let presigned_get = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key(key)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&key_base64)
+        .sse_customer_key_md5(&key_md5)
+        .presigned(presigning_config.clone())
+        .await
+        .expect("Failed to generate presigned GET URL");
+
+    // Use reqwest to download the object with SSE-C headers
+    let response = client
+        .get(presigned_get.uri())
+        .header("x-amz-server-side-encryption-customer-algorithm", "AES256")
+        .header("x-amz-server-side-encryption-customer-key", &key_base64)
+        .header("x-amz-server-side-encryption-customer-key-MD5", &key_md5)
+        .send()
+        .await
+        .expect("Failed to make presigned GET request");
+
+    assert!(
+        response.status().is_success(),
+        "GET should succeed, got {} - {}",
+        response.status(),
+        response.text().await.unwrap_or_default()
+    );
+
+    let body = response.bytes().await.expect("Failed to read body");
+    assert_eq!(body.as_ref(), content, "Decrypted content should match original");
+}
+
+/// Test SSE-C presigned URL fails with wrong key.
+#[tokio::test]
+async fn test_sse_c_presigned_wrong_key() {
+    let ctx = S3TestContext::new_with_auth().await;
+    let key = "sse-c-presigned-wrong-key.txt";
+    let content = b"SSE-C presigned wrong key test";
+
+    let correct_key = generate_sse_c_key();
+    let correct_key_base64 = key_to_base64(&correct_key);
+    let correct_key_md5 = key_to_md5_base64(&correct_key);
+
+    let wrong_key = generate_wrong_key();
+    let wrong_key_base64 = key_to_base64(&wrong_key);
+    let wrong_key_md5 = key_to_md5_base64(&wrong_key);
+
+    // Upload with correct key using SDK
+    ctx.client
+        .put_object()
+        .bucket(&ctx.bucket)
+        .key(key)
+        .body(ByteStream::from(content.to_vec()))
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&correct_key_base64)
+        .sse_customer_key_md5(&correct_key_md5)
+        .send()
+        .await
+        .expect("PUT should succeed");
+
+    let presigning_config = PresigningConfig::builder()
+        .expires_in(Duration::from_secs(3600))
+        .build()
+        .expect("valid presigning config");
+
+    // Generate a presigned GET URL with wrong key
+    let presigned_get = ctx
+        .client
+        .get_object()
+        .bucket(&ctx.bucket)
+        .key(key)
+        .sse_customer_algorithm("AES256")
+        .sse_customer_key(&wrong_key_base64)
+        .sse_customer_key_md5(&wrong_key_md5)
+        .presigned(presigning_config)
+        .await
+        .expect("Failed to generate presigned GET URL");
+
+    // Try to download with the wrong key headers
+    let client = reqwest::Client::new();
+    let response = client
+        .get(presigned_get.uri())
+        .header("x-amz-server-side-encryption-customer-algorithm", "AES256")
+        .header("x-amz-server-side-encryption-customer-key", &wrong_key_base64)
+        .header("x-amz-server-side-encryption-customer-key-MD5", &wrong_key_md5)
+        .send()
+        .await
+        .expect("Failed to make presigned GET request");
+
+    // Should fail with 403 because the key doesn't match
+    assert!(
+        response.status().as_u16() == 403 || response.status().as_u16() == 400,
+        "GET with wrong key should fail with 400 or 403, got {}",
+        response.status()
+    );
 }
 
 /// Test SSE-C with versioning - upload multiple versions and retrieve them.
@@ -985,8 +1127,10 @@ async fn test_sse_c_versioning() {
 }
 
 /// Test SSE-C upload part copy.
+/// UploadPartCopy with SSE-C source requires decrypting the source object
+/// with x-amz-copy-source-server-side-encryption-customer-* headers.
 #[tokio::test]
-#[ignore = "SSE-C multipart not implemented"]
+#[ignore = "SSE-C UploadPartCopy source decryption not implemented"]
 async fn test_sse_c_upload_part_copy() {
     let _ctx = S3TestContext::new().await;
 }
