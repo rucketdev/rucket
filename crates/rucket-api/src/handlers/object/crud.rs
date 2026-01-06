@@ -835,6 +835,22 @@ pub async fn head_object(
         }
     }
 
+    // Check If-None-Match: return 304 Not Modified if ETag matches
+    if let Some(if_none_match) = headers.get("if-none-match").and_then(|v| v.to_str().ok()) {
+        let etag = meta.etag.as_str();
+        let etags: Vec<&str> = if_none_match.split(',').map(|s| s.trim()).collect();
+        if etags
+            .iter()
+            .any(|&e| e == "*" || e == etag || e.trim_matches('"') == etag.trim_matches('"'))
+        {
+            return Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header("ETag", etag)
+                .body(Body::empty())
+                .map_err(|e| ApiError::new(S3ErrorCode::InternalError, e.to_string()));
+        }
+    }
+
     // For SSE-C encrypted objects, the stored size includes the 16-byte auth tag
     // Return the plaintext size (encrypted_size - 16)
     const AES_GCM_TAG_SIZE: u64 = 16;
