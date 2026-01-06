@@ -170,6 +170,9 @@ struct StoredObjectMetadata {
     /// Encryption nonce (for AES-GCM).
     #[serde(default)]
     encryption_nonce: Option<Vec<u8>>,
+    /// Storage class for the object.
+    #[serde(default)]
+    storage_class: StorageClass,
 }
 
 fn default_is_latest() -> bool {
@@ -203,6 +206,7 @@ impl StoredObjectMetadata {
             legal_hold: meta.legal_hold,
             server_side_encryption: meta.server_side_encryption.clone(),
             encryption_nonce: meta.encryption_nonce.clone(),
+            storage_class: meta.storage_class,
         }
     }
 
@@ -239,7 +243,7 @@ impl StoredObjectMetadata {
             hlc_timestamp: 0,
             placement_group: 0,
             home_region: "local".to_string(),
-            storage_class: rucket_core::types::StorageClass::Standard,
+            storage_class: self.storage_class,
             replication_status: None,
             // Object Lock fields
             retention: self.retention.clone(),
