@@ -35,6 +35,10 @@ pub struct BucketPolicy {
 }
 
 /// A single policy statement.
+///
+/// A statement can use either Principal or NotPrincipal (not both),
+/// either Action or NotAction (not both), and either Resource or
+/// NotResource (not both).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Statement {
@@ -44,11 +48,29 @@ pub struct Statement {
     /// Whether this statement allows or denies access.
     pub effect: Effect,
     /// The principal(s) this statement applies to.
-    pub principal: Principal,
+    /// Mutually exclusive with `not_principal`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal: Option<Principal>,
+    /// The principal(s) this statement does NOT apply to.
+    /// Mutually exclusive with `principal`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_principal: Option<Principal>,
     /// The action(s) this statement covers.
-    pub action: ActionSpec,
+    /// Mutually exclusive with `not_action`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<ActionSpec>,
+    /// The action(s) this statement does NOT cover.
+    /// Mutually exclusive with `action`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_action: Option<ActionSpec>,
     /// The resource(s) this statement covers.
-    pub resource: ResourceSpec,
+    /// Mutually exclusive with `not_resource`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<ResourceSpec>,
+    /// The resource(s) this statement does NOT cover.
+    /// Mutually exclusive with `resource`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_resource: Option<ResourceSpec>,
     /// Optional conditions that must be met.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<Conditions>,
@@ -486,9 +508,11 @@ impl BucketPolicy {
     /// # Errors
     /// Returns an error if the JSON is invalid or doesn't match the policy schema.
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        serde_json::from_str(json).map_err(|e| {
+        let policy: Self = serde_json::from_str(json).map_err(|e| {
             Error::s3(S3ErrorCode::MalformedPolicy, format!("Invalid policy JSON: {e}"))
-        })
+        })?;
+        policy.validate()?;
+        Ok(policy)
     }
 
     /// Serializes the policy to JSON.
@@ -571,17 +595,47 @@ impl BucketPolicy {
 impl Statement {
     /// Validates the statement.
     fn validate(&self) -> Result<(), String> {
+        // Validate mutual exclusivity of Principal/NotPrincipal
+        if self.principal.is_some() && self.not_principal.is_some() {
+            return Err("Statement cannot have both Principal and NotPrincipal".to_string());
+        }
+        if self.principal.is_none() && self.not_principal.is_none() {
+            return Err("Statement must have either Principal or NotPrincipal".to_string());
+        }
+
+        // Validate mutual exclusivity of Action/NotAction
+        if self.action.is_some() && self.not_action.is_some() {
+            return Err("Statement cannot have both Action and NotAction".to_string());
+        }
+        if self.action.is_none() && self.not_action.is_none() {
+            return Err("Statement must have either Action or NotAction".to_string());
+        }
+
+        // Validate mutual exclusivity of Resource/NotResource
+        if self.resource.is_some() && self.not_resource.is_some() {
+            return Err("Statement cannot have both Resource and NotResource".to_string());
+        }
+        if self.resource.is_none() && self.not_resource.is_none() {
+            return Err("Statement must have either Resource or NotResource".to_string());
+        }
+
         // Validate resources are S3 ARNs
-        for resource in self.resource.iter() {
-            if !resource.starts_with("arn:aws:s3:::") && resource != "*" {
-                return Err(format!("Invalid S3 resource ARN: {resource}"));
+        let resources = self.resource.as_ref().or(self.not_resource.as_ref());
+        if let Some(res) = resources {
+            for resource in res.iter() {
+                if !resource.starts_with("arn:aws:s3:::") && resource != "*" {
+                    return Err(format!("Invalid S3 resource ARN: {resource}"));
+                }
             }
         }
 
         // Validate actions start with s3:
-        for action in self.action.iter() {
-            if !action.starts_with("s3:") && action != "*" {
-                return Err(format!("Invalid S3 action: {action}"));
+        let actions = self.action.as_ref().or(self.not_action.as_ref());
+        if let Some(act) = actions {
+            for action in act.iter() {
+                if !action.starts_with("s3:") && action != "*" {
+                    return Err(format!("Invalid S3 action: {action}"));
+                }
             }
         }
 
@@ -621,7 +675,21 @@ impl Statement {
 
     /// Checks if the principal matches the request context.
     fn matches_principal(&self, ctx: &RequestContext) -> bool {
-        match &self.principal {
+        if let Some(ref principal) = self.principal {
+            // Regular Principal - check if it matches
+            Self::principal_matches(principal, ctx)
+        } else if let Some(ref not_principal) = self.not_principal {
+            // NotPrincipal - check if it does NOT match
+            !Self::principal_matches(not_principal, ctx)
+        } else {
+            // Should not happen if validation passed
+            false
+        }
+    }
+
+    /// Helper to check if a principal specification matches the context.
+    fn principal_matches(principal: &Principal, ctx: &RequestContext) -> bool {
+        match principal {
             Principal::Wildcard(_) => true,
             Principal::Specific(spec) => {
                 if let Some(ref aws) = spec.aws {
@@ -643,14 +711,35 @@ impl Statement {
     /// Checks if the action matches.
     fn matches_action(&self, action: S3Action) -> bool {
         let action_str = action.as_str();
-        self.action.iter().any(|pattern| {
-            pattern == "*" || pattern == "s3:*" || wildcard_match(pattern, action_str)
-        })
+
+        if let Some(ref actions) = self.action {
+            // Regular Action - check if it matches
+            actions.iter().any(|pattern| {
+                pattern == "*" || pattern == "s3:*" || wildcard_match(pattern, action_str)
+            })
+        } else if let Some(ref not_actions) = self.not_action {
+            // NotAction - check if it does NOT match
+            !not_actions.iter().any(|pattern| {
+                pattern == "*" || pattern == "s3:*" || wildcard_match(pattern, action_str)
+            })
+        } else {
+            // Should not happen if validation passed
+            false
+        }
     }
 
     /// Checks if the resource matches.
     fn matches_resource(&self, resource: &str) -> bool {
-        self.resource.iter().any(|pattern| pattern == "*" || wildcard_match(pattern, resource))
+        if let Some(ref resources) = self.resource {
+            // Regular Resource - check if it matches
+            resources.iter().any(|pattern| pattern == "*" || wildcard_match(pattern, resource))
+        } else if let Some(ref not_resources) = self.not_resource {
+            // NotResource - check if it does NOT match
+            !not_resources.iter().any(|pattern| pattern == "*" || wildcard_match(pattern, resource))
+        } else {
+            // Should not happen if validation passed
+            false
+        }
     }
 
     /// Evaluates all conditions in the condition block.
@@ -1102,8 +1191,10 @@ mod tests {
             ]
         }"#;
 
-        let policy = BucketPolicy::from_json(json).unwrap();
-        assert!(policy.validate().is_err());
+        // from_json now validates, so it should return an error
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("version"));
     }
 
     #[test]
@@ -1113,8 +1204,10 @@ mod tests {
             "Statement": []
         }"#;
 
-        let policy = BucketPolicy::from_json(json).unwrap();
-        assert!(policy.validate().is_err());
+        // from_json now validates, so it should return an error
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("statement"));
     }
 
     #[test]
@@ -1823,5 +1916,382 @@ mod tests {
         let epoch: i64 = epoch_str.parse().expect("Should be a valid number");
         // Should be a reasonable timestamp (after 2020)
         assert!(epoch > 1577836800); // 2020-01-01
+    }
+
+    #[test]
+    fn test_not_principal_denies_specified_user() {
+        // NotPrincipal with Deny: Denies only the specified principals
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Deny",
+                "NotPrincipal": {"AWS": "arn:aws:iam::000000000000:user/blocked-user"},
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // The blocked user is NOT matched by NotPrincipal (because NotPrincipal
+        // matches everyone EXCEPT the specified principal), so the statement
+        // doesn't apply to them
+        let ctx = RequestContext::new(
+            "arn:aws:iam::000000000000:user/blocked-user".to_string(),
+            false,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // Other users ARE matched by NotPrincipal, so the Deny applies
+        let ctx = RequestContext::new(
+            "arn:aws:iam::000000000000:user/other-user".to_string(),
+            false,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Deny);
+    }
+
+    #[test]
+    fn test_not_principal_allows_except_specified() {
+        // NotPrincipal with Allow: Allows everyone except the specified principals
+        // This is dangerous and rarely used, but valid
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "NotPrincipal": {"AWS": "arn:aws:iam::000000000000:user/blocked-user"},
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // The blocked user is not matched, no Allow statement applies
+        let ctx = RequestContext::new(
+            "arn:aws:iam::000000000000:user/blocked-user".to_string(),
+            false,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // Other users get the Allow
+        let ctx = RequestContext::new(
+            "arn:aws:iam::000000000000:user/allowed-user".to_string(),
+            false,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+    }
+
+    #[test]
+    fn test_not_action_allows_all_except_specified() {
+        // NotAction: Matches all actions except the specified ones
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "NotAction": "s3:DeleteObject",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // GetObject is allowed (not in NotAction)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // PutObject is allowed (not in NotAction)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::PutObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // DeleteObject is NOT allowed (is in NotAction, so statement doesn't match)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::DeleteObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_not_action_denies_all_except_specified() {
+        // NotAction with Deny: Denies all actions except the specified ones
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Deny",
+                "Principal": "*",
+                "NotAction": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // GetObject is NOT denied (it's in NotAction)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // PutObject IS denied (not in NotAction)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::PutObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Deny);
+    }
+
+    #[test]
+    fn test_not_resource_applies_to_all_except_specified() {
+        // NotResource: Matches all resources except the specified ones
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "NotResource": "arn:aws:s3:::my-bucket/private/*"
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Public files are allowed
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("public/test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Private files are NOT allowed (in NotResource)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("private/secret.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_not_resource_denies_all_except_specified() {
+        // NotResource with Deny: Denies access to all resources except specified
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "NotResource": "arn:aws:s3:::my-bucket/allowed/*"
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Allowed prefix is NOT denied
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("allowed/test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // Other paths ARE denied
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("other/test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Deny);
+    }
+
+    #[test]
+    fn test_policy_validation_both_principal_and_not_principal() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "NotPrincipal": {"AWS": "arn:aws:iam::000000000000:user/test"},
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Principal"));
+    }
+
+    #[test]
+    fn test_policy_validation_both_action_and_not_action() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "NotAction": "s3:PutObject",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Action"));
+    }
+
+    #[test]
+    fn test_policy_validation_both_resource_and_not_resource() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*",
+                "NotResource": "arn:aws:s3:::my-bucket/private/*"
+            }]
+        }"#;
+
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Resource"));
+    }
+
+    #[test]
+    fn test_policy_validation_missing_principal() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Principal"));
+    }
+
+    #[test]
+    fn test_policy_validation_missing_action() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Resource": "arn:aws:s3:::my-bucket/*"
+            }]
+        }"#;
+
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Action"));
+    }
+
+    #[test]
+    fn test_policy_validation_missing_resource() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject"
+            }]
+        }"#;
+
+        let result = BucketPolicy::from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Resource"));
+    }
+
+    #[test]
+    fn test_combined_not_elements() {
+        // Test combining NotAction and NotResource together
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": "*",
+                "NotAction": "s3:DeleteObject",
+                "NotResource": "arn:aws:s3:::my-bucket/protected/*"
+            }]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // GetObject on public path - allowed
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("public/test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // GetObject on protected path - not allowed (NotResource excludes it)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("protected/secret.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // DeleteObject on public path - not allowed (NotAction excludes it)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::DeleteObject,
+            "my-bucket",
+            Some("public/test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
     }
 }

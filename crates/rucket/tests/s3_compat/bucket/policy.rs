@@ -770,24 +770,108 @@ async fn test_bucket_policy_cross_account() {
 }
 
 /// Test bucket policy with NotPrincipal.
+///
+/// Tests that policies with NotPrincipal element can be stored and retrieved.
 #[tokio::test]
-#[ignore = "NotPrincipal not yet implemented"]
 async fn test_bucket_policy_not_principal() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    // Create a policy with NotPrincipal - denies everyone except the specified principal
+    let policy = serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Sid": "DenyExceptAdmin",
+            "Effect": "Deny",
+            "NotPrincipal": {"AWS": "arn:aws:iam::000000000000:user/admin"},
+            "Action": "s3:DeleteObject",
+            "Resource": format!("arn:aws:s3:::{}/*", ctx.bucket)
+        }]
+    });
+
+    // Put the policy
+    ctx.client
+        .put_bucket_policy()
+        .bucket(&ctx.bucket)
+        .policy(policy.to_string())
+        .send()
+        .await
+        .expect("Failed to put bucket policy with NotPrincipal");
+
+    // Verify the policy was stored correctly
+    let result = ctx.client.get_bucket_policy().bucket(&ctx.bucket).send().await.unwrap();
+    let stored_policy: serde_json::Value =
+        serde_json::from_str(result.policy().unwrap()).expect("Failed to parse policy");
+    assert!(stored_policy["Statement"][0]["NotPrincipal"].is_object());
 }
 
 /// Test bucket policy with NotAction.
+///
+/// Tests that policies with NotAction element can be stored and retrieved.
 #[tokio::test]
-#[ignore = "NotAction not yet implemented"]
 async fn test_bucket_policy_not_action() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    // Create a policy with NotAction - allows all actions except the specified ones
+    let policy = serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Sid": "AllowExceptDelete",
+            "Effect": "Allow",
+            "Principal": "*",
+            "NotAction": "s3:DeleteObject",
+            "Resource": format!("arn:aws:s3:::{}/*", ctx.bucket)
+        }]
+    });
+
+    // Put the policy
+    ctx.client
+        .put_bucket_policy()
+        .bucket(&ctx.bucket)
+        .policy(policy.to_string())
+        .send()
+        .await
+        .expect("Failed to put bucket policy with NotAction");
+
+    // Verify the policy was stored correctly
+    let result = ctx.client.get_bucket_policy().bucket(&ctx.bucket).send().await.unwrap();
+    let stored_policy: serde_json::Value =
+        serde_json::from_str(result.policy().unwrap()).expect("Failed to parse policy");
+    assert!(stored_policy["Statement"][0]["NotAction"].is_string());
 }
 
 /// Test bucket policy with NotResource.
+///
+/// Tests that policies with NotResource element can be stored and retrieved.
 #[tokio::test]
-#[ignore = "NotResource not yet implemented"]
 async fn test_bucket_policy_not_resource() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    // Create a policy with NotResource - applies to all resources except the specified ones
+    let policy = serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Sid": "AllowExceptPrivate",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "NotResource": format!("arn:aws:s3:::{}/private/*", ctx.bucket)
+        }]
+    });
+
+    // Put the policy
+    ctx.client
+        .put_bucket_policy()
+        .bucket(&ctx.bucket)
+        .policy(policy.to_string())
+        .send()
+        .await
+        .expect("Failed to put bucket policy with NotResource");
+
+    // Verify the policy was stored correctly
+    let result = ctx.client.get_bucket_policy().bucket(&ctx.bucket).send().await.unwrap();
+    let stored_policy: serde_json::Value =
+        serde_json::from_str(result.policy().unwrap()).expect("Failed to parse policy");
+    assert!(stored_policy["Statement"][0]["NotResource"].is_string());
 }
 
 /// Test bucket policy with invalid action.
