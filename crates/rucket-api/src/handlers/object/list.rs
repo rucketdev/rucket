@@ -410,9 +410,21 @@ pub async fn delete_objects(
                 // Return the version ID from the result, or from the request, or "null"
                 let version_id = delete_result
                     .version_id
+                    .clone()
                     .or_else(|| obj.version_id.clone())
                     .or_else(|| Some("null".to_string()));
-                deleted.push(DeletedObject { key: obj.key.clone(), version_id });
+                // Set delete_marker fields when a delete marker was created
+                let (delete_marker, delete_marker_version_id) = if delete_result.is_delete_marker {
+                    (Some(true), delete_result.version_id)
+                } else {
+                    (None, None)
+                };
+                deleted.push(DeletedObject {
+                    key: obj.key.clone(),
+                    version_id,
+                    delete_marker,
+                    delete_marker_version_id,
+                });
             }
             Err(e) => {
                 // Convert storage error to S3 error code and message
