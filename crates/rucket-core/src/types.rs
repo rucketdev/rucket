@@ -918,6 +918,119 @@ impl TagSet {
     }
 }
 
+/// Protocol for website redirects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WebsiteRedirectProtocol {
+    /// HTTP protocol.
+    Http,
+    /// HTTPS protocol.
+    Https,
+}
+
+impl WebsiteRedirectProtocol {
+    /// Returns the protocol as a string.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https => "https",
+        }
+    }
+
+    /// Parse from string.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "http" => Some(Self::Http),
+            "https" => Some(Self::Https),
+            _ => None,
+        }
+    }
+}
+
+/// Index document configuration for website hosting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexDocument {
+    /// The suffix appended to requests for a directory (e.g., "index.html").
+    pub suffix: String,
+}
+
+/// Error document configuration for website hosting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorDocument {
+    /// The object key to return when an error occurs.
+    pub key: String,
+}
+
+/// Configuration to redirect all requests to another host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedirectAllRequestsTo {
+    /// The host name to redirect to.
+    pub host_name: String,
+    /// The protocol to use for the redirect (http or https).
+    #[serde(default)]
+    pub protocol: Option<WebsiteRedirectProtocol>,
+}
+
+/// Condition for a routing rule.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutingRuleCondition {
+    /// Redirect only if the object key starts with this prefix.
+    #[serde(default)]
+    pub key_prefix_equals: Option<String>,
+    /// Redirect only if the HTTP error code matches.
+    #[serde(default)]
+    pub http_error_code_returned_equals: Option<String>,
+}
+
+/// Redirect action for a routing rule.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutingRuleRedirect {
+    /// The host name to redirect to.
+    #[serde(default)]
+    pub host_name: Option<String>,
+    /// The HTTP redirect code (e.g., 301, 302).
+    #[serde(default)]
+    pub http_redirect_code: Option<String>,
+    /// The protocol to use for the redirect.
+    #[serde(default)]
+    pub protocol: Option<WebsiteRedirectProtocol>,
+    /// Replace the key prefix with this value.
+    #[serde(default)]
+    pub replace_key_prefix_with: Option<String>,
+    /// Replace the entire key with this value.
+    #[serde(default)]
+    pub replace_key_with: Option<String>,
+}
+
+/// A routing rule for website hosting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutingRule {
+    /// The condition that must be met for the redirect to apply.
+    #[serde(default)]
+    pub condition: Option<RoutingRuleCondition>,
+    /// The redirect action to take.
+    pub redirect: RoutingRuleRedirect,
+}
+
+/// Website configuration for a bucket.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebsiteConfiguration {
+    /// The index document configuration.
+    #[serde(default)]
+    pub index_document: Option<IndexDocument>,
+    /// The error document configuration.
+    #[serde(default)]
+    pub error_document: Option<ErrorDocument>,
+    /// Redirect all requests to another host.
+    #[serde(default)]
+    pub redirect_all_requests_to: Option<RedirectAllRequestsTo>,
+    /// Routing rules for conditional redirects.
+    #[serde(default)]
+    pub routing_rules: Vec<RoutingRule>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

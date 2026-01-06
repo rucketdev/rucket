@@ -6,3 +6,4 @@ pub mod minio;
 pub mod multipart;
 pub mod object;
 pub mod replication;
+pub mod website;

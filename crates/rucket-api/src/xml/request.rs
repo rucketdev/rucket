@@ -486,6 +486,111 @@ pub struct ExistingObjectReplicationRequest {
     pub status: String,
 }
 
+/// `WebsiteConfiguration` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "WebsiteConfiguration")]
+pub struct WebsiteConfigurationRequest {
+    /// Index document configuration.
+    #[serde(rename = "IndexDocument")]
+    pub index_document: Option<IndexDocumentRequest>,
+
+    /// Error document configuration.
+    #[serde(rename = "ErrorDocument")]
+    pub error_document: Option<ErrorDocumentRequest>,
+
+    /// Redirect all requests to another host.
+    #[serde(rename = "RedirectAllRequestsTo")]
+    pub redirect_all_requests_to: Option<RedirectAllRequestsToRequest>,
+
+    /// Routing rules for conditional redirects.
+    #[serde(rename = "RoutingRules")]
+    pub routing_rules: Option<RoutingRulesRequest>,
+}
+
+/// Index document configuration in request.
+#[derive(Debug, Deserialize)]
+pub struct IndexDocumentRequest {
+    /// The suffix appended to requests for a directory.
+    #[serde(rename = "Suffix")]
+    pub suffix: String,
+}
+
+/// Error document configuration in request.
+#[derive(Debug, Deserialize)]
+pub struct ErrorDocumentRequest {
+    /// The object key to return when an error occurs.
+    #[serde(rename = "Key")]
+    pub key: String,
+}
+
+/// Redirect all requests to another host in request.
+#[derive(Debug, Deserialize)]
+pub struct RedirectAllRequestsToRequest {
+    /// The host name to redirect to.
+    #[serde(rename = "HostName")]
+    pub host_name: String,
+
+    /// The protocol to use for the redirect.
+    #[serde(rename = "Protocol")]
+    pub protocol: Option<String>,
+}
+
+/// Routing rules wrapper in request.
+#[derive(Debug, Deserialize)]
+pub struct RoutingRulesRequest {
+    /// List of routing rules.
+    #[serde(rename = "RoutingRule", default)]
+    pub rules: Vec<RoutingRuleRequest>,
+}
+
+/// A routing rule in the request.
+#[derive(Debug, Deserialize)]
+pub struct RoutingRuleRequest {
+    /// The condition that must be met for the redirect to apply.
+    #[serde(rename = "Condition")]
+    pub condition: Option<RoutingRuleConditionRequest>,
+
+    /// The redirect action to take.
+    #[serde(rename = "Redirect")]
+    pub redirect: RoutingRuleRedirectRequest,
+}
+
+/// Condition for a routing rule in request.
+#[derive(Debug, Deserialize)]
+pub struct RoutingRuleConditionRequest {
+    /// Redirect only if the object key starts with this prefix.
+    #[serde(rename = "KeyPrefixEquals")]
+    pub key_prefix_equals: Option<String>,
+
+    /// Redirect only if the HTTP error code matches.
+    #[serde(rename = "HttpErrorCodeReturnedEquals")]
+    pub http_error_code_returned_equals: Option<String>,
+}
+
+/// Redirect action for a routing rule in request.
+#[derive(Debug, Deserialize)]
+pub struct RoutingRuleRedirectRequest {
+    /// The host name to redirect to.
+    #[serde(rename = "HostName")]
+    pub host_name: Option<String>,
+
+    /// The HTTP redirect code.
+    #[serde(rename = "HttpRedirectCode")]
+    pub http_redirect_code: Option<String>,
+
+    /// The protocol to use for the redirect.
+    #[serde(rename = "Protocol")]
+    pub protocol: Option<String>,
+
+    /// Replace the key prefix with this value.
+    #[serde(rename = "ReplaceKeyPrefixWith")]
+    pub replace_key_prefix_with: Option<String>,
+
+    /// Replace the entire key with this value.
+    #[serde(rename = "ReplaceKeyWith")]
+    pub replace_key_with: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use quick_xml::de::from_str;

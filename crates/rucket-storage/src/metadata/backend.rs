@@ -9,7 +9,7 @@ use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, CorsConfiguration, MultipartUpload, ObjectLockConfig, ObjectMetadata,
-    ObjectRetention, Part, StorageClass, TagSet, VersioningStatus,
+    ObjectRetention, Part, StorageClass, TagSet, VersioningStatus, WebsiteConfiguration,
 };
 use rucket_core::Result;
 use uuid::Uuid;
@@ -129,6 +129,27 @@ pub trait MetadataBackend: Send + Sync + 'static {
     ///
     /// Returns an error if the bucket does not exist.
     async fn delete_bucket_cors(&self, name: &str) -> Result<()>;
+
+    /// Get website configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn get_bucket_website(&self, name: &str) -> Result<Option<WebsiteConfiguration>>;
+
+    /// Set website configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn put_bucket_website(&self, name: &str, config: WebsiteConfiguration) -> Result<()>;
+
+    /// Delete website configuration for a bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket does not exist.
+    async fn delete_bucket_website(&self, name: &str) -> Result<()>;
 
     // === Object Operations ===
 
