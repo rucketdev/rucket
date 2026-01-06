@@ -254,7 +254,6 @@ async fn test_delete_objects_partial_failure() {
 /// Test delete objects empty list.
 /// Ceph: test_delete_objects_empty
 #[tokio::test]
-#[ignore = "Empty delete list validation not implemented"]
 async fn test_delete_objects_empty_list() {
     let ctx = S3TestContext::new().await;
 
