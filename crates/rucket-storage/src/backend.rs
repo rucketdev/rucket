@@ -61,6 +61,12 @@ pub struct ObjectHeaders {
     pub checksum_algorithm: Option<ChecksumAlgorithm>,
     /// Storage class for the object.
     pub storage_class: Option<StorageClass>,
+    /// SSE-C algorithm if customer-provided encryption was used.
+    pub sse_customer_algorithm: Option<String>,
+    /// MD5 hash of the customer-provided encryption key (base64-encoded).
+    pub sse_customer_key_md5: Option<String>,
+    /// Encryption nonce for SSE-C (12 bytes for AES-256-GCM).
+    pub encryption_nonce: Option<Vec<u8>>,
 }
 
 /// Trait for object storage backends.

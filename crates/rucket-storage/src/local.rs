@@ -1032,9 +1032,16 @@ impl StorageBackend for LocalStorage {
             meta = meta.with_algorithm_checksum(algorithm, checksum.clone());
         }
 
-        // Store encryption metadata if encryption was used
+        // Store encryption metadata if encryption was used (SSE-S3)
         if let Some(ref enc_meta) = encryption_metadata {
             meta = meta.with_encryption(enc_meta.algorithm.as_s3_header(), enc_meta.nonce.clone());
+        }
+
+        // Store SSE-C metadata if provided (data was already encrypted by the handler)
+        if headers.sse_customer_algorithm.is_some() {
+            meta.sse_customer_algorithm = headers.sse_customer_algorithm.clone();
+            meta.sse_customer_key_md5 = headers.sse_customer_key_md5.clone();
+            meta.encryption_nonce = headers.encryption_nonce.clone();
         }
 
         self.metadata.put_object(bucket, meta).await?;
@@ -1057,8 +1064,8 @@ impl StorageBackend for LocalStorage {
             version_id,
             checksum: requested_checksum,
             server_side_encryption,
-            sse_customer_algorithm: None,
-            sse_customer_key_md5: None,
+            sse_customer_algorithm: headers.sse_customer_algorithm,
+            sse_customer_key_md5: headers.sse_customer_key_md5,
         })
     }
 
@@ -1306,6 +1313,10 @@ impl StorageBackend for LocalStorage {
                     .or_else(|| src_meta.content_language.clone()),
                 checksum_algorithm: new_h.checksum_algorithm.or(src_meta.checksum_algorithm),
                 storage_class: new_h.storage_class.or(Some(src_meta.storage_class)),
+                // SSE-C: copy preserves encryption - source object is already decrypted
+                sse_customer_algorithm: None,
+                sse_customer_key_md5: None,
+                encryption_nonce: None,
             }
         } else {
             ObjectHeaders {
@@ -1317,6 +1328,10 @@ impl StorageBackend for LocalStorage {
                 content_language: src_meta.content_language.clone(),
                 checksum_algorithm: src_meta.checksum_algorithm,
                 storage_class: Some(src_meta.storage_class),
+                // SSE-C: copy preserves encryption - source object is already decrypted
+                sse_customer_algorithm: None,
+                sse_customer_key_md5: None,
+                encryption_nonce: None,
             }
         };
         let metadata = new_metadata.unwrap_or(src_meta.user_metadata);

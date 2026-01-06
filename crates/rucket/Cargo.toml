@@ -65,6 +65,8 @@ uuid.workspace = true
 rcgen.workspace = true
 reqwest.workspace = true
 rucket-storage = { path = "../rucket-storage", features = ["bench"] }
+base64.workspace = true
+md-5.workspace = true
 
 [[bin]]
 name = "bench-graph"

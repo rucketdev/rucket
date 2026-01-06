@@ -22,6 +22,10 @@ use super::common::{
     is_aws_chunked, parse_client_checksum, s3_url_decode, ResponseHeaderOverrides, MAX_OBJECT_TAGS,
     MAX_TAG_KEY_LENGTH, MAX_TAG_VALUE_LENGTH,
 };
+use super::sse_c::{
+    decrypt_sse_c, encrypt_sse_c, is_sse_c_encrypted, parse_sse_c_headers,
+    require_sse_c_for_encrypted_object, HEADER_SSE_CUSTOMER_ALGORITHM, HEADER_SSE_CUSTOMER_KEY_MD5,
+};
 use crate::auth::AuthContext;
 use crate::error::ApiError;
 use crate::handlers::bucket::AppState;
@@ -97,6 +101,33 @@ pub async fn put_object(
         ApiError::new(S3ErrorCode::BadDigest, format!("Invalid checksum format: {e}"))
     })?;
 
+    // Parse SSE-C headers
+    let sse_c_headers = parse_sse_c_headers(&headers)?;
+
+    // Decode AWS chunked encoding if present
+    let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
+
+    // Validate client-provided checksum before storage (before encryption)
+    if let Some((algorithm, ref expected)) = client_checksum {
+        let computed = compute_checksum(&body, algorithm);
+        if &computed != expected {
+            return Err(ApiError::new(
+                S3ErrorCode::BadDigest,
+                "The Content-MD5 or checksum value that you specified did not match what the server received.",
+            ));
+        }
+    }
+
+    // Encrypt body with SSE-C if headers are present
+    let (body, sse_c_algorithm, sse_c_key_md5, encryption_nonce) = if let Some(ref sse_c) =
+        sse_c_headers
+    {
+        let (encrypted_data, nonce) = encrypt_sse_c(sse_c, body)?;
+        (encrypted_data, Some(sse_c.algorithm.clone()), Some(sse_c.key_md5.clone()), Some(nonce))
+    } else {
+        (body, None, None, None)
+    };
+
     let object_headers = ObjectHeaders {
         content_type: headers.get("content-type").and_then(|v| v.to_str().ok()).map(String::from),
         cache_control: headers.get("cache-control").and_then(|v| v.to_str().ok()).map(String::from),
@@ -112,21 +143,10 @@ pub async fn put_object(
             .map(String::from),
         checksum_algorithm,
         storage_class,
+        sse_customer_algorithm: sse_c_algorithm,
+        sse_customer_key_md5: sse_c_key_md5,
+        encryption_nonce,
     };
-
-    // Decode AWS chunked encoding if present
-    let body = if is_aws_chunked(&headers) { decode_aws_chunked(body)? } else { body };
-
-    // Validate client-provided checksum before storage
-    if let Some((algorithm, ref expected)) = client_checksum {
-        let computed = compute_checksum(&body, algorithm);
-        if &computed != expected {
-            return Err(ApiError::new(
-                S3ErrorCode::BadDigest,
-                "The Content-MD5 or checksum value that you specified did not match what the server received.",
-            ));
-        }
-    }
 
     let result =
         state.storage.put_object(&bucket, &key, body, object_headers, user_metadata).await?;
@@ -156,6 +176,14 @@ pub async fn put_object(
     // Add server-side encryption header if encryption was applied
     if let Some(ref sse) = result.server_side_encryption {
         response = response.header("x-amz-server-side-encryption", sse.as_str());
+    }
+
+    // Add SSE-C response headers if customer encryption was used
+    if let Some(ref algorithm) = result.sse_customer_algorithm {
+        response = response.header(HEADER_SSE_CUSTOMER_ALGORITHM, algorithm.as_str());
+    }
+    if let Some(ref key_md5) = result.sse_customer_key_md5 {
+        response = response.header(HEADER_SSE_CUSTOMER_KEY_MD5, key_md5.as_str());
     }
 
     response
@@ -277,6 +305,24 @@ pub async fn get_object(
         state.storage.get_object(&bucket, &key).await?
     };
 
+    // Check if object is SSE-C encrypted and decrypt if so
+    let sse_c_headers = require_sse_c_for_encrypted_object(&headers, &meta)?;
+    let data = if let Some(ref sse_c) = sse_c_headers {
+        // Object is SSE-C encrypted, decrypt it
+        let nonce = meta.encryption_nonce.as_ref().ok_or_else(|| {
+            ApiError::new(
+                S3ErrorCode::InternalError,
+                "SSE-C encrypted object is missing encryption nonce",
+            )
+        })?;
+        let stored_key_md5 = meta.sse_customer_key_md5.as_ref().ok_or_else(|| {
+            ApiError::new(S3ErrorCode::InternalError, "SSE-C encrypted object is missing key MD5")
+        })?;
+        decrypt_sse_c(sse_c, data, nonce, stored_key_md5)?
+    } else {
+        data
+    };
+
     // Handle range request for versioned objects (extract range from full data)
     if let Some(range) = range_header {
         return get_object_version_range(meta, data, range);
@@ -335,10 +381,13 @@ pub async fn get_object(
         }
     }
 
+    // For SSE-C encrypted objects, use the actual decrypted data length
+    let content_length = if is_sse_c_encrypted(&meta) { data.len() as u64 } else { meta.size };
+
     let mut response = Response::builder()
         .status(StatusCode::OK)
         .header("ETag", meta.etag.as_str())
-        .header("Content-Length", meta.size.to_string())
+        .header("Content-Length", content_length.to_string())
         .header("Last-Modified", format_http_date(&meta.last_modified));
 
     // Add version ID header if the object has one
@@ -409,6 +458,14 @@ pub async fn get_object(
     // Add storage class header if not STANDARD
     if meta.storage_class != StorageClass::Standard {
         response = response.header("x-amz-storage-class", meta.storage_class.as_str());
+    }
+
+    // Add SSE-C response headers if customer encryption was used
+    if let Some(ref algorithm) = meta.sse_customer_algorithm {
+        response = response.header(HEADER_SSE_CUSTOMER_ALGORITHM, algorithm.as_str());
+    }
+    if let Some(ref key_md5) = meta.sse_customer_key_md5 {
+        response = response.header(HEADER_SSE_CUSTOMER_KEY_MD5, key_md5.as_str());
     }
 
     response
@@ -744,6 +801,10 @@ pub async fn head_object(
         state.storage.head_object(&bucket, &key).await?
     };
 
+    // For SSE-C encrypted objects, require SSE-C headers
+    // (HEAD returns metadata only, doesn't need to decrypt, but AWS requires headers)
+    require_sse_c_for_encrypted_object(&headers, &meta)?;
+
     // Check If-Match: return 412 Precondition Failed if ETag doesn't match
     if let Some(if_match) = headers.get("if-match").and_then(|v| v.to_str().ok()) {
         let etag = meta.etag.as_str();
@@ -756,10 +817,19 @@ pub async fn head_object(
         }
     }
 
+    // For SSE-C encrypted objects, the stored size includes the 16-byte auth tag
+    // Return the plaintext size (encrypted_size - 16)
+    const AES_GCM_TAG_SIZE: u64 = 16;
+    let content_length = if is_sse_c_encrypted(&meta) {
+        meta.size.saturating_sub(AES_GCM_TAG_SIZE)
+    } else {
+        meta.size
+    };
+
     let mut response = Response::builder()
         .status(StatusCode::OK)
         .header("ETag", meta.etag.as_str())
-        .header("Content-Length", meta.size.to_string())
+        .header("Content-Length", content_length.to_string())
         .header("Last-Modified", format_http_date(&meta.last_modified))
         .header("Accept-Ranges", "bytes");
 
@@ -830,6 +900,14 @@ pub async fn head_object(
     // Add storage class header if not STANDARD (STANDARD is the default and often omitted)
     if meta.storage_class != StorageClass::Standard {
         response = response.header("x-amz-storage-class", meta.storage_class.as_str());
+    }
+
+    // Add SSE-C response headers if customer encryption was used
+    if let Some(ref algorithm) = meta.sse_customer_algorithm {
+        response = response.header(HEADER_SSE_CUSTOMER_ALGORITHM, algorithm.as_str());
+    }
+    if let Some(ref key_md5) = meta.sse_customer_key_md5 {
+        response = response.header(HEADER_SSE_CUSTOMER_KEY_MD5, key_md5.as_str());
     }
 
     response
@@ -967,6 +1045,10 @@ pub async fn copy_object(
             // For copy with REPLACE, we don't support changing checksum algorithm
             checksum_algorithm: None,
             storage_class: requested_storage_class,
+            // SSE-C is not currently supported for copy operations
+            sse_customer_algorithm: None,
+            sse_customer_key_md5: None,
+            encryption_nonce: None,
         };
         let user_metadata = extract_user_metadata(&headers);
         (Some(object_headers), Some(user_metadata))
@@ -981,6 +1063,10 @@ pub async fn copy_object(
             content_language: None,
             checksum_algorithm: None,
             storage_class: requested_storage_class,
+            // SSE-C is not currently supported for copy operations
+            sse_customer_algorithm: None,
+            sse_customer_key_md5: None,
+            encryption_nonce: None,
         };
         (Some(object_headers), None)
     } else {
