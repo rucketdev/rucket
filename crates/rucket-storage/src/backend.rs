@@ -10,7 +10,7 @@ use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag, MultipartUpload,
     ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, StorageClass, TagSet,
-    VersioningStatus,
+    VersioningStatus, WebsiteConfiguration,
 };
 use rucket_core::Result;
 
@@ -176,6 +176,17 @@ pub trait StorageBackend: Send + Sync {
 
     /// Delete Replication Configuration for a bucket.
     async fn delete_replication_configuration(&self, name: &str) -> Result<()>;
+
+    // Website Configuration operations
+
+    /// Get Website Configuration for a bucket.
+    async fn get_bucket_website(&self, name: &str) -> Result<Option<WebsiteConfiguration>>;
+
+    /// Set Website Configuration for a bucket.
+    async fn put_bucket_website(&self, name: &str, config: WebsiteConfiguration) -> Result<()>;
+
+    /// Delete Website Configuration for a bucket.
+    async fn delete_bucket_website(&self, name: &str) -> Result<()>;
 
     // Object operations
 

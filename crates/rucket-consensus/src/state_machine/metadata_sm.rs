@@ -187,6 +187,20 @@ impl MetadataStateMachine {
                 }
             }
 
+            MetadataCommand::PutBucketWebsite { bucket, config } => {
+                match self.backend.put_bucket_website(&bucket, config).await {
+                    Ok(()) => MetadataResponse::Ok,
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
+
+            MetadataCommand::DeleteBucketWebsite { bucket } => {
+                match self.backend.delete_bucket_website(&bucket).await {
+                    Ok(()) => MetadataResponse::Ok,
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
+
             MetadataCommand::PutObjectMetadata { bucket, metadata, .. } => {
                 match self.backend.put_object(&bucket, metadata).await {
                     Ok(()) => MetadataResponse::Ok,

@@ -12,7 +12,7 @@ use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     CorsConfiguration, ObjectLockConfig, ObjectMetadata, ObjectRetention, StorageClass, TagSet,
-    VersioningStatus,
+    VersioningStatus, WebsiteConfiguration,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -181,6 +181,20 @@ pub enum MetadataCommand {
 
     /// Delete replication configuration.
     DeleteReplicationConfiguration {
+        /// Bucket name.
+        bucket: String,
+    },
+
+    /// Set website configuration.
+    PutBucketWebsite {
+        /// Bucket name.
+        bucket: String,
+        /// Website configuration.
+        config: WebsiteConfiguration,
+    },
+
+    /// Delete website configuration.
+    DeleteBucketWebsite {
         /// Bucket name.
         bucket: String,
     },
@@ -428,6 +442,8 @@ impl MetadataCommand {
             | Self::DeleteEncryptionConfiguration { bucket }
             | Self::PutReplicationConfiguration { bucket, .. }
             | Self::DeleteReplicationConfiguration { bucket }
+            | Self::PutBucketWebsite { bucket, .. }
+            | Self::DeleteBucketWebsite { bucket }
             | Self::PutBucketLockConfig { bucket, .. }
             | Self::PutObjectMetadata { bucket, .. }
             | Self::DeleteObject { bucket, .. }
@@ -503,6 +519,8 @@ impl MetadataCommand {
             Self::DeleteEncryptionConfiguration { .. } => "DeleteEncryptionConfiguration",
             Self::PutReplicationConfiguration { .. } => "PutReplicationConfiguration",
             Self::DeleteReplicationConfiguration { .. } => "DeleteReplicationConfiguration",
+            Self::PutBucketWebsite { .. } => "PutBucketWebsite",
+            Self::DeleteBucketWebsite { .. } => "DeleteBucketWebsite",
             Self::PutBucketLockConfig { .. } => "PutBucketLockConfig",
             Self::PutObjectMetadata { .. } => "PutObjectMetadata",
             Self::DeleteObject { .. } => "DeleteObject",

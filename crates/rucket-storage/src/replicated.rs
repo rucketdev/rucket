@@ -429,6 +429,25 @@ impl<S: StorageBackend> StorageBackend for ReplicatedStorage<S> {
         self.inner.delete_replication_configuration(name).await
     }
 
+    async fn get_bucket_website(
+        &self,
+        name: &str,
+    ) -> Result<Option<rucket_core::types::WebsiteConfiguration>> {
+        self.inner.get_bucket_website(name).await
+    }
+
+    async fn put_bucket_website(
+        &self,
+        name: &str,
+        config: rucket_core::types::WebsiteConfiguration,
+    ) -> Result<()> {
+        self.inner.put_bucket_website(name, config).await
+    }
+
+    async fn delete_bucket_website(&self, name: &str) -> Result<()> {
+        self.inner.delete_bucket_website(name).await
+    }
+
     async fn get_object(&self, bucket: &str, key: &str) -> Result<(ObjectMetadata, Bytes)> {
         self.inner.get_object(bucket, key).await
     }
@@ -839,6 +858,25 @@ mod tests {
         }
 
         async fn delete_replication_configuration(&self, name: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn get_bucket_website(
+            &self,
+            name: &str,
+        ) -> Result<Option<rucket_core::types::WebsiteConfiguration>> {
+            Ok(None)
+        }
+
+        async fn put_bucket_website(
+            &self,
+            name: &str,
+            config: rucket_core::types::WebsiteConfiguration,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn delete_bucket_website(&self, name: &str) -> Result<()> {
             Ok(())
         }
 

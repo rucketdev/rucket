@@ -14,7 +14,6 @@ use crate::S3TestContext;
 /// Test getting website configuration on bucket with no config.
 /// Ceph: test_get_bucket_website_none
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_get_nonexistent() {
     let ctx = S3TestContext::new().await;
 
@@ -33,7 +32,6 @@ async fn test_bucket_website_get_nonexistent() {
 /// Test putting and getting basic website configuration.
 /// Ceph: test_set_bucket_website_index
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_put_get_index() {
     let ctx = S3TestContext::new().await;
 
@@ -64,7 +62,6 @@ async fn test_bucket_website_put_get_index() {
 /// Test website configuration with error document.
 /// Ceph: test_set_bucket_website_error
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_error_document() {
     let ctx = S3TestContext::new().await;
 
@@ -96,7 +93,6 @@ async fn test_bucket_website_error_document() {
 /// Test deleting website configuration.
 /// Ceph: test_delete_bucket_website
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_delete() {
     let ctx = S3TestContext::new().await;
 
@@ -129,7 +125,6 @@ async fn test_bucket_website_delete() {
 /// Test website configuration with redirect all requests.
 /// Ceph: test_set_bucket_website_redirect_all
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_redirect_all() {
     let ctx = S3TestContext::new().await;
 
@@ -166,7 +161,6 @@ async fn test_bucket_website_redirect_all() {
 /// Test website configuration with routing rules.
 /// Ceph: test_set_bucket_website_routing_rules
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_routing_rules() {
     let ctx = S3TestContext::new().await;
 
@@ -203,7 +197,6 @@ async fn test_bucket_website_routing_rules() {
 /// Test website configuration with HTTP error code condition.
 /// Ceph: test_set_bucket_website_routing_http_error
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_routing_http_error() {
     let ctx = S3TestContext::new().await;
 
@@ -229,7 +222,6 @@ async fn test_bucket_website_routing_http_error() {
 /// Test website configuration with multiple routing rules.
 /// Ceph: test_set_bucket_website_routing_multiple
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_routing_multiple_rules() {
     let ctx = S3TestContext::new().await;
 
@@ -271,7 +263,6 @@ async fn test_bucket_website_routing_multiple_rules() {
 /// Test website configuration without index document (invalid).
 /// Ceph: test_set_bucket_website_empty
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_empty_config() {
     let ctx = S3TestContext::new().await;
 
@@ -293,7 +284,6 @@ async fn test_bucket_website_empty_config() {
 /// Test website configuration on non-existent bucket.
 /// Ceph: test_get_bucket_website_nonexistent_bucket
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_nonexistent_bucket() {
     let ctx = S3TestContext::without_bucket().await;
 
@@ -305,7 +295,6 @@ async fn test_bucket_website_nonexistent_bucket() {
 /// Test website with redirect to external host.
 /// Ceph: test_set_bucket_website_redirect_external
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_redirect_external() {
     let ctx = S3TestContext::new().await;
 
@@ -343,7 +332,6 @@ async fn test_bucket_website_redirect_external() {
 /// Test website with routing rule using hostname redirect.
 /// Ceph: test_set_bucket_website_routing_hostname
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_routing_hostname() {
     let ctx = S3TestContext::new().await;
 
@@ -369,7 +357,6 @@ async fn test_bucket_website_routing_hostname() {
 /// Test updating website configuration.
 /// Ceph: test_update_bucket_website
 #[tokio::test]
-#[ignore = "Website configuration not implemented"]
 async fn test_bucket_website_update() {
     let ctx = S3TestContext::new().await;
 

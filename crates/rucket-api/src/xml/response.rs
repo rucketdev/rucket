@@ -1171,6 +1171,111 @@ pub struct ExistingObjectReplicationResponse {
     pub status: String,
 }
 
+/// `WebsiteConfiguration` response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "WebsiteConfiguration")]
+pub struct WebsiteConfigurationResponse {
+    /// Index document configuration.
+    #[serde(rename = "IndexDocument", skip_serializing_if = "Option::is_none")]
+    pub index_document: Option<IndexDocumentResponse>,
+
+    /// Error document configuration.
+    #[serde(rename = "ErrorDocument", skip_serializing_if = "Option::is_none")]
+    pub error_document: Option<ErrorDocumentResponse>,
+
+    /// Redirect all requests to another host.
+    #[serde(rename = "RedirectAllRequestsTo", skip_serializing_if = "Option::is_none")]
+    pub redirect_all_requests_to: Option<RedirectAllRequestsToResponse>,
+
+    /// Routing rules for conditional redirects.
+    #[serde(rename = "RoutingRules", skip_serializing_if = "Option::is_none")]
+    pub routing_rules: Option<RoutingRulesResponse>,
+}
+
+/// Index document configuration in response.
+#[derive(Debug, Serialize)]
+pub struct IndexDocumentResponse {
+    /// The suffix appended to requests for a directory.
+    #[serde(rename = "Suffix")]
+    pub suffix: String,
+}
+
+/// Error document configuration in response.
+#[derive(Debug, Serialize)]
+pub struct ErrorDocumentResponse {
+    /// The object key to return when an error occurs.
+    #[serde(rename = "Key")]
+    pub key: String,
+}
+
+/// Redirect all requests to another host in response.
+#[derive(Debug, Serialize)]
+pub struct RedirectAllRequestsToResponse {
+    /// The host name to redirect to.
+    #[serde(rename = "HostName")]
+    pub host_name: String,
+
+    /// The protocol to use for the redirect.
+    #[serde(rename = "Protocol", skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+}
+
+/// Routing rules wrapper in response.
+#[derive(Debug, Serialize)]
+pub struct RoutingRulesResponse {
+    /// List of routing rules.
+    #[serde(rename = "RoutingRule", default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<RoutingRuleResponse>,
+}
+
+/// A routing rule in the response.
+#[derive(Debug, Serialize)]
+pub struct RoutingRuleResponse {
+    /// The condition that must be met for the redirect to apply.
+    #[serde(rename = "Condition", skip_serializing_if = "Option::is_none")]
+    pub condition: Option<RoutingRuleConditionResponse>,
+
+    /// The redirect action to take.
+    #[serde(rename = "Redirect")]
+    pub redirect: RoutingRuleRedirectResponse,
+}
+
+/// Condition for a routing rule in response.
+#[derive(Debug, Serialize)]
+pub struct RoutingRuleConditionResponse {
+    /// Redirect only if the object key starts with this prefix.
+    #[serde(rename = "KeyPrefixEquals", skip_serializing_if = "Option::is_none")]
+    pub key_prefix_equals: Option<String>,
+
+    /// Redirect only if the HTTP error code matches.
+    #[serde(rename = "HttpErrorCodeReturnedEquals", skip_serializing_if = "Option::is_none")]
+    pub http_error_code_returned_equals: Option<String>,
+}
+
+/// Redirect action for a routing rule in response.
+#[derive(Debug, Serialize)]
+pub struct RoutingRuleRedirectResponse {
+    /// The host name to redirect to.
+    #[serde(rename = "HostName", skip_serializing_if = "Option::is_none")]
+    pub host_name: Option<String>,
+
+    /// The HTTP redirect code.
+    #[serde(rename = "HttpRedirectCode", skip_serializing_if = "Option::is_none")]
+    pub http_redirect_code: Option<String>,
+
+    /// The protocol to use for the redirect.
+    #[serde(rename = "Protocol", skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+
+    /// Replace the key prefix with this value.
+    #[serde(rename = "ReplaceKeyPrefixWith", skip_serializing_if = "Option::is_none")]
+    pub replace_key_prefix_with: Option<String>,
+
+    /// Replace the entire key with this value.
+    #[serde(rename = "ReplaceKeyWith", skip_serializing_if = "Option::is_none")]
+    pub replace_key_with: Option<String>,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors

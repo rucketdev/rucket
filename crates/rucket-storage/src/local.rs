@@ -850,6 +850,25 @@ impl StorageBackend for LocalStorage {
         self.metadata.delete_replication_configuration(name).await
     }
 
+    async fn get_bucket_website(
+        &self,
+        name: &str,
+    ) -> Result<Option<rucket_core::types::WebsiteConfiguration>> {
+        self.metadata.get_bucket_website(name).await
+    }
+
+    async fn put_bucket_website(
+        &self,
+        name: &str,
+        config: rucket_core::types::WebsiteConfiguration,
+    ) -> Result<()> {
+        self.metadata.put_bucket_website(name, config).await
+    }
+
+    async fn delete_bucket_website(&self, name: &str) -> Result<()> {
+        self.metadata.delete_bucket_website(name).await
+    }
+
     async fn put_object(
         &self,
         bucket: &str,

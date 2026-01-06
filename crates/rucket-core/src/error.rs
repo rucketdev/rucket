@@ -45,6 +45,8 @@ pub enum S3ErrorCode {
     NoSuchPublicAccessBlockConfiguration,
     /// The replication configuration was not found.
     ReplicationConfigurationNotFoundError,
+    /// The website configuration was not found.
+    NoSuchWebsiteConfiguration,
     /// The bucket is in an invalid state for the requested operation.
     InvalidBucketState,
     /// Your proposed upload is smaller than the minimum allowed object size.
@@ -97,7 +99,8 @@ impl S3ErrorCode {
             | Self::ObjectLockConfigurationNotFoundError
             | Self::ServerSideEncryptionConfigurationNotFoundError
             | Self::NoSuchPublicAccessBlockConfiguration
-            | Self::ReplicationConfigurationNotFoundError => 404,
+            | Self::ReplicationConfigurationNotFoundError
+            | Self::NoSuchWebsiteConfiguration => 404,
             Self::BucketAlreadyExists | Self::BucketNotEmpty => 409,
             Self::MethodNotAllowed => 405,
             Self::EntityTooSmall
@@ -152,6 +155,7 @@ impl S3ErrorCode {
             }
             Self::NoSuchPublicAccessBlockConfiguration => "NoSuchPublicAccessBlockConfiguration",
             Self::ReplicationConfigurationNotFoundError => "ReplicationConfigurationNotFoundError",
+            Self::NoSuchWebsiteConfiguration => "NoSuchWebsiteConfiguration",
             Self::InvalidBucketState => "InvalidBucketState",
             Self::EntityTooSmall => "EntityTooSmall",
             Self::EntityTooLarge => "EntityTooLarge",
