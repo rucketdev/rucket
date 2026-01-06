@@ -115,7 +115,7 @@ jobs:
 
       - name: Upload artifact (Unix)
         if: "!contains(matrix.target, 'windows')"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rucket-${{ matrix.name }}
           path: |
@@ -124,7 +124,7 @@ jobs:
 
       - name: Upload artifact (Windows)
         if: contains(matrix.target, 'windows')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rucket-${{ matrix.name }}
           path: |
