@@ -812,7 +812,6 @@ async fn test_object_get_website_redirect() {
 /// Test GET server side encryption info.
 /// Ceph: test_object_get_sse_info
 #[tokio::test]
-#[ignore = "SSE not fully implemented"]
 async fn test_object_get_sse_info() {
     let ctx = S3TestContext::new().await;
 
