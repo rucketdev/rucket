@@ -201,6 +201,20 @@ impl MetadataStateMachine {
                 }
             }
 
+            MetadataCommand::PutBucketLogging { bucket, config } => {
+                match self.backend.put_bucket_logging(&bucket, config).await {
+                    Ok(()) => MetadataResponse::Ok,
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
+
+            MetadataCommand::DeleteBucketLogging { bucket } => {
+                match self.backend.delete_bucket_logging(&bucket).await {
+                    Ok(()) => MetadataResponse::Ok,
+                    Err(e) => MetadataResponse::from_error(&e),
+                }
+            }
+
             MetadataCommand::PutObjectMetadata { bucket, metadata, .. } => {
                 match self.backend.put_object(&bucket, metadata).await {
                     Ok(()) => MetadataResponse::Ok,

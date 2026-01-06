@@ -591,6 +591,75 @@ pub struct RoutingRuleRedirectRequest {
     pub replace_key_with: Option<String>,
 }
 
+/// `BucketLoggingStatus` request body.
+#[derive(Debug, Deserialize)]
+#[serde(rename = "BucketLoggingStatus")]
+pub struct BucketLoggingStatusRequest {
+    /// Logging enabled configuration.
+    #[serde(rename = "LoggingEnabled")]
+    pub logging_enabled: Option<LoggingEnabledRequest>,
+}
+
+/// Logging enabled configuration in request.
+#[derive(Debug, Deserialize)]
+pub struct LoggingEnabledRequest {
+    /// Target bucket for log files.
+    #[serde(rename = "TargetBucket")]
+    pub target_bucket: String,
+
+    /// Prefix for log object keys.
+    #[serde(rename = "TargetPrefix", default)]
+    pub target_prefix: String,
+
+    /// Grants for access to log files.
+    #[serde(rename = "TargetGrants")]
+    pub target_grants: Option<TargetGrantsRequest>,
+}
+
+/// Target grants container in request.
+#[derive(Debug, Deserialize)]
+pub struct TargetGrantsRequest {
+    /// List of grants.
+    #[serde(rename = "Grant", default)]
+    pub grants: Vec<LoggingGrantRequest>,
+}
+
+/// A grant for log file access in request.
+#[derive(Debug, Deserialize)]
+pub struct LoggingGrantRequest {
+    /// The grantee.
+    #[serde(rename = "Grantee")]
+    pub grantee: LoggingGranteeRequest,
+
+    /// The permission granted.
+    #[serde(rename = "Permission")]
+    pub permission: String,
+}
+
+/// Grantee in a logging grant request.
+#[derive(Debug, Deserialize)]
+pub struct LoggingGranteeRequest {
+    /// Type of grantee (xsi:type attribute).
+    #[serde(rename = "@xsi:type", alias = "@type", default)]
+    pub grantee_type: Option<String>,
+
+    /// Canonical user ID.
+    #[serde(rename = "ID")]
+    pub id: Option<String>,
+
+    /// Display name.
+    #[serde(rename = "DisplayName")]
+    pub display_name: Option<String>,
+
+    /// Email address.
+    #[serde(rename = "EmailAddress")]
+    pub email_address: Option<String>,
+
+    /// Group URI.
+    #[serde(rename = "URI")]
+    pub uri: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use quick_xml::de::from_str;

@@ -1031,6 +1031,97 @@ pub struct WebsiteConfiguration {
     pub routing_rules: Vec<RoutingRule>,
 }
 
+// =============================================================================
+// Bucket Logging Types
+// =============================================================================
+
+/// Permission for a logging grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LoggingPermission {
+    /// Full control over log files.
+    FullControl,
+    /// Read access to log files.
+    Read,
+    /// Write access to log files.
+    Write,
+}
+
+impl LoggingPermission {
+    /// Returns the permission as a string.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::FullControl => "FULL_CONTROL",
+            Self::Read => "READ",
+            Self::Write => "WRITE",
+        }
+    }
+
+    /// Parse from string representation.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "FULL_CONTROL" => Some(Self::FullControl),
+            "READ" => Some(Self::Read),
+            "WRITE" => Some(Self::Write),
+            _ => None,
+        }
+    }
+}
+
+/// Type of grantee for logging grants.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LoggingGrantee {
+    /// Canonical user identified by ID.
+    CanonicalUser {
+        /// The canonical user ID.
+        id: String,
+        /// Optional display name.
+        #[serde(default)]
+        display_name: Option<String>,
+    },
+    /// Email address of the user.
+    AmazonCustomerByEmail {
+        /// The email address.
+        email_address: String,
+    },
+    /// A predefined group.
+    Group {
+        /// The group URI.
+        uri: String,
+    },
+}
+
+/// A grant for access to log files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoggingGrant {
+    /// The grantee.
+    pub grantee: LoggingGrantee,
+    /// The permission granted.
+    pub permission: LoggingPermission,
+}
+
+/// Logging configuration when logging is enabled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoggingEnabled {
+    /// The target bucket where logs are stored.
+    pub target_bucket: String,
+    /// The prefix for log object keys.
+    #[serde(default)]
+    pub target_prefix: String,
+    /// Optional grants for log file access.
+    #[serde(default)]
+    pub target_grants: Vec<LoggingGrant>,
+}
+
+/// Bucket logging configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BucketLoggingStatus {
+    /// Logging configuration when enabled. None means logging is disabled.
+    #[serde(default)]
+    pub logging_enabled: Option<LoggingEnabled>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

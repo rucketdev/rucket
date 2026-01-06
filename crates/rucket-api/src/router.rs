@@ -16,7 +16,7 @@ use tracing::Level;
 
 use crate::auth::{auth_middleware, AuthContext, AuthState};
 use crate::handlers::bucket::{self, AppState};
-use crate::handlers::{minio, multipart, object, replication, website};
+use crate::handlers::{logging, minio, multipart, object, replication, website};
 use crate::middleware::metrics_layer;
 
 /// Query parameters to determine request type.
@@ -99,6 +99,8 @@ pub struct RequestQuery {
     replication: Option<String>,
     /// Bucket website configuration.
     website: Option<String>,
+    /// Bucket logging configuration.
+    logging: Option<String>,
     /// List object versions.
     versions: Option<String>,
     /// Bucket location.
@@ -301,6 +303,10 @@ async fn handle_bucket_put(
     if query.website.is_some() {
         return website::put_bucket_website(state, path, body).await.into_response();
     }
+    // Check for ?logging (PutBucketLogging)
+    if query.logging.is_some() {
+        return logging::put_bucket_logging(state, path, body).await.into_response();
+    }
     // Default: CreateBucket
     bucket::create_bucket(state, path, headers).await.into_response()
 }
@@ -457,6 +463,10 @@ async fn handle_bucket_get(
     // Check for ?website (GetBucketWebsite)
     if query.website.is_some() {
         return website::get_bucket_website(state, path).await.into_response();
+    }
+    // Check for ?logging (GetBucketLogging)
+    if query.logging.is_some() {
+        return logging::get_bucket_logging(state, path).await.into_response();
     }
     // Check for ?location (GetBucketLocation)
     if query.location.is_some() {

@@ -11,8 +11,8 @@ use rucket_core::lifecycle::LifecycleConfiguration;
 use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
-    CorsConfiguration, ObjectLockConfig, ObjectMetadata, ObjectRetention, StorageClass, TagSet,
-    VersioningStatus, WebsiteConfiguration,
+    BucketLoggingStatus, CorsConfiguration, ObjectLockConfig, ObjectMetadata, ObjectRetention,
+    StorageClass, TagSet, VersioningStatus, WebsiteConfiguration,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -195,6 +195,20 @@ pub enum MetadataCommand {
 
     /// Delete website configuration.
     DeleteBucketWebsite {
+        /// Bucket name.
+        bucket: String,
+    },
+
+    /// Set logging configuration.
+    PutBucketLogging {
+        /// Bucket name.
+        bucket: String,
+        /// Logging configuration.
+        config: BucketLoggingStatus,
+    },
+
+    /// Delete logging configuration.
+    DeleteBucketLogging {
         /// Bucket name.
         bucket: String,
     },
@@ -444,6 +458,8 @@ impl MetadataCommand {
             | Self::DeleteReplicationConfiguration { bucket }
             | Self::PutBucketWebsite { bucket, .. }
             | Self::DeleteBucketWebsite { bucket }
+            | Self::PutBucketLogging { bucket, .. }
+            | Self::DeleteBucketLogging { bucket }
             | Self::PutBucketLockConfig { bucket, .. }
             | Self::PutObjectMetadata { bucket, .. }
             | Self::DeleteObject { bucket, .. }
@@ -521,6 +537,8 @@ impl MetadataCommand {
             Self::DeleteReplicationConfiguration { .. } => "DeleteReplicationConfiguration",
             Self::PutBucketWebsite { .. } => "PutBucketWebsite",
             Self::DeleteBucketWebsite { .. } => "DeleteBucketWebsite",
+            Self::PutBucketLogging { .. } => "PutBucketLogging",
+            Self::DeleteBucketLogging { .. } => "DeleteBucketLogging",
             Self::PutBucketLockConfig { .. } => "PutBucketLockConfig",
             Self::PutObjectMetadata { .. } => "PutObjectMetadata",
             Self::DeleteObject { .. } => "DeleteObject",

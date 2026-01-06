@@ -1276,6 +1276,89 @@ pub struct RoutingRuleRedirectResponse {
     pub replace_key_with: Option<String>,
 }
 
+/// `BucketLoggingStatus` response.
+#[derive(Debug, Serialize)]
+#[serde(rename = "BucketLoggingStatus")]
+pub struct BucketLoggingStatusResponse {
+    /// XML namespace.
+    #[serde(rename = "@xmlns")]
+    pub xmlns: &'static str,
+
+    /// Logging enabled configuration.
+    #[serde(rename = "LoggingEnabled", skip_serializing_if = "Option::is_none")]
+    pub logging_enabled: Option<LoggingEnabledResponse>,
+}
+
+impl Default for BucketLoggingStatusResponse {
+    fn default() -> Self {
+        Self { xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", logging_enabled: None }
+    }
+}
+
+/// Logging enabled configuration in response.
+#[derive(Debug, Serialize)]
+pub struct LoggingEnabledResponse {
+    /// Target bucket for log files.
+    #[serde(rename = "TargetBucket")]
+    pub target_bucket: String,
+
+    /// Prefix for log object keys.
+    #[serde(rename = "TargetPrefix")]
+    pub target_prefix: String,
+
+    /// Grants for access to log files.
+    #[serde(rename = "TargetGrants", skip_serializing_if = "Option::is_none")]
+    pub target_grants: Option<TargetGrantsResponse>,
+}
+
+/// Target grants container in response.
+#[derive(Debug, Serialize)]
+pub struct TargetGrantsResponse {
+    /// List of grants.
+    #[serde(rename = "Grant", default)]
+    pub grants: Vec<LoggingGrantResponse>,
+}
+
+/// A grant for log file access in response.
+#[derive(Debug, Serialize)]
+pub struct LoggingGrantResponse {
+    /// The grantee.
+    #[serde(rename = "Grantee")]
+    pub grantee: LoggingGranteeResponse,
+
+    /// The permission granted.
+    #[serde(rename = "Permission")]
+    pub permission: String,
+}
+
+/// Grantee in a logging grant response.
+#[derive(Debug, Serialize)]
+pub struct LoggingGranteeResponse {
+    /// Type of grantee (xsi:type attribute).
+    #[serde(rename = "@xsi:type", skip_serializing_if = "Option::is_none")]
+    pub grantee_type: Option<String>,
+
+    /// XML namespace for XSI.
+    #[serde(rename = "@xmlns:xsi", skip_serializing_if = "Option::is_none")]
+    pub xmlns_xsi: Option<&'static str>,
+
+    /// Canonical user ID.
+    #[serde(rename = "ID", skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// Display name.
+    #[serde(rename = "DisplayName", skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+
+    /// Email address.
+    #[serde(rename = "EmailAddress", skip_serializing_if = "Option::is_none")]
+    pub email_address: Option<String>,
+
+    /// Group URI.
+    #[serde(rename = "URI", skip_serializing_if = "Option::is_none")]
+    pub uri: Option<String>,
+}
+
 /// Serialize a response to XML.
 ///
 /// # Errors
