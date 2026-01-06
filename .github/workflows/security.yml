@@ -19,3 +19,11 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Advisory ignores - review quarterly and remove when upstream fixes are available
+          #
+          # RUSTSEC-2026-0001: rkyv OOM handling vulnerability (added 2026-01-06)
+          # - Transitive optional dependency from rust_decimal via byte-unit
+          # - rkyv is in Cargo.lock but NOT compiled (rust_decimal only uses std feature)
+          # - Verified via `cargo tree -e features | grep rkyv` returns empty
+          # - False positive - can be removed when cargo-audit supports feature-aware scanning
+          ignore: RUSTSEC-2026-0001
