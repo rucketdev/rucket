@@ -1,6 +1,8 @@
 //! Server-side encryption tests.
 //!
-//! All tests are marked #[ignore] as SSE is not implemented.
+//! SSE-C (customer-provided keys) is fully implemented.
+//! SSE-S3 (server-managed keys) is implemented.
+//! SSE-KMS (AWS KMS keys) tests are marked #[ignore] as KMS is not implemented.
 
 pub mod sse_c;
 pub mod sse_kms;
