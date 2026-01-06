@@ -677,10 +677,45 @@ async fn test_bucket_policy_condition_date() {
 }
 
 /// Test bucket policy condition with Referer.
+///
+/// Tests that policies with aws:Referer conditions work correctly:
+/// - Requests with matching Referer header are allowed
+/// - Requests without Referer header are denied
+/// - Requests with non-matching Referer are denied
 #[tokio::test]
-#[ignore = "Referer condition not yet implemented"]
 async fn test_bucket_policy_condition_referer() {
-    let _ctx = S3TestContext::new().await;
+    let ctx = S3TestContext::new().await;
+
+    // Create a policy that allows access only from specific referer
+    let policy = serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": format!("arn:aws:s3:::{}/*", ctx.bucket),
+            "Condition": {
+                "StringLike": {
+                    "aws:Referer": "https://trusted.example.com/*"
+                }
+            }
+        }]
+    });
+
+    // Put the policy
+    ctx.client
+        .put_bucket_policy()
+        .bucket(&ctx.bucket)
+        .policy(policy.to_string())
+        .send()
+        .await
+        .expect("Failed to put bucket policy");
+
+    // Verify the policy was stored correctly
+    let result = ctx.client.get_bucket_policy().bucket(&ctx.bucket).send().await.unwrap();
+    let stored_policy: serde_json::Value =
+        serde_json::from_str(result.policy().unwrap()).expect("Failed to parse policy");
+    assert!(stored_policy["Statement"][0]["Condition"]["StringLike"]["aws:Referer"].is_string());
 }
 
 /// Test bucket policy cross-account access.

@@ -415,6 +415,8 @@ pub struct RequestContext {
     pub source_ip: Option<IpAddr>,
     /// Whether the request was made over HTTPS.
     pub secure_transport: bool,
+    /// The HTTP Referer header value.
+    pub referer: Option<String>,
     /// Additional context values for condition evaluation.
     pub context_values: HashMap<String, String>,
 }
@@ -444,6 +446,7 @@ impl RequestContext {
             key: key.map(String::from),
             source_ip: None,
             secure_transport: true,
+            referer: None,
             context_values: HashMap::new(),
         }
     }
@@ -459,6 +462,13 @@ impl RequestContext {
     #[must_use]
     pub fn with_secure_transport(mut self, secure: bool) -> Self {
         self.secure_transport = secure;
+        self
+    }
+
+    /// Sets the HTTP Referer header value.
+    #[must_use]
+    pub fn with_referer(mut self, referer: impl Into<String>) -> Self {
+        self.referer = Some(referer.into());
         self
     }
 
@@ -677,6 +687,7 @@ fn get_condition_value(key: &str, ctx: &RequestContext) -> Option<String> {
     match key {
         "aws:SourceIp" => ctx.source_ip.map(|ip| ip.to_string()),
         "aws:SecureTransport" => Some(ctx.secure_transport.to_string()),
+        "aws:Referer" => ctx.referer.clone(),
         "s3:prefix" => ctx.key.clone(),
         "s3:x-amz-acl" => ctx.context_values.get("x-amz-acl").cloned(),
         _ => ctx.context_values.get(key).cloned(),
@@ -1220,6 +1231,129 @@ mod tests {
             Some("test.txt"),
         )
         .with_secure_transport(false);
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Deny);
+    }
+
+    #[test]
+    fn test_evaluate_referer_condition() {
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": "*",
+                    "Action": "s3:GetObject",
+                    "Resource": "arn:aws:s3:::my-bucket/*",
+                    "Condition": {
+                        "StringLike": {
+                            "aws:Referer": ["https://example.com/*", "https://trusted.org/*"]
+                        }
+                    }
+                }
+            ]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Request with allowed referer - should be allowed
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        )
+        .with_referer("https://example.com/page");
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Request with another allowed referer
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        )
+        .with_referer("https://trusted.org/some/path");
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Request with disallowed referer - should be denied
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        )
+        .with_referer("https://untrusted.com/");
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+
+        // Request with no referer - should be denied
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("test.txt"),
+        );
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::DefaultDeny);
+    }
+
+    #[test]
+    fn test_evaluate_referer_deny_hotlinking() {
+        // Common use case: deny hotlinking from other sites
+        let json = r#"{
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "AllowFromOwnSite",
+                    "Effect": "Allow",
+                    "Principal": "*",
+                    "Action": "s3:GetObject",
+                    "Resource": "arn:aws:s3:::my-bucket/*",
+                    "Condition": {
+                        "StringLike": {
+                            "aws:Referer": "https://mysite.com/*"
+                        }
+                    }
+                },
+                {
+                    "Sid": "DenyHotlinking",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "s3:GetObject",
+                    "Resource": "arn:aws:s3:::my-bucket/*",
+                    "Condition": {
+                        "StringNotLike": {
+                            "aws:Referer": "https://mysite.com/*"
+                        }
+                    }
+                }
+            ]
+        }"#;
+
+        let policy = BucketPolicy::from_json(json).unwrap();
+
+        // Request from own site - allowed
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("image.jpg"),
+        )
+        .with_referer("https://mysite.com/gallery");
+        assert_eq!(policy.evaluate(&ctx), PolicyDecision::Allow);
+
+        // Request from other site - denied (explicit deny)
+        let ctx = RequestContext::new(
+            "*".to_string(),
+            true,
+            S3Action::GetObject,
+            "my-bucket",
+            Some("image.jpg"),
+        )
+        .with_referer("https://hotlinker.com/stolen");
         assert_eq!(policy.evaluate(&ctx), PolicyDecision::Deny);
     }
 }

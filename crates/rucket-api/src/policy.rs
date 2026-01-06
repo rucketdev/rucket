@@ -29,6 +29,11 @@ pub struct RequestInfo {
     /// Extracted from `X-Forwarded-Proto` header,
     /// useful for policy conditions like `aws:SecureTransport`.
     pub is_secure: bool,
+
+    /// The Referer header value.
+    ///
+    /// Useful for policy conditions like `aws:Referer`.
+    pub referer: Option<String>,
 }
 
 impl RequestInfo {
@@ -37,6 +42,7 @@ impl RequestInfo {
     /// This function extracts:
     /// - Source IP from `X-Forwarded-For` (first IP) or `X-Real-IP` headers
     /// - HTTPS status from `X-Forwarded-Proto` header
+    /// - Referer from `Referer` header
     ///
     /// # Arguments
     /// * `headers` - The HTTP request headers
@@ -47,8 +53,9 @@ impl RequestInfo {
     pub fn from_headers(headers: &HeaderMap) -> Self {
         let source_ip = Self::extract_source_ip(headers);
         let is_secure = Self::extract_is_secure(headers);
+        let referer = Self::extract_referer(headers);
 
-        Self { source_ip, is_secure }
+        Self { source_ip, is_secure, referer }
     }
 
     /// Extract source IP address from headers.
@@ -93,6 +100,11 @@ impl RequestInfo {
             }
         }
         false
+    }
+
+    /// Extract Referer header value.
+    fn extract_referer(headers: &HeaderMap) -> Option<String> {
+        headers.get("referer").and_then(|v| v.to_str().ok()).map(|s| s.to_string())
     }
 }
 
@@ -164,6 +176,7 @@ pub async fn evaluate_bucket_policy<S: StorageBackend>(
         key: key.map(String::from),
         source_ip,
         secure_transport,
+        referer: None,
         context_values: std::collections::HashMap::new(),
     };
 
@@ -241,6 +254,7 @@ mod tests {
         let info = RequestInfo::default();
         assert!(info.source_ip.is_none());
         assert!(!info.is_secure);
+        assert!(info.referer.is_none());
     }
 
     #[test]
@@ -327,6 +341,7 @@ mod tests {
         let info = RequestInfo::from_headers(&headers);
         assert!(info.source_ip.is_none());
         assert!(!info.is_secure);
+        assert!(info.referer.is_none());
     }
 
     #[test]
@@ -337,5 +352,32 @@ mod tests {
         let info = RequestInfo::from_headers(&headers);
         assert_eq!(info.source_ip, Some("172.16.0.100".parse().unwrap()));
         assert!(info.is_secure);
+    }
+
+    #[test]
+    fn test_request_info_referer() {
+        let mut headers = HeaderMap::new();
+        headers.insert("referer", "https://example.com/page".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert_eq!(info.referer, Some("https://example.com/page".to_string()));
+    }
+
+    #[test]
+    fn test_request_info_referer_missing() {
+        let headers = HeaderMap::new();
+        let info = RequestInfo::from_headers(&headers);
+        assert!(info.referer.is_none());
+    }
+
+    #[test]
+    fn test_request_info_all_fields() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "10.0.0.1".parse().unwrap());
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        headers.insert("referer", "https://trusted.example.com".parse().unwrap());
+        let info = RequestInfo::from_headers(&headers);
+        assert_eq!(info.source_ip, Some("10.0.0.1".parse().unwrap()));
+        assert!(info.is_secure);
+        assert_eq!(info.referer, Some("https://trusted.example.com".to_string()));
     }
 }
