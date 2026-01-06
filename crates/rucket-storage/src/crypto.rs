@@ -17,8 +17,10 @@
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
+use base64::Engine;
 use bytes::Bytes;
 use hkdf::Hkdf;
+use md5::{Digest, Md5};
 use rand::RngCore;
 use sha2::Sha256;
 use thiserror::Error;
@@ -29,7 +31,7 @@ use zeroize::Zeroize;
 const NONCE_SIZE: usize = 12;
 
 /// AES-256 key size (256 bits = 32 bytes).
-const KEY_SIZE: usize = 32;
+pub const KEY_SIZE: usize = 32;
 
 /// Encryption errors.
 #[derive(Debug, Error)]
@@ -49,6 +51,18 @@ pub enum CryptoError {
     /// Invalid nonce.
     #[error("invalid nonce: must be exactly 12 bytes")]
     InvalidNonce,
+
+    /// Invalid customer key for SSE-C.
+    #[error("invalid customer key: must be exactly 32 bytes")]
+    InvalidCustomerKey,
+
+    /// MD5 mismatch for SSE-C key.
+    #[error("SSE-C key MD5 mismatch")]
+    KeyMd5Mismatch,
+
+    /// Wrong key provided for decryption.
+    #[error("access denied: wrong encryption key")]
+    WrongKey,
 }
 
 /// Result type for crypto operations.
@@ -275,6 +289,187 @@ impl SseS3Provider {
             cipher.decrypt(nonce, ciphertext).map_err(|_| CryptoError::DecryptionFailed)?;
 
         Ok(Bytes::from(plaintext))
+    }
+}
+
+// =============================================================================
+// SSE-C (Customer-Provided Keys) Support
+// =============================================================================
+
+/// Parsed SSE-C headers from a request.
+#[derive(Debug, Clone)]
+pub struct SseCHeaders {
+    /// The encryption algorithm (must be "AES256").
+    pub algorithm: String,
+    /// The 256-bit customer-provided encryption key.
+    pub key: [u8; KEY_SIZE],
+    /// The base64-encoded MD5 hash of the key.
+    pub key_md5: String,
+}
+
+impl SseCHeaders {
+    /// Parse SSE-C headers from a request.
+    ///
+    /// # Arguments
+    ///
+    /// * `algorithm` - The x-amz-server-side-encryption-customer-algorithm header (must be "AES256")
+    /// * `key_base64` - The x-amz-server-side-encryption-customer-key header (base64-encoded 256-bit key)
+    /// * `key_md5_base64` - The x-amz-server-side-encryption-customer-key-MD5 header (base64-encoded MD5)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The algorithm is not "AES256"
+    /// - The key is not exactly 32 bytes when decoded
+    /// - The provided MD5 doesn't match the computed MD5 of the key
+    pub fn parse(algorithm: &str, key_base64: &str, key_md5_base64: &str) -> CryptoResult<Self> {
+        // Validate algorithm
+        if algorithm != "AES256" {
+            return Err(CryptoError::EncryptionFailed(format!(
+                "Invalid SSE-C algorithm: {}. Must be AES256",
+                algorithm
+            )));
+        }
+
+        // Decode the key
+        let key_bytes = base64::engine::general_purpose::STANDARD
+            .decode(key_base64)
+            .map_err(|_| CryptoError::InvalidCustomerKey)?;
+
+        if key_bytes.len() != KEY_SIZE {
+            return Err(CryptoError::InvalidCustomerKey);
+        }
+
+        let mut key = [0u8; KEY_SIZE];
+        key.copy_from_slice(&key_bytes);
+
+        // Compute and verify MD5
+        let mut hasher = Md5::new();
+        hasher.update(key);
+        let computed_md5 = hasher.finalize();
+        let computed_md5_base64 = base64::engine::general_purpose::STANDARD.encode(computed_md5);
+
+        if computed_md5_base64 != key_md5_base64 {
+            return Err(CryptoError::KeyMd5Mismatch);
+        }
+
+        Ok(Self { algorithm: algorithm.to_string(), key, key_md5: key_md5_base64.to_string() })
+    }
+
+    /// Compute the MD5 hash of a key and return it base64-encoded.
+    #[must_use]
+    pub fn compute_key_md5(key: &[u8; KEY_SIZE]) -> String {
+        let mut hasher = Md5::new();
+        hasher.update(key);
+        let md5 = hasher.finalize();
+        base64::engine::general_purpose::STANDARD.encode(md5)
+    }
+}
+
+/// Securely zero the key when dropped.
+impl Drop for SseCHeaders {
+    fn drop(&mut self) {
+        self.key.zeroize();
+    }
+}
+
+/// SSE-C encryption provider.
+///
+/// Encrypts/decrypts data using a customer-provided 256-bit key.
+/// Unlike SSE-S3, no key derivation is performed - the customer key is used directly.
+pub struct SseCProvider {
+    key: [u8; KEY_SIZE],
+}
+
+impl SseCProvider {
+    /// Creates a new SSE-C provider from parsed headers.
+    #[must_use]
+    pub fn new(headers: &SseCHeaders) -> Self {
+        Self { key: headers.key }
+    }
+
+    /// Creates a new SSE-C provider from a raw key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key is not exactly 32 bytes.
+    pub fn from_key(key: &[u8]) -> CryptoResult<Self> {
+        if key.len() != KEY_SIZE {
+            return Err(CryptoError::InvalidCustomerKey);
+        }
+
+        let mut key_arr = [0u8; KEY_SIZE];
+        key_arr.copy_from_slice(key);
+
+        Ok(Self { key: key_arr })
+    }
+
+    /// Generates a random nonce for encryption.
+    fn generate_nonce() -> [u8; NONCE_SIZE] {
+        let mut nonce = [0u8; NONCE_SIZE];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        nonce
+    }
+
+    /// Encrypts data using the customer-provided key.
+    ///
+    /// # Arguments
+    ///
+    /// * `plaintext` - The data to encrypt
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (ciphertext, nonce).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if encryption fails.
+    pub fn encrypt(&self, plaintext: &[u8]) -> CryptoResult<(Bytes, Vec<u8>)> {
+        let nonce_bytes = Self::generate_nonce();
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let cipher = Aes256Gcm::new_from_slice(&self.key)
+            .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+        Ok((Bytes::from(ciphertext), nonce_bytes.to_vec()))
+    }
+
+    /// Decrypts data using the customer-provided key.
+    ///
+    /// # Arguments
+    ///
+    /// * `ciphertext` - The encrypted data
+    /// * `nonce` - The nonce used during encryption
+    ///
+    /// # Returns
+    ///
+    /// The decrypted plaintext.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if decryption fails (wrong key or tampered data).
+    pub fn decrypt(&self, ciphertext: &[u8], nonce: &[u8]) -> CryptoResult<Bytes> {
+        if nonce.len() != NONCE_SIZE {
+            return Err(CryptoError::InvalidNonce);
+        }
+
+        let nonce = Nonce::from_slice(nonce);
+        let cipher = Aes256Gcm::new_from_slice(&self.key).map_err(|_| CryptoError::WrongKey)?;
+
+        let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|_| CryptoError::WrongKey)?;
+
+        Ok(Bytes::from(plaintext))
+    }
+}
+
+/// Securely zero the key when the provider is dropped.
+impl Drop for SseCProvider {
+    fn drop(&mut self) {
+        self.key.zeroize();
     }
 }
 

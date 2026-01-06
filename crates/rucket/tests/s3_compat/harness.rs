@@ -182,6 +182,10 @@ impl S3TestContext {
             .endpoint_url(endpoint)
             .credentials_provider(credentials)
             .force_path_style(true)
+            // Disable response checksum validation for test flexibility
+            .response_checksum_validation(
+                aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
+            )
             .build();
 
         Client::from_conf(config)

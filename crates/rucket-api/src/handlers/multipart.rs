@@ -145,6 +145,10 @@ pub async fn create_multipart_upload(
         expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
         checksum_algorithm: None,
         storage_class,
+        // SSE-C is not currently supported for multipart uploads
+        sse_customer_algorithm: None,
+        sse_customer_key_md5: None,
+        encryption_nonce: None,
     };
 
     let upload =

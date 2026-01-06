@@ -15,6 +15,7 @@ mod common;
 pub mod crud;
 pub mod list;
 pub mod retention;
+pub mod sse_c;
 pub mod tagging;
 
 // Re-export common types

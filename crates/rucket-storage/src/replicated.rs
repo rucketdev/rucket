@@ -932,6 +932,8 @@ mod tests {
                 version_id: None,
                 checksum: None,
                 server_side_encryption: None,
+                sse_customer_algorithm: None,
+                sse_customer_key_md5: None,
             })
         }
 
