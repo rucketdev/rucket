@@ -481,6 +481,13 @@ pub struct ObjectMetadata {
     /// Encryption nonce (for AES-GCM).
     #[serde(default)]
     pub encryption_nonce: Option<Vec<u8>>,
+    /// SSE-C algorithm (customer-provided encryption) - always "AES256" if SSE-C is used.
+    #[serde(default)]
+    pub sse_customer_algorithm: Option<String>,
+    /// MD5 hash of the customer-provided encryption key (base64-encoded).
+    /// Used to verify the correct key is provided during retrieval.
+    #[serde(default)]
+    pub sse_customer_key_md5: Option<String>,
 }
 
 fn default_is_latest() -> bool {
@@ -528,6 +535,8 @@ impl ObjectMetadata {
             // Encryption fields
             server_side_encryption: None,
             encryption_nonce: None,
+            sse_customer_algorithm: None,
+            sse_customer_key_md5: None,
         }
     }
 
@@ -567,6 +576,8 @@ impl ObjectMetadata {
             // Encryption fields
             server_side_encryption: None,
             encryption_nonce: None,
+            sse_customer_algorithm: None,
+            sse_customer_key_md5: None,
         }
     }
 

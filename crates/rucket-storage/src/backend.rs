@@ -27,6 +27,10 @@ pub struct PutObjectResult {
     pub checksum: Option<Checksum>,
     /// Server-side encryption algorithm if encryption was applied.
     pub server_side_encryption: Option<String>,
+    /// SSE-C algorithm if customer-provided encryption was used.
+    pub sse_customer_algorithm: Option<String>,
+    /// MD5 hash of the customer-provided encryption key.
+    pub sse_customer_key_md5: Option<String>,
 }
 
 /// Result of a delete_object operation.

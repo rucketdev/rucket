@@ -179,6 +179,12 @@ struct StoredObjectMetadata {
     /// Storage class for the object.
     #[serde(default)]
     storage_class: StorageClass,
+    /// SSE-C algorithm (customer-provided encryption).
+    #[serde(default)]
+    sse_customer_algorithm: Option<String>,
+    /// MD5 hash of the customer-provided encryption key.
+    #[serde(default)]
+    sse_customer_key_md5: Option<String>,
 }
 
 fn default_is_latest() -> bool {
@@ -213,6 +219,8 @@ impl StoredObjectMetadata {
             server_side_encryption: meta.server_side_encryption.clone(),
             encryption_nonce: meta.encryption_nonce.clone(),
             storage_class: meta.storage_class,
+            sse_customer_algorithm: meta.sse_customer_algorithm.clone(),
+            sse_customer_key_md5: meta.sse_customer_key_md5.clone(),
         }
     }
 
@@ -257,6 +265,8 @@ impl StoredObjectMetadata {
             // Encryption fields
             server_side_encryption: self.server_side_encryption.clone(),
             encryption_nonce: self.encryption_nonce.clone(),
+            sse_customer_algorithm: self.sse_customer_algorithm.clone(),
+            sse_customer_key_md5: self.sse_customer_key_md5.clone(),
         }
     }
 }

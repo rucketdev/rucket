@@ -1057,6 +1057,8 @@ impl StorageBackend for LocalStorage {
             version_id,
             checksum: requested_checksum,
             server_side_encryption,
+            sse_customer_algorithm: None,
+            sse_customer_key_md5: None,
         })
     }
 

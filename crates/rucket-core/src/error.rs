@@ -83,6 +83,8 @@ pub enum S3ErrorCode {
     MalformedPolicy,
     /// The target bucket for logging does not exist.
     InvalidTargetBucketForLogging,
+    /// The SSE-C encryption algorithm is not valid.
+    InvalidEncryptionAlgorithmError,
 }
 
 impl S3ErrorCode {
@@ -119,7 +121,8 @@ impl S3ErrorCode {
             | Self::MalformedXML
             | Self::InvalidTag
             | Self::MalformedPolicy
-            | Self::InvalidTargetBucketForLogging => 400,
+            | Self::InvalidTargetBucketForLogging
+            | Self::InvalidEncryptionAlgorithmError => 400,
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
@@ -177,6 +180,7 @@ impl S3ErrorCode {
             Self::InvalidTag => "InvalidTag",
             Self::MalformedPolicy => "MalformedPolicy",
             Self::InvalidTargetBucketForLogging => "InvalidTargetBucketForLogging",
+            Self::InvalidEncryptionAlgorithmError => "InvalidEncryptionAlgorithmError",
         }
     }
 }
