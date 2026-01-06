@@ -13,7 +13,7 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 | Presigned URLs | Partial | Basic presigning works; some expiration edge cases |
 | CORS | Partial | Configuration works; preflight responses pending |
 | Object Lock | Supported | Retention (Governance/Compliance) and Legal Hold |
-| Server-Side Encryption | Partial | SSE-S3 implemented; SSE-C/SSE-KMS pending |
+| Server-Side Encryption | Partial | SSE-S3 and SSE-C implemented; SSE-KMS pending |
 | Bucket Policies | Supported | Policy CRUD and request-time evaluation |
 | Object Tagging | Supported | Full tagging support including versioned objects |
 | Bucket Tagging | Supported | Full bucket tagging support |
@@ -59,8 +59,26 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 
 ### Server-Side Encryption
 - SSE-S3 (AES-256-GCM encryption at rest)
+- SSE-C (Customer-provided keys with AES-256-GCM)
 - GetBucketEncryption / PutBucketEncryption / DeleteBucketEncryption
 - Default bucket encryption
+
+### Storage Classes
+- STANDARD, REDUCED_REDUNDANCY, STANDARD_IA, ONEZONE_IA
+- INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE, GLACIER_IR
+- Storage class on PutObject (x-amz-storage-class)
+- Storage class preserved on CopyObject
+
+### Bucket Logging
+- PutBucketLogging / GetBucketLogging
+- Access log delivery to target bucket
+- Log prefix configuration
+
+### POST Object (Browser Uploads)
+- Multipart/form-data uploads
+- POST policy validation (expiration, conditions)
+- Success action redirect/status
+- ${filename} variable substitution
 
 ### Checksums
 - CRC32C (x-amz-checksum-crc32c)
@@ -134,10 +152,9 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 ## Not Implemented Features
 
 ### Server-Side Encryption (Partial)
-- SSE-C (Customer-provided keys)
 - SSE-KMS (AWS KMS keys)
 
-**Rationale**: SSE-S3 is implemented; SSE-C and SSE-KMS require key management infrastructure.
+**Rationale**: Requires KMS infrastructure integration.
 
 ### Access Control Lists
 - Object ACLs
@@ -145,24 +162,13 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 - Canned ACLs (public-read, private, etc.)
 - Grant headers
 
-**Rationale**: Single-user mode in Phase 1; bucket policies provide access control.
+**Rationale**: Bucket policies provide access control; ACLs planned for Phase 5.
 
-### Storage Classes
-- Transition rules between storage classes
-- Intelligent-Tiering
+### Storage Class Transitions
+- Lifecycle transition rules between storage classes
+- Automatic Intelligent-Tiering
 
-**Rationale**: Currently all data uses STANDARD storage class.
-
-### Bucket Logging
-- Access logging to target bucket
-
-**Rationale**: Enterprise feature; planned for future phases.
-
-### POST Object
-- Browser-based uploads
-- Form-based authentication
-
-**Rationale**: Less common API; may implement in Phase 3.
+**Rationale**: Storage class headers are supported; automatic transitions require scheduler.
 
 ### Other Missing Features
 - Inventory
@@ -171,6 +177,8 @@ This document describes Rucket's compatibility with the Amazon S3 API, including
 - Notifications (SNS/SQS/Lambda)
 - Select Object Content
 - Torrent
+- STS (Security Token Service)
+- IAM (Identity and Access Management)
 
 ## Known Behavioral Differences
 
@@ -218,4 +226,10 @@ cargo test --package rucket --test s3_compat
 | Phase 2.3 | Bucket Policies (CRUD + evaluation) | Complete |
 | Phase 3 | Bucket tagging, lifecycle rules | Complete |
 | Phase 4 | Cross-region replication | Complete |
-| Phase 5 | ACLs, POST Object, SSE-C/SSE-KMS | Future |
+| Phase 4.1 | Storage Classes | Complete |
+| Phase 4.2 | Anonymous Access | Complete |
+| Phase 4.3 | Website Hosting | Complete |
+| Phase 4.4 | Bucket Logging | Complete |
+| Phase 4.5 | SSE-C (Customer-provided keys) | Complete |
+| Phase 4.6 | POST Object (Browser uploads) | Complete |
+| Phase 5 | ACLs, SSE-KMS | Future |
