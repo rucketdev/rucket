@@ -983,6 +983,11 @@ impl StorageBackend for LocalStorage {
         meta.expires = headers.expires;
         meta.content_language = headers.content_language;
 
+        // Set storage class if specified, otherwise use default (Standard)
+        if let Some(storage_class) = headers.storage_class {
+            meta.storage_class = storage_class;
+        }
+
         // Store the user-requested checksum in metadata
         if let Some(ref checksum) = requested_checksum {
             let algorithm = checksum.algorithm();
@@ -1243,17 +1248,37 @@ impl StorageBackend for LocalStorage {
         // Get source tags (these should be preserved by default)
         let src_tags = self.get_object_tagging(src_bucket, src_key).await.unwrap_or_default();
 
-        // Use new headers/metadata if provided (MetadataDirective=REPLACE),
-        // otherwise preserve source object's headers/metadata (MetadataDirective=COPY)
-        let headers = new_headers.unwrap_or(ObjectHeaders {
-            content_type: src_meta.content_type.clone(),
-            cache_control: src_meta.cache_control.clone(),
-            content_disposition: src_meta.content_disposition.clone(),
-            content_encoding: src_meta.content_encoding.clone(),
-            expires: src_meta.expires.clone(),
-            content_language: src_meta.content_language.clone(),
-            checksum_algorithm: src_meta.checksum_algorithm,
-        });
+        // Merge headers: use new values if provided, otherwise preserve source
+        // This handles: REPLACE (all new), COPY (all source), or partial (e.g., only storage_class)
+        let headers = if let Some(new_h) = new_headers {
+            ObjectHeaders {
+                content_type: new_h.content_type.or_else(|| src_meta.content_type.clone()),
+                cache_control: new_h.cache_control.or_else(|| src_meta.cache_control.clone()),
+                content_disposition: new_h
+                    .content_disposition
+                    .or_else(|| src_meta.content_disposition.clone()),
+                content_encoding: new_h
+                    .content_encoding
+                    .or_else(|| src_meta.content_encoding.clone()),
+                expires: new_h.expires.or_else(|| src_meta.expires.clone()),
+                content_language: new_h
+                    .content_language
+                    .or_else(|| src_meta.content_language.clone()),
+                checksum_algorithm: new_h.checksum_algorithm.or(src_meta.checksum_algorithm),
+                storage_class: new_h.storage_class.or(Some(src_meta.storage_class)),
+            }
+        } else {
+            ObjectHeaders {
+                content_type: src_meta.content_type.clone(),
+                cache_control: src_meta.cache_control.clone(),
+                content_disposition: src_meta.content_disposition.clone(),
+                content_encoding: src_meta.content_encoding.clone(),
+                expires: src_meta.expires.clone(),
+                content_language: src_meta.content_language.clone(),
+                checksum_algorithm: src_meta.checksum_algorithm,
+                storage_class: Some(src_meta.storage_class),
+            }
+        };
         let metadata = new_metadata.unwrap_or(src_meta.user_metadata);
 
         let result = self.put_object(dst_bucket, dst_key, data, headers, metadata).await?;
@@ -1421,6 +1446,7 @@ impl StorageBackend for LocalStorage {
                 headers.content_encoding.as_deref(),
                 headers.content_language.as_deref(),
                 headers.expires.as_deref(),
+                headers.storage_class.unwrap_or_default(),
             )
             .await
     }
@@ -1614,6 +1640,7 @@ impl StorageBackend for LocalStorage {
         meta.content_encoding = upload.content_encoding;
         meta.content_language = upload.content_language;
         meta.expires = upload.expires;
+        meta.storage_class = upload.storage_class;
 
         // Store encryption metadata if encryption was used
         if let Some(ref enc_meta) = encryption_metadata {
@@ -1680,6 +1707,10 @@ impl StorageBackend for LocalStorage {
         }
 
         self.metadata.list_multipart_uploads(bucket).await
+    }
+
+    async fn get_multipart_upload(&self, upload_id: &str) -> Result<MultipartUpload> {
+        self.metadata.get_multipart_upload(upload_id).await
     }
 
     // === Versioning Operations ===

@@ -8,6 +8,7 @@ use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use chrono::Utc;
 use rucket_core::error::S3ErrorCode;
+use rucket_core::types::StorageClass;
 use rucket_storage::{ObjectHeaders, StorageBackend};
 use serde::Deserialize;
 
@@ -120,6 +121,12 @@ pub async fn create_multipart_upload(
 ) -> Result<Response, ApiError> {
     let user_metadata = extract_user_metadata(&headers);
 
+    // Parse storage class from header
+    let storage_class = headers
+        .get("x-amz-storage-class")
+        .and_then(|v| v.to_str().ok())
+        .and_then(StorageClass::parse);
+
     let object_headers = ObjectHeaders {
         content_type: headers.get("content-type").and_then(|v| v.to_str().ok()).map(String::from),
         cache_control: headers.get("cache-control").and_then(|v| v.to_str().ok()).map(String::from),
@@ -137,6 +144,7 @@ pub async fn create_multipart_upload(
             .map(String::from),
         expires: headers.get("expires").and_then(|v| v.to_str().ok()).map(String::from),
         checksum_algorithm: None,
+        storage_class,
     };
 
     let upload =
@@ -326,6 +334,9 @@ pub async fn list_parts(
     let max_parts = query.max_parts.unwrap_or(1000).min(1000);
     let part_number_marker = query.part_number_marker.unwrap_or(0);
 
+    // Get the upload info to retrieve storage class
+    let upload = state.storage.get_multipart_upload(&upload_id).await?;
+
     let parts = state.storage.list_parts(&bucket, &key, &upload_id).await?;
 
     // Filter by part number marker
@@ -353,7 +364,7 @@ pub async fn list_parts(
         is_truncated,
         initiator: crate::xml::response::Owner::default(),
         owner: crate::xml::response::Owner::default(),
-        storage_class: "STANDARD".to_string(),
+        storage_class: upload.storage_class.as_str().to_string(),
         parts: result_parts.iter().map(PartEntry::from).collect(),
     };
 

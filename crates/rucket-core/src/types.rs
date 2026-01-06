@@ -152,10 +152,20 @@ pub enum StorageClass {
     /// Default for all objects.
     #[default]
     Standard,
+    /// Reduced redundancy storage (deprecated but still supported).
+    ReducedRedundancy,
     /// Infrequent access storage with lower cost but higher retrieval latency.
-    InfrequentAccess,
+    StandardIa,
+    /// One-zone infrequent access storage.
+    OnezoneIa,
+    /// Intelligent tiering that automatically moves objects between tiers.
+    IntelligentTiering,
     /// Archive storage for long-term retention with high retrieval latency.
-    Archive,
+    Glacier,
+    /// Deep archive storage for very long-term retention.
+    DeepArchive,
+    /// Glacier Instant Retrieval storage class.
+    GlacierIr,
 }
 
 impl StorageClass {
@@ -164,8 +174,13 @@ impl StorageClass {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Standard => "STANDARD",
-            Self::InfrequentAccess => "STANDARD_IA",
-            Self::Archive => "GLACIER",
+            Self::ReducedRedundancy => "REDUCED_REDUNDANCY",
+            Self::StandardIa => "STANDARD_IA",
+            Self::OnezoneIa => "ONEZONE_IA",
+            Self::IntelligentTiering => "INTELLIGENT_TIERING",
+            Self::Glacier => "GLACIER",
+            Self::DeepArchive => "DEEP_ARCHIVE",
+            Self::GlacierIr => "GLACIER_IR",
         }
     }
 
@@ -174,8 +189,13 @@ impl StorageClass {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "STANDARD" => Some(Self::Standard),
-            "STANDARD_IA" | "INFREQUENT_ACCESS" => Some(Self::InfrequentAccess),
-            "GLACIER" | "ARCHIVE" => Some(Self::Archive),
+            "REDUCED_REDUNDANCY" => Some(Self::ReducedRedundancy),
+            "STANDARD_IA" => Some(Self::StandardIa),
+            "ONEZONE_IA" => Some(Self::OnezoneIa),
+            "INTELLIGENT_TIERING" => Some(Self::IntelligentTiering),
+            "GLACIER" => Some(Self::Glacier),
+            "DEEP_ARCHIVE" => Some(Self::DeepArchive),
+            "GLACIER_IR" => Some(Self::GlacierIr),
             _ => None,
         }
     }
@@ -805,6 +825,9 @@ pub struct MultipartUpload {
     /// Expires header for the final object.
     #[serde(default)]
     pub expires: Option<String>,
+    /// Storage class for the final object.
+    #[serde(default)]
+    pub storage_class: StorageClass,
 }
 
 /// Represents a part in a multipart upload.
@@ -1012,8 +1035,8 @@ mod tests {
     #[test]
     fn test_storage_class_parsing() {
         assert_eq!(StorageClass::parse("STANDARD"), Some(StorageClass::Standard));
-        assert_eq!(StorageClass::parse("STANDARD_IA"), Some(StorageClass::InfrequentAccess));
-        assert_eq!(StorageClass::parse("GLACIER"), Some(StorageClass::Archive));
+        assert_eq!(StorageClass::parse("STANDARD_IA"), Some(StorageClass::StandardIa));
+        assert_eq!(StorageClass::parse("GLACIER"), Some(StorageClass::Glacier));
         assert_eq!(StorageClass::parse("unknown"), None);
     }
 

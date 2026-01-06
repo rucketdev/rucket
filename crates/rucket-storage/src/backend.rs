@@ -9,7 +9,8 @@ use rucket_core::public_access_block::PublicAccessBlockConfiguration;
 use rucket_core::replication::ReplicationConfiguration;
 use rucket_core::types::{
     BucketInfo, Checksum, ChecksumAlgorithm, CorsConfiguration, ETag, MultipartUpload,
-    ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, TagSet, VersioningStatus,
+    ObjectLockConfig, ObjectMetadata, ObjectRetention, Part, StorageClass, TagSet,
+    VersioningStatus,
 };
 use rucket_core::Result;
 
@@ -54,6 +55,8 @@ pub struct ObjectHeaders {
     pub content_language: Option<String>,
     /// Checksum algorithm requested for this upload.
     pub checksum_algorithm: Option<ChecksumAlgorithm>,
+    /// Storage class for the object.
+    pub storage_class: Option<StorageClass>,
 }
 
 /// Trait for object storage backends.
@@ -311,6 +314,9 @@ pub trait StorageBackend: Send + Sync {
 
     /// List all in-progress multipart uploads for a bucket.
     async fn list_multipart_uploads(&self, bucket: &str) -> Result<Vec<MultipartUpload>>;
+
+    /// Get a specific multipart upload by upload ID.
+    async fn get_multipart_upload(&self, upload_id: &str) -> Result<MultipartUpload>;
 
     // Object tagging operations
 

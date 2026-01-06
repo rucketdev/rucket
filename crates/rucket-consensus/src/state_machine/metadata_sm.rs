@@ -274,6 +274,7 @@ impl MetadataStateMachine {
                 content_encoding,
                 content_language,
                 expires,
+                storage_class,
             } => {
                 match self
                     .backend
@@ -288,6 +289,7 @@ impl MetadataStateMachine {
                         content_encoding.as_deref(),
                         content_language.as_deref(),
                         expires.as_deref(),
+                        storage_class,
                     )
                     .await
                 {

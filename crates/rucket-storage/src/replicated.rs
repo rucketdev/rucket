@@ -667,6 +667,10 @@ impl<S: StorageBackend> StorageBackend for ReplicatedStorage<S> {
         self.inner.list_multipart_uploads(bucket).await
     }
 
+    async fn get_multipart_upload(&self, upload_id: &str) -> Result<MultipartUpload> {
+        self.inner.get_multipart_upload(upload_id).await
+    }
+
     async fn copy_object(
         &self,
         src_bucket: &str,
@@ -1106,6 +1110,7 @@ mod tests {
                 content_encoding: headers.content_encoding.clone(),
                 content_language: headers.content_language.clone(),
                 expires: headers.expires.clone(),
+                storage_class: headers.storage_class.unwrap_or_default(),
             })
         }
 
@@ -1145,6 +1150,10 @@ mod tests {
 
         async fn list_multipart_uploads(&self, bucket: &str) -> Result<Vec<MultipartUpload>> {
             Ok(vec![])
+        }
+
+        async fn get_multipart_upload(&self, _upload_id: &str) -> Result<MultipartUpload> {
+            unimplemented!()
         }
 
         async fn copy_object(
