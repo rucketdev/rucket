@@ -85,6 +85,10 @@ pub enum S3ErrorCode {
     InvalidTargetBucketForLogging,
     /// The SSE-C encryption algorithm is not valid.
     InvalidEncryptionAlgorithmError,
+    /// The POST policy document is not valid.
+    InvalidPolicyDocument,
+    /// The provided token has expired.
+    ExpiredToken,
 }
 
 impl S3ErrorCode {
@@ -122,7 +126,9 @@ impl S3ErrorCode {
             | Self::InvalidTag
             | Self::MalformedPolicy
             | Self::InvalidTargetBucketForLogging
-            | Self::InvalidEncryptionAlgorithmError => 400,
+            | Self::InvalidEncryptionAlgorithmError
+            | Self::InvalidPolicyDocument
+            | Self::ExpiredToken => 400,
             Self::InvalidRange => 416,
             Self::InternalError => 500,
             Self::NotImplemented => 501,
@@ -181,6 +187,8 @@ impl S3ErrorCode {
             Self::MalformedPolicy => "MalformedPolicy",
             Self::InvalidTargetBucketForLogging => "InvalidTargetBucketForLogging",
             Self::InvalidEncryptionAlgorithmError => "InvalidEncryptionAlgorithmError",
+            Self::InvalidPolicyDocument => "InvalidPolicyDocument",
+            Self::ExpiredToken => "ExpiredToken",
         }
     }
 }

@@ -27,6 +27,8 @@ hyper.workspace = true
 http.workspace = true
 bytes.workspace = true
 tokio.workspace = true
+multer.workspace = true
+futures-util.workspace = true
 
 serde = { workspace = true }
 serde_json.workspace = true

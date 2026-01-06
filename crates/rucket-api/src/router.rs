@@ -16,7 +16,7 @@ use tracing::Level;
 
 use crate::auth::{auth_middleware, AuthContext, AuthState};
 use crate::handlers::bucket::{self, AppState};
-use crate::handlers::{logging, minio, multipart, object, replication, website};
+use crate::handlers::{logging, minio, multipart, object, post_object, replication, website};
 use crate::middleware::metrics_layer;
 
 /// Query parameters to determine request type.
@@ -367,17 +367,26 @@ async fn head_object(
     object::head_object(state, auth, path, headers, query).await.into_response()
 }
 
-/// Handle POST requests to bucket (delete multiple objects).
+/// Handle POST requests to bucket (delete multiple objects or POST Object upload).
 async fn handle_bucket_post(
     state: State<AppState>,
     auth: Option<Extension<AuthContext>>,
     path: Path<String>,
+    headers: HeaderMap,
     Query(query): Query<RequestQuery>,
     body: Bytes,
 ) -> Response {
     // Check for ?delete (DeleteObjects)
     if query.delete.is_some() {
         return object::delete_objects(state, auth, path, body).await.into_response();
+    }
+
+    // Check for multipart/form-data Content-Type (POST Object upload)
+    if let Some(content_type) = headers.get("content-type").and_then(|v| v.to_str().ok()) {
+        if content_type.starts_with("multipart/form-data") {
+            let bucket = path.0;
+            return post_object::post_object(state, bucket, headers, body).await.into_response();
+        }
     }
 
     // Unsupported POST to bucket

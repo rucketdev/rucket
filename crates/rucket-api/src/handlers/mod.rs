@@ -6,5 +6,6 @@ pub mod logging;
 pub mod minio;
 pub mod multipart;
 pub mod object;
+pub mod post_object;
 pub mod replication;
 pub mod website;
