@@ -444,6 +444,14 @@ pub async fn complete_multipart_upload(
     let parts: Vec<(u32, String)> =
         request.parts.into_iter().map(|p| (p.part_number, p.etag)).collect();
 
+    // Validate that parts list is not empty
+    if parts.is_empty() {
+        return Err(ApiError::new(
+            S3ErrorCode::MalformedXML,
+            "You must specify at least one part.",
+        ));
+    }
+
     // Validate that parts are in ascending order by part number
     for i in 1..parts.len() {
         if parts[i].0 <= parts[i - 1].0 {
