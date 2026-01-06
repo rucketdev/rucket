@@ -10,6 +10,12 @@ db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 # Advisory ignores - review quarterly and remove when upstream fixes are available
 #
+# RUSTSEC-2026-0001: rkyv OOM handling vulnerability (added 2026-01-06)
+# - Transitive optional dependency from rust_decimal via byte-unit
+# - rkyv is in Cargo.lock but NOT compiled (rust_decimal only uses std feature)
+# - Verified via `cargo tree -e features | grep rkyv` returns empty
+# - False positive - can be removed when cargo-audit supports feature-aware scanning
+#
 # RUSTSEC-2025-0134: rustls-pemfile unmaintained (added 2026-01-05)
 # - Transitive dependency from axum-server
 # - Blocked on: axum-server updating to use rustls-pki-types
@@ -17,7 +23,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # RUSTSEC-2024-0384: instant unmaintained (added 2026-01-05)
 # - Transitive dependency from reed-solomon-erasure via parking_lot v0.11.2
 # - Blocked on: reed-solomon-erasure updating parking_lot to newer version
-ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2024-0384"]
+ignore = ["RUSTSEC-2026-0001", "RUSTSEC-2025-0134", "RUSTSEC-2024-0384"]
 
 [licenses]
 allow = [
