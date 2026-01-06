@@ -357,10 +357,13 @@ pub async fn get_object(
     }
 
     // Check If-Modified-Since: return 304 if object was not modified since the date
+    // HTTP dates only have second precision, so we compare using Unix timestamps
+    // to avoid false negatives from sub-second differences.
     if let Some(if_modified_since) = headers.get("if-modified-since").and_then(|v| v.to_str().ok())
     {
         if let Ok(since) = chrono::DateTime::parse_from_rfc2822(if_modified_since) {
-            if meta.last_modified <= since.with_timezone(&chrono::Utc) {
+            // Compare at second precision: object not modified if last_modified <= since
+            if meta.last_modified.timestamp() <= since.timestamp() {
                 return Response::builder()
                     .status(StatusCode::NOT_MODIFIED)
                     .header("ETag", meta.etag.as_str())
@@ -371,11 +374,13 @@ pub async fn get_object(
     }
 
     // Check If-Unmodified-Since: return 412 if object was modified since the date
+    // HTTP dates only have second precision, so we compare using Unix timestamps.
     if let Some(if_unmodified_since) =
         headers.get("if-unmodified-since").and_then(|v| v.to_str().ok())
     {
         if let Ok(since) = chrono::DateTime::parse_from_rfc2822(if_unmodified_since) {
-            if meta.last_modified > since.with_timezone(&chrono::Utc) {
+            // Compare at second precision: object modified if last_modified > since
+            if meta.last_modified.timestamp() > since.timestamp() {
                 return Err(ApiError::new(S3ErrorCode::PreconditionFailed, "Precondition failed"));
             }
         }

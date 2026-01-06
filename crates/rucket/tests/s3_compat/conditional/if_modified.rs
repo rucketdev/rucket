@@ -118,9 +118,13 @@ async fn test_if_modified_head() {
 // =============================================================================
 
 /// Test If-Modified-Since with exact modification time.
+///
+/// When If-Modified-Since matches the exact modification time,
+/// the server should return 304 Not Modified (object hasn't been
+/// modified SINCE that exact time).
+///
 /// Ceph: test_if_modified_exact
 #[tokio::test]
-#[ignore = "Exact timestamp comparison not implemented"]
 async fn test_if_modified_since_exact() {
     let ctx = S3TestContext::new().await;
 
@@ -143,9 +147,13 @@ async fn test_if_modified_since_exact() {
 }
 
 /// Test If-Unmodified-Since with exact modification time.
+///
+/// When If-Unmodified-Since matches the exact modification time,
+/// the request should succeed (object hasn't been modified SINCE
+/// that exact time, so the precondition is met).
+///
 /// Ceph: test_if_unmodified_exact
 #[tokio::test]
-#[ignore = "Exact timestamp comparison not implemented"]
 async fn test_if_unmodified_since_exact() {
     let ctx = S3TestContext::new().await;
 
