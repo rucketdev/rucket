@@ -3,6 +3,8 @@
 
 //! Core CRUD operations for objects: put, get, delete, head, copy.
 
+use std::collections::HashMap;
+
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -13,7 +15,8 @@ use chrono::Utc;
 use percent_encoding::percent_decode_str;
 use rucket_core::error::S3ErrorCode;
 use rucket_core::policy::S3Action;
-use rucket_core::types::{ChecksumAlgorithm, StorageClass, Tag, TagSet};
+use rucket_core::types::{ChecksumAlgorithm, ETag, ObjectMetadata, StorageClass, Tag, TagSet};
+use rucket_storage::crypto::SseCHeaders;
 use rucket_storage::streaming::compute_checksum;
 use rucket_storage::{ObjectHeaders, StorageBackend};
 
@@ -23,8 +26,9 @@ use super::common::{
     MAX_TAG_KEY_LENGTH, MAX_TAG_VALUE_LENGTH,
 };
 use super::sse_c::{
-    decrypt_sse_c, encrypt_sse_c, is_sse_c_encrypted, parse_sse_c_headers,
-    require_sse_c_for_encrypted_object, HEADER_SSE_CUSTOMER_ALGORITHM, HEADER_SSE_CUSTOMER_KEY_MD5,
+    decrypt_sse_c, encrypt_sse_c, is_sse_c_encrypted, parse_copy_source_sse_c_headers,
+    parse_sse_c_headers, require_sse_c_for_encrypted_object, HEADER_SSE_CUSTOMER_ALGORITHM,
+    HEADER_SSE_CUSTOMER_KEY_MD5,
 };
 use crate::auth::AuthContext;
 use crate::error::ApiError;
@@ -972,10 +976,43 @@ pub async fn copy_object(
     // Check conditional headers for destination object
     check_preconditions(&state, &dst_bucket, &dst_key, &headers).await?;
 
+    // Parse SSE-C headers for source (decryption) and destination (encryption)
+    let source_sse_c = parse_copy_source_sse_c_headers(&headers)?;
+    let dest_sse_c = parse_sse_c_headers(&headers)?;
+
+    // Get source object metadata to check if it's SSE-C encrypted
+    let src_meta = state.storage.head_object(src_bucket, &src_key).await?;
+    let source_is_sse_c_encrypted = is_sse_c_encrypted(&src_meta);
+
+    // If source is SSE-C encrypted, source SSE-C headers are required
+    if source_is_sse_c_encrypted && source_sse_c.is_none() {
+        return Err(ApiError::new(
+            S3ErrorCode::InvalidRequest,
+            "The object was stored using a form of Server Side Encryption. The correct parameters must be provided to retrieve the object.",
+        ));
+    }
+
+    // Validate source SSE-C key matches (if source is encrypted)
+    if source_is_sse_c_encrypted {
+        if let Some(ref source_headers) = source_sse_c {
+            let stored_key_md5 = src_meta.sse_customer_key_md5.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    S3ErrorCode::InternalError,
+                    "SSE-C encrypted object is missing key MD5",
+                )
+            })?;
+            if source_headers.key_md5 != *stored_key_md5 {
+                return Err(ApiError::new(
+                    S3ErrorCode::AccessDenied,
+                    "The encryption key provided does not match the key used to encrypt this object",
+                ));
+            }
+        }
+    }
+
     // Check x-amz-copy-source-if-match: fail if source ETag doesn't match
     if let Some(if_match) = headers.get("x-amz-copy-source-if-match").and_then(|v| v.to_str().ok())
     {
-        let src_meta = state.storage.head_object(src_bucket, &src_key).await?;
         let src_etag = src_meta.etag.as_str();
         let etags: Vec<&str> = if_match.split(',').map(|s| s.trim()).collect();
         if !etags.iter().any(|&e| {
@@ -989,7 +1026,6 @@ pub async fn copy_object(
     if let Some(if_none_match) =
         headers.get("x-amz-copy-source-if-none-match").and_then(|v| v.to_str().ok())
     {
-        let src_meta = state.storage.head_object(src_bucket, &src_key).await?;
         let src_etag = src_meta.etag.as_str();
         let etags: Vec<&str> = if_none_match.split(',').map(|s| s.trim()).collect();
         if etags.iter().any(|&e| {
@@ -1009,12 +1045,15 @@ pub async fn copy_object(
         .and_then(|v| v.to_str().ok())
         .and_then(StorageClass::parse);
 
-    // Check for copy-to-self without metadata replacement or storage class change
-    // Per S3, copying an object to itself is only allowed if changing metadata, storage class, etc.
+    // Check for copy-to-self without metadata replacement, storage class, or encryption change
+    // Per S3, copying an object to itself is allowed if changing metadata, storage class, or encryption
+    let encryption_changing =
+        source_is_sse_c_encrypted != dest_sse_c.is_some() || source_sse_c != dest_sse_c;
     if src_bucket == dst_bucket
         && src_key == dst_key
         && metadata_directive != "REPLACE"
         && requested_storage_class.is_none()
+        && !encryption_changing
     {
         return Err(ApiError::new(
             S3ErrorCode::InvalidRequest,
@@ -1022,9 +1061,64 @@ pub async fn copy_object(
         ));
     }
 
-    // If MetadataDirective=REPLACE, extract new headers and metadata from request
-    // If MetadataDirective=COPY but storage_class is specified, only override storage class
-    let (new_headers, new_metadata) = if metadata_directive == "REPLACE" {
+    // Determine if SSE-C handling is needed (source encrypted or destination encryption requested)
+    let needs_sse_c_handling = source_is_sse_c_encrypted || dest_sse_c.is_some();
+
+    let etag = if needs_sse_c_handling {
+        // SSE-C copy path: manually get, decrypt, encrypt, put
+        copy_with_sse_c(
+            &state,
+            src_bucket,
+            &src_key,
+            &dst_bucket,
+            &dst_key,
+            &src_meta,
+            source_sse_c.as_ref(),
+            dest_sse_c.as_ref(),
+            metadata_directive,
+            &headers,
+            requested_storage_class,
+        )
+        .await?
+    } else {
+        // Non-SSE-C copy path: use efficient storage layer copy
+        let (new_headers, new_metadata) = build_copy_headers_metadata(
+            metadata_directive,
+            &headers,
+            requested_storage_class,
+            None,
+            None,
+            None,
+        );
+        state
+            .storage
+            .copy_object(src_bucket, &src_key, &dst_bucket, &dst_key, new_headers, new_metadata)
+            .await?
+    };
+
+    let response = CopyObjectResponse::new(etag.as_str().to_string(), Utc::now());
+
+    let xml = to_xml(&response).map_err(|e| {
+        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
+    })?;
+
+    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+}
+
+/// Build ObjectHeaders and user metadata for copy operations.
+///
+/// This helper constructs the headers and metadata based on MetadataDirective:
+/// - REPLACE: Use headers from request, extract user metadata from request
+/// - COPY: Use None to preserve source headers/metadata
+fn build_copy_headers_metadata(
+    metadata_directive: &str,
+    headers: &HeaderMap,
+    storage_class: Option<StorageClass>,
+    sse_customer_algorithm: Option<String>,
+    sse_customer_key_md5: Option<String>,
+    encryption_nonce: Option<Vec<u8>>,
+) -> (Option<ObjectHeaders>, Option<HashMap<String, String>>) {
+    if metadata_directive == "REPLACE" {
         let object_headers = ObjectHeaders {
             content_type: headers
                 .get("content-type")
@@ -1047,18 +1141,19 @@ pub async fn copy_object(
                 .get("content-language")
                 .and_then(|v| v.to_str().ok())
                 .map(String::from),
-            // For copy with REPLACE, we don't support changing checksum algorithm
             checksum_algorithm: None,
-            storage_class: requested_storage_class,
-            // SSE-C is not currently supported for copy operations
-            sse_customer_algorithm: None,
-            sse_customer_key_md5: None,
-            encryption_nonce: None,
+            storage_class,
+            sse_customer_algorithm,
+            sse_customer_key_md5,
+            encryption_nonce,
         };
-        let user_metadata = extract_user_metadata(&headers);
+        let user_metadata = extract_user_metadata(headers);
         (Some(object_headers), Some(user_metadata))
-    } else if requested_storage_class.is_some() {
-        // MetadataDirective=COPY but storage class is specified - only override storage class
+    } else if storage_class.is_some()
+        || sse_customer_algorithm.is_some()
+        || sse_customer_key_md5.is_some()
+    {
+        // MetadataDirective=COPY but storage class or encryption is specified
         let object_headers = ObjectHeaders {
             content_type: None,
             cache_control: None,
@@ -1067,29 +1162,142 @@ pub async fn copy_object(
             expires: None,
             content_language: None,
             checksum_algorithm: None,
-            storage_class: requested_storage_class,
-            // SSE-C is not currently supported for copy operations
-            sse_customer_algorithm: None,
-            sse_customer_key_md5: None,
-            encryption_nonce: None,
+            storage_class,
+            sse_customer_algorithm,
+            sse_customer_key_md5,
+            encryption_nonce,
         };
         (Some(object_headers), None)
     } else {
         (None, None)
+    }
+}
+
+/// Handle SSE-C copy operations.
+///
+/// This function handles the case where source is SSE-C encrypted and/or destination
+/// should be SSE-C encrypted. It manually reads the source data, decrypts if needed,
+/// encrypts if needed, and writes to the destination.
+#[allow(clippy::too_many_arguments)]
+async fn copy_with_sse_c(
+    state: &AppState,
+    src_bucket: &str,
+    src_key: &str,
+    dst_bucket: &str,
+    dst_key: &str,
+    src_meta: &ObjectMetadata,
+    source_sse_c: Option<&SseCHeaders>,
+    dest_sse_c: Option<&SseCHeaders>,
+    metadata_directive: &str,
+    headers: &HeaderMap,
+    storage_class: Option<StorageClass>,
+) -> Result<ETag, ApiError> {
+    // Get the source object data (this returns encrypted data if SSE-C encrypted)
+    let (_, mut data) = state.storage.get_object(src_bucket, src_key).await?;
+
+    // Decrypt source data if it's SSE-C encrypted
+    if is_sse_c_encrypted(src_meta) {
+        if let Some(source_headers) = source_sse_c {
+            let nonce = src_meta.encryption_nonce.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    S3ErrorCode::InternalError,
+                    "SSE-C encrypted object is missing encryption nonce",
+                )
+            })?;
+            let stored_key_md5 = src_meta.sse_customer_key_md5.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    S3ErrorCode::InternalError,
+                    "SSE-C encrypted object is missing key MD5",
+                )
+            })?;
+            data = decrypt_sse_c(source_headers, data, nonce, stored_key_md5)?;
+        }
+    }
+
+    // Encrypt for destination if destination SSE-C headers are provided
+    let (final_data, dest_algorithm, dest_key_md5, dest_nonce) =
+        if let Some(dest_headers) = dest_sse_c {
+            let (encrypted_data, nonce) = encrypt_sse_c(dest_headers, data)?;
+            (
+                encrypted_data,
+                Some(dest_headers.algorithm.clone()),
+                Some(dest_headers.key_md5.clone()),
+                Some(nonce),
+            )
+        } else {
+            (data, None, None, None)
+        };
+
+    // Build headers for destination
+    let (new_headers, new_metadata) = build_copy_headers_metadata(
+        metadata_directive,
+        headers,
+        storage_class.or(Some(src_meta.storage_class)),
+        dest_algorithm,
+        dest_key_md5,
+        dest_nonce,
+    );
+
+    // Merge source metadata with any new headers specified
+    let final_headers = if let Some(mut h) = new_headers {
+        // For REPLACE, we already have the headers from request
+        // For COPY with encryption change, preserve source headers except encryption
+        if metadata_directive != "REPLACE" {
+            h.content_type = h.content_type.or_else(|| src_meta.content_type.clone());
+            h.cache_control = h.cache_control.or_else(|| src_meta.cache_control.clone());
+            h.content_disposition =
+                h.content_disposition.or_else(|| src_meta.content_disposition.clone());
+            h.content_encoding = h.content_encoding.or_else(|| src_meta.content_encoding.clone());
+            h.expires = h.expires.or_else(|| src_meta.expires.clone());
+            h.content_language = h.content_language.or_else(|| src_meta.content_language.clone());
+            h.checksum_algorithm = h.checksum_algorithm.or(src_meta.checksum_algorithm);
+            h.storage_class = h.storage_class.or(Some(src_meta.storage_class));
+        }
+        h
+    } else {
+        // Full COPY - preserve all source metadata except encryption (already handled above)
+        ObjectHeaders {
+            content_type: src_meta.content_type.clone(),
+            cache_control: src_meta.cache_control.clone(),
+            content_disposition: src_meta.content_disposition.clone(),
+            content_encoding: src_meta.content_encoding.clone(),
+            expires: src_meta.expires.clone(),
+            content_language: src_meta.content_language.clone(),
+            checksum_algorithm: src_meta.checksum_algorithm,
+            storage_class: Some(src_meta.storage_class),
+            sse_customer_algorithm: dest_sse_c.map(|h| h.algorithm.clone()),
+            sse_customer_key_md5: dest_sse_c.map(|h| h.key_md5.clone()),
+            encryption_nonce: if dest_sse_c.is_some() {
+                // Need to encrypt the data and get nonce
+                None // This case is handled above, but keeping for completeness
+            } else {
+                None
+            },
+        }
     };
 
-    let etag = state
+    let final_metadata = new_metadata.unwrap_or_else(|| src_meta.user_metadata.clone());
+
+    // Put the object to destination
+    let result = state
         .storage
-        .copy_object(src_bucket, &src_key, &dst_bucket, &dst_key, new_headers, new_metadata)
+        .put_object(dst_bucket, dst_key, final_data, final_headers, final_metadata)
         .await?;
 
-    let response = CopyObjectResponse::new(etag.as_str().to_string(), Utc::now());
+    // Copy tags from source to destination (preserved by default per S3 spec)
+    let src_tags = state.storage.get_object_tagging(src_bucket, src_key).await.unwrap_or_default();
+    if !src_tags.tags.is_empty() {
+        if let Some(ref version_id) = result.version_id {
+            state
+                .storage
+                .put_object_tagging_version(dst_bucket, dst_key, version_id, src_tags)
+                .await?;
+        } else {
+            state.storage.put_object_tagging(dst_bucket, dst_key, src_tags).await?;
+        }
+    }
 
-    let xml = to_xml(&response).map_err(|e| {
-        ApiError::new(S3ErrorCode::InternalError, format!("Failed to serialize response: {e}"))
-    })?;
-
-    Ok((StatusCode::OK, [("Content-Type", "application/xml")], xml).into_response())
+    Ok(result.etag)
 }
 
 #[cfg(test)]
