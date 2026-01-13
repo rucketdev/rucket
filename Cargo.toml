@@ -52,7 +52,7 @@ rucket-geo = { path = "crates/rucket-geo" }
 reed-solomon-erasure = "6.0"
 
 # Async runtime
-tokio = { version = "1.43", features = ["full"] }
+tokio = { version = "1.49", features = ["full"] }
 
 # HTTP server
 axum = "0.8"
