@@ -32,7 +32,7 @@ openraft = { version = "0.9", features = ["serde", "tracing-log", "storage-v2"] 
 
 # gRPC
 tonic = "0.12"
-prost = "0.13"
+prost = "0.14"
 
 # Storage
 redb.workspace = true
